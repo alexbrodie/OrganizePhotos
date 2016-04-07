@@ -94,6 +94,7 @@ use strict;
 use warnings;
 
 use Carp qw(confess);
+use Digest::MD5;
 use File::Find;
 use File::Spec::Functions qw(:ALL);
 use Image::ExifTool;
@@ -132,8 +133,6 @@ sub doVerifyMd5 {
     our $all = 0;
     local *callback = sub {
         my ($path, $expectedMd5) = @_;
-        # Skip jpeg for now
-        #if ($path !~ /\.(?:jpg|jpeg)$/i) {
         my $actualMd5 = getMd5($path);
         if ($actualMd5 eq $expectedMd5) {
             # Hash match
@@ -157,7 +156,6 @@ sub doVerifyMd5 {
                 }
             }
         }
-        #}
     };
     findMd5s(\&callback, '.');
 }
@@ -229,7 +227,13 @@ sub doFindDupeFiles {
         print "------\n";
         for (my $i = 0; $i < @$group; $i++) {
             print "  $i. ", $group->[$i], "\n";
+            # TODO: collect all sidecars and tell user
         }
+        
+        # If all in this group are JPEG...
+        if (!grep { !/\.(?:jpeg|jpg)$/i } @dupes) {
+        # TODO: if jpgs, use full file MD5 to see if they're binary
+        #       equivalent and tell user
         
         unless ($all) {
             while (1) {
@@ -237,6 +241,7 @@ sub doFindDupeFiles {
                 chomp(my $in = lc <STDIN>);
             
                 if ($in eq 'd') {
+                    # TODO: show metadata diff
                 } elsif ($in eq 'c') {
                     last;
                 } elsif ($in eq 'a') {
@@ -388,7 +393,7 @@ sub getMd5 {
     my $md5 = new Digest::MD5;
 
     for my $path (@_) {
-        open(my $fh, '<:raw', $path) or confess "Couldn't open $_: $!";
+        open(my $fh, '<:raw', $path) or confess "Couldn't open $path: $!";
 
         #my $modified = formatDate((stat($fh))[9]);
         #print "Date modified: $modified\n";
@@ -419,10 +424,29 @@ sub getMd5 {
 
         $md5->addfile($fh);
     }
+    
+    return getMd5Digest($md5);
+}
 
+#--------------------------------------------------------------------------
+sub getBareFileMd5 {
+    my ($path) = @_;
+    
+    open(my $fh, '<:raw', $path) or confess "Couldn't open $path: $!";
+    
+    my $md5 = new Digest::MD5;
+    $md5->addfile($fh);
+
+    return getMd5Digest($md5);
+}
+
+#--------------------------------------------------------------------------
+sub getMd5Digest() {
+    my ($md5) = @_;
+    
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$md5pattern/ or confess "unexpected MD5: $hexdigest";
-
+    
     return $hexdigest;
 }
 
@@ -435,14 +459,29 @@ sub formatDate {
 }
 
 #--------------------------------------------------------------------------
-sub openWithExifTool {
+sub metadataDiff {
+    my ($leftPath, $rightPath) = @_;
+    
+    $leftItems = readWithExifTool($leftPath);
+    $rightItems = readWithExifTool($rightPath);
+    
+    while (my ($key, $value) = each $hash) {
+        
+    }
+}
+
+#-------------------------------------------------------------------------
+sub readWithExifTool {
     my ($path) = @_;
     
     $et = new Image::ExifTool;
     
-    $et->ExtractInfo($path);
+    $et->ExtractInfo($path) or confess "Couldn't ExtractInfo for $path";
     
     # TODO: Add XMP sidecar if present
     
-    return $et;
+    $info = $et->GetInfo();
+    #$keys = $et->GetTagList($info);
+    
+    return $info;
 }
