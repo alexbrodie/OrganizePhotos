@@ -203,7 +203,7 @@ sub doFindDupeFiles {
     #    }
     #}
     
-    # Make hash from MD5 to files with that hash
+    # Make hash from MD5 to files with that MD5
     local our %md5ToPaths = ();
     local *callback = sub {
         my ($path, $md5) = @_;
@@ -307,7 +307,7 @@ sub verifyOrGenerateMd5 {
             warn "MISMATCH OF MD5 for $path";
             
             # Auto overwrite some types
-            if ($path !~ /\.(?:jpg|jpeg)$/i) {
+            #if ($path !~ /\.(?:jpg|jpeg)$/i) {
             while (1)
             {
                 print "Ignore, Overwrite, Quit (i/o/q)? ";
@@ -324,7 +324,7 @@ sub verifyOrGenerateMd5 {
                     confess "MD5 mismatch for $path";
                 }
             }
-            }
+            #}
         }
     } else {
         # It wasn't there, it's a new file, we'll add that
