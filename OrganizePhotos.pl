@@ -96,6 +96,7 @@ use warnings;
 use Carp qw(confess);
 use File::Find;
 use File::Spec::Functions qw(:ALL);
+use Image::ExifTool;
 use Pod::Usage;
 
 # What we expect an MD5 hash to look like
@@ -165,7 +166,8 @@ sub doVerifyMd5 {
 # Execute CheckMd5 verb
 sub doCheckMd5 {
     if ($#_ == -1) {
-        # No args - check all the media files below the current dir
+        # No args - check or add MD5s for all the media files
+        # below the current dir
         local *wanted = sub {
             if (!-d) {
                 #if (/\.(?:crw|cr2|m4v|mov|mp4|mts|nef|raf)$/i) {
@@ -179,7 +181,7 @@ sub doCheckMd5 {
         };
         find(\&wanted, '.');
     } else {
-        # Write out MD5s for all the specified files
+        # Glob(s) provided - check or add MD5s for all files that match
         verifyOrGenerateMd5($_) for sort map { glob } @_;
     }
 }
@@ -222,9 +224,27 @@ sub doFindDupeFiles {
     # Sort groups by first element
     @dupes = sort { $a->[0] cmp $b->[0] } @dupes;
     
-    for (@dupes) {
+    my $all = 0;
+    for my $group (@dupes) {
         print "------\n";
-        print "  $_\n" for @$_;
+        for (my $i = 0; $i < @$group; $i++) {
+            print "  $i. ", $group->[$i], "\n";
+        }
+        
+        unless ($all) {
+            while (1) {
+                print "Diff, Continue, Always continue (d/c/a)?";
+                chomp(my $in = lc <STDIN>);
+            
+                if ($in eq 'd') {
+                } elsif ($in eq 'c') {
+                    last;
+                } elsif ($in eq 'a') {
+                    $all = 1;
+                    last;
+                }
+            }
+        }
     }
     
     #while (my ($md5, $paths) = each %md5ToPaths) {
@@ -242,7 +262,8 @@ sub doTest {
 
 #--------------------------------------------------------------------------
 # For each item in each md5.txt file under [dir], invoke [callback]
-# passing it full path and MD5 hash as arguments
+# passing it full path and MD5 hash as arguments like
+#      callback($absolutePath, $md5AsString)
 sub findMd5s {
     my ($callback, $dir) = @_;
     
@@ -306,8 +327,6 @@ sub verifyOrGenerateMd5 {
             # Mismatch, needs resolving...
             warn "MISMATCH OF MD5 for $path";
             
-            # Auto overwrite some types
-            #if ($path !~ /\.(?:jpg|jpeg)$/i) {
             while (1)
             {
                 print "Ignore, Overwrite, Quit (i/o/q)? ";
@@ -324,7 +343,6 @@ sub verifyOrGenerateMd5 {
                     confess "MD5 mismatch for $path";
                 }
             }
-            #}
         }
     } else {
         # It wasn't there, it's a new file, we'll add that
@@ -354,9 +372,6 @@ sub readMd5FileFromHandle {
         chomp;
         $_ = lc $_;
         /^([^:]+):\s*($md5pattern)$/ or warn "unexpected line in MD5: $_";
-        
-        # Anything we might want to skip (e.g. jpeg files):
-        #next if $1 =~ /\.(?:jpeg|jpg)/i;
         
         $md5s{lc $1} = $2;
     }
@@ -417,4 +432,17 @@ sub formatDate {
     my ($sec, $min, $hour, $day, $mon, $year) = localtime $_[0];
     return sprintf '%04d-%02d-%02dT%02d:%02d:%02d', 
                    $year + 1900, $mon + 1, $day, $hour, $min, $sec;
+}
+
+#--------------------------------------------------------------------------
+sub openWithExifTool {
+    my ($path) = @_;
+    
+    $et = new Image::ExifTool;
+    
+    $et->ExtractInfo($path);
+    
+    # TODO: Add XMP sidecar if present
+    
+    return $et;
 }
