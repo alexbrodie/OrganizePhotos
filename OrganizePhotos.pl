@@ -99,6 +99,7 @@ use File::Find;
 use File::Spec::Functions qw(:ALL);
 use Image::ExifTool;
 use Pod::Usage;
+use Term::ANSIColor;
 
 # What we expect an MD5 hash to look like
 my $md5pattern = qr/[0-9a-f]{32}/;
@@ -225,13 +226,29 @@ sub doFindDupeFiles {
     my $all = 0;
     for my $group (@dupes) {
         print "------\n";
-        for (my $i = 0; $i < @$group; $i++) {
-            print "  $i. ", $group->[$i], "\n";
-            # TODO: collect all sidecars and tell user
-        }
         
         # If all in this group are JPEG...
-        if (!grep { !/\.(?:jpeg|jpg)$/i } @dupes) {
+        if (!grep { !/\.(?:jpeg|jpg)$/i } @$group) {
+            # ...get each's whole file hashes match
+            my @fullMd5s = map { getBareFileMd5($_) } @$group;
+            for (my $i = 0; $i < @$group; $i++) {
+                print "  $i. [", $fullMd5s[$i], "] ", $group->[$i], "\n";
+                # TODO: collect all sidecars and tell user
+            }
+
+            if (!grep { $_ ne $fullMd5s[0] } @fullMd5s) {
+                # All the same
+            } else {
+                # A full file mismatch
+            }
+        } else {
+            # At least one non-JPEG
+            for (my $i = 0; $i < @$group; $i++) {
+                print "  $i. ", $group->[$i], "\n";
+                # TODO: collect all sidecars and tell user
+            }
+        }
+
         # TODO: if jpgs, use full file MD5 to see if they're binary
         #       equivalent and tell user
         
@@ -241,7 +258,7 @@ sub doFindDupeFiles {
                 chomp(my $in = lc <STDIN>);
             
                 if ($in eq 'd') {
-                    # TODO: show metadata diff
+                    metadataDiff(@$group);
                 } elsif ($in eq 'c') {
                     last;
                 } elsif ($in eq 'a') {
@@ -462,11 +479,28 @@ sub formatDate {
 sub metadataDiff {
     my ($leftPath, $rightPath) = @_;
     
-    $leftItems = readWithExifTool($leftPath);
-    $rightItems = readWithExifTool($rightPath);
+    my $leftItems = readWithExifTool($leftPath);
+    my $rightItems = readWithExifTool($rightPath);
     
-    while (my ($key, $value) = each $hash) {
-        
+    my @delta = ();
+    
+    while (my ($key, $value) = each %$leftItems) {
+        my $right = $rightItems->{$key};
+        #if (exists $rightItems->{$key}) {
+        if (!defined $right or $right ne $value) {
+            push(@delta, [$key, $value, $right]);
+        }
+    }
+
+    while (my ($key, $value) = each %$rightItems) {
+    }
+    
+    for (@delta) {
+        print
+            colored($_->[0] . ':', 'bold'), "\n",
+            defined $_->[1] ? colored($_->[1], 'red') : colored('undef', "\n",
+            defined $_->[2] ? colored($_->[2], 'green') : 'undef', "\n",
+            "\n";
     }
 }
 
@@ -474,14 +508,14 @@ sub metadataDiff {
 sub readWithExifTool {
     my ($path) = @_;
     
-    $et = new Image::ExifTool;
+    my $et = new Image::ExifTool;
     
     $et->ExtractInfo($path) or confess "Couldn't ExtractInfo for $path";
     
     # TODO: Add XMP sidecar if present
     
-    $info = $et->GetInfo();
-    #$keys = $et->GetTagList($info);
+    my $info = $et->GetInfo();
+    #my $keys = $et->GetTagList($info);
     
     return $info;
 }
