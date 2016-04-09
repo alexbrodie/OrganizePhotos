@@ -498,7 +498,7 @@ sub metadataDiff {
     for (@delta) {
         print
             colored($_->[0] . ':', 'bold'), "\n",
-            defined $_->[1] ? colored($_->[1], 'red') : colored('undef', "\n",
+            defined $_->[1] ? colored($_->[1], 'red') : 'undef', "\n",
             defined $_->[2] ? colored($_->[2], 'green') : 'undef', "\n",
             "\n";
     }
