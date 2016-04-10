@@ -104,7 +104,6 @@ use Term::ANSIColor;
 
 # What we expect an MD5 hash to look like
 my $md5pattern = qr/[0-9a-f]{32}/;
-my @colors = ('red', 'green');
 
 main();
 exit 0;
@@ -234,7 +233,7 @@ sub doFindDupeFiles {
             # ...get each's whole file hashes match
             my @fullMd5s = map { getBareFileMd5($_) } @$group;
             for (my $i = 0; $i < @$group; $i++) {
-                print "  $i. [", $fullMd5s[$i], "] ", colored($group->[$i], $colors[$i]), "\n";
+                print "  $i. [", $fullMd5s[$i], "] ", diffColored($group->[$i], $i), "\n";
                 # TODO: collect all sidecars and tell user
             }
 
@@ -246,7 +245,7 @@ sub doFindDupeFiles {
         } else {
             # At least one non-JPEG
             for (my $i = 0; $i < @$group; $i++) {
-                print "  $i. ", colored($group->[$i], $colors[$i]),, "\n";
+                print "  $i. ", diffColored($group->[$i], $i),, "\n";
                 # TODO: collect all sidecars and tell user
             }
         }
@@ -256,9 +255,10 @@ sub doFindDupeFiles {
         
         unless ($all) {
             while (1) {
-                print "Diff, Continue, Always continue, Trash Number (d/c/a/",
-                      colored('t1', $colors[0]), '/',
-                      colored('t2', $colors[1]), ')? ';
+                print "Diff, Continue, Always continue, Trash Number (d/c/a";
+                print '/', diffColored("t$_", $_) for (0..$#$group);
+                print "? ";
+                
                 chomp(my $in = lc <STDIN>);
             
                 if ($in eq 'd') {
@@ -423,6 +423,8 @@ sub getMd5 {
         #my $modified = formatDate((stat($fh))[9]);
         #print "Date modified: $modified\n";
         
+        # TODO: Should we do this for TIFF as well?
+        
         # If JPEG, skip metadata which may change and only hash pixel data
         # and hash from Start of Scan [SOS] to end
         if ($path =~ /\.(?:jpeg|jpg)$/i) {
@@ -476,14 +478,6 @@ sub getMd5Digest() {
 }
 
 #--------------------------------------------------------------------------
-# format a date (such as that returned by stat) into string form
-sub formatDate {
-    my ($sec, $min, $hour, $day, $mon, $year) = localtime $_[0];
-    return sprintf '%04d-%02d-%02dT%02d:%02d:%02d', 
-                   $year + 1900, $mon + 1, $day, $hour, $min, $sec;
-}
-
-#--------------------------------------------------------------------------
 sub metadataDiff {
     my ($leftPath, $rightPath) = @_;
     
@@ -510,8 +504,8 @@ sub metadataDiff {
     for (@delta) {
         print
             colored($_->[0] . ':', 'bold'), "\n",
-            defined $_->[1] ? colored($_->[1], 'red') : 'undef', "\n",
-            defined $_->[2] ? colored($_->[2], 'green') : 'undef', "\n",
+            defined $_->[1] ? diffColored($_->[1], 0) : 'undef', "\n",
+            defined $_->[2] ? diffColored($_->[2], 1) : 'undef', "\n",
             "\n";
     }
 }
@@ -537,4 +531,21 @@ sub readMetadata {
     #my $keys = $et->GetTagList($info);
     
     return $info;
+}
+
+#--------------------------------------------------------------------------
+# format a date (such as that returned by stat) into string form
+sub formatDate {
+    my ($sec, $min, $hour, $day, $mon, $year) = localtime $_[0];
+    return sprintf '%04d-%02d-%02dT%02d:%02d:%02d',
+    $year + 1900, $mon + 1, $day, $hour, $min, $sec;
+}
+
+#--------------------------------------------------------------------------
+sub diffColored {
+    my ($message, $index) = @_;
+
+    my @colors = ('red', 'green');
+
+    return colored($message, $colors[$index % scalar @colors]);
 }
