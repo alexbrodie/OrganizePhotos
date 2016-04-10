@@ -95,8 +95,10 @@ use warnings;
 
 use Carp qw(confess);
 use Digest::MD5;
+use File::Basename;
 use File::Copy;
 use File::Find;
+use File::Glob qw(:globally :nocase);
 use File::Spec::Functions qw(:ALL);
 use Image::ExifTool;
 use Pod::Usage;
@@ -274,8 +276,8 @@ sub doFindDupeFiles {
                 } elsif ($in =~ /^t(\d+)$/i) {
                     # Trash Number
                     if ($1 < @$group) {
-                        my $trash = $group->[$1];
-                        print "Trash: $trash\n";
+                        trashMedia($group->[$1]);
+                        last;
                     }
                 }
             }
@@ -537,6 +539,21 @@ sub readMetadata {
     #my $keys = $et->GetTagList($info);
     
     return $info;
+}
+
+#--------------------------------------------------------------------------
+# Trash this file and any sidecars
+sub trashMedia {
+    my ($path) = @_;
+    #print "trashMedia(\"$path\");\n";
+    
+    my ($name, $dirs, $ext) = fileparse($path, qr/\.[^.]*$/);
+    
+    my $query ="\"${dirs}${name}\"*";
+    print "trashMedia($query);\n";
+    for (glob $query) {
+        print "\t$_\n";
+    }
 }
 
 #--------------------------------------------------------------------------
