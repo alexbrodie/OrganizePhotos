@@ -95,6 +95,7 @@ use warnings;
 
 use Carp qw(confess);
 use Digest::MD5;
+use File::Copy;
 use File::Find;
 use File::Spec::Functions qw(:ALL);
 use Image::ExifTool;
@@ -103,6 +104,7 @@ use Term::ANSIColor;
 
 # What we expect an MD5 hash to look like
 my $md5pattern = qr/[0-9a-f]{32}/;
+my @colors = ('red', 'green');
 
 main();
 exit 0;
@@ -232,7 +234,7 @@ sub doFindDupeFiles {
             # ...get each's whole file hashes match
             my @fullMd5s = map { getBareFileMd5($_) } @$group;
             for (my $i = 0; $i < @$group; $i++) {
-                print "  $i. [", $fullMd5s[$i], "] ", $group->[$i], "\n";
+                print "  $i. [", $fullMd5s[$i], "] ", colored($group->[$i], $colors[$i]), "\n";
                 # TODO: collect all sidecars and tell user
             }
 
@@ -244,7 +246,7 @@ sub doFindDupeFiles {
         } else {
             # At least one non-JPEG
             for (my $i = 0; $i < @$group; $i++) {
-                print "  $i. ", $group->[$i], "\n";
+                print "  $i. ", colored($group->[$i], $colors[$i]),, "\n";
                 # TODO: collect all sidecars and tell user
             }
         }
@@ -254,7 +256,9 @@ sub doFindDupeFiles {
         
         unless ($all) {
             while (1) {
-                print "Diff, Continue, Always continue (d/c/a)?";
+                print "Diff, Continue, Always continue, Trash Number (d/c/a/",
+                      colored('t1', $colors[0]), '/',
+                      colored('t2', $colors[1]), ')? ';
                 chomp(my $in = lc <STDIN>);
             
                 if ($in eq 'd') {
@@ -264,6 +268,9 @@ sub doFindDupeFiles {
                 } elsif ($in eq 'a') {
                     $all = 1;
                     last;
+                } elsif ($in =~ /^t(\d+)$/i) {
+                    
+                    print "Trash $1\n";
                 }
             }
         }
@@ -402,8 +409,9 @@ sub readMd5FileFromHandle {
 }
 
 #--------------------------------------------------------------------------
-# Calculates and returns the MD5 digest of a (set of) file(s)
-# TODO: handle getMd5 failures
+# Calculates and returns the MD5 digest of a (set of) file(s). For JPEG
+# files, this skips the metadata portion of the files and only computes
+# the hash for the pixel data.
 sub getMd5 {
     use Digest::MD5;
 
@@ -479,20 +487,24 @@ sub formatDate {
 sub metadataDiff {
     my ($leftPath, $rightPath) = @_;
     
-    my $leftItems = readWithExifTool($leftPath);
-    my $rightItems = readWithExifTool($rightPath);
+    my $leftItems = readMetadata($leftPath);
+    my $rightItems = readMetadata($rightPath);
     
     my @delta = ();
     
     while (my ($key, $value) = each %$leftItems) {
         my $right = $rightItems->{$key};
-        #if (exists $rightItems->{$key}) {
         if (!defined $right or $right ne $value) {
+            # Key is in left with missing or different value
             push(@delta, [$key, $value, $right]);
         }
     }
-
+    
     while (my ($key, $value) = each %$rightItems) {
+        if (!exists $leftItems->{$key}) {
+            # Key is in right but not left
+            push(@delta, [$key, undef, $value]);
+        }
     }
     
     for (@delta) {
@@ -505,14 +517,21 @@ sub metadataDiff {
 }
 
 #-------------------------------------------------------------------------
-sub readWithExifTool {
+sub readMetadata {
     my ($path) = @_;
     
     my $et = new Image::ExifTool;
     
     $et->ExtractInfo($path) or confess "Couldn't ExtractInfo for $path";
     
-    # TODO: Add XMP sidecar if present
+    # If this file can't hold XMP (i.e. not JPEG or TIFF), look for
+    # XMP sidecar
+    if ($path !~ /\.(jpeg|jpeg|tif|tiff)$/i) {
+        (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
+        if (-s $xmpPath) {
+            $et->ExtractInfo($xmpPath) or confess "Couldn't ExtractInfo for $xmpPath";
+        }
+    }
     
     my $info = $et->GetInfo();
     #my $keys = $et->GetTagList($info);
