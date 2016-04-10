@@ -552,7 +552,7 @@ sub trashMedia {
     my $query ="\"${dirs}${name}\"*";
     print "trashMedia($query);\n";
     for (glob $query) {
-        print "\t$_\n";
+        print "\ttrash(\"$_\");\n";
     }
 }
 
