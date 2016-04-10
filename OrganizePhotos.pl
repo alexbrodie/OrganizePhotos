@@ -257,20 +257,26 @@ sub doFindDupeFiles {
             while (1) {
                 print "Diff, Continue, Always continue, Trash Number (d/c/a";
                 print '/', diffColored("t$_", $_) for (0..$#$group);
-                print "? ";
+                print ")? ";
                 
                 chomp(my $in = lc <STDIN>);
             
                 if ($in eq 'd') {
+                    # Diff
                     metadataDiff(@$group);
                 } elsif ($in eq 'c') {
+                    # Continue
                     last;
                 } elsif ($in eq 'a') {
+                    # Always continue
                     $all = 1;
                     last;
                 } elsif ($in =~ /^t(\d+)$/i) {
-                    
-                    print "Trash $1\n";
+                    # Trash Number
+                    if ($1 < @$group) {
+                        my $trash = $group->[$1];
+                        print "Trash: $trash\n";
+                    }
                 }
             }
         }
