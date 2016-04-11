@@ -95,10 +95,10 @@ use warnings;
 
 use Carp qw(confess);
 use Digest::MD5;
-use File::Basename;
 use File::Copy;
 use File::Find;
 use File::Glob qw(:globally :nocase);
+use File::Path qw(make_path);
 use File::Spec::Functions qw(:ALL);
 use Image::ExifTool;
 use Pod::Usage;
@@ -228,17 +228,25 @@ sub doFindDupeFiles {
     
     my $all = 0;
     for my $group (@dupes) {
-        print "------\n";
+        
+        # Filter out missing files
+        # TODO: remove missing files from md5.txt?
+        @$group = grep { -e } @$group;
+        next unless @$group > 1;
+        
+        my @prompt;
         
         # If all in this group are JPEG...
         if (!grep { !/\.(?:jpeg|jpg)$/i } @$group) {
             # ...get each's whole file hashes match
             my @fullMd5s = map { getBareFileMd5($_) } @$group;
             for (my $i = 0; $i < @$group; $i++) {
-                print "  $i. [", $fullMd5s[$i], "] ", diffColored($group->[$i], $i), "\n";
+                push @prompt, "  $i. [", $fullMd5s[$i], "] ", diffColored($group->[$i], $i), "\n";
                 # TODO: collect all sidecars and tell user
             }
-
+            
+            # TODO: if jpgs, use full file MD5 to see if they're binary
+            #       equivalent and tell user
             if (!grep { $_ ne $fullMd5s[0] } @fullMd5s) {
                 # All the same
             } else {
@@ -247,38 +255,36 @@ sub doFindDupeFiles {
         } else {
             # At least one non-JPEG
             for (my $i = 0; $i < @$group; $i++) {
-                print "  $i. ", diffColored($group->[$i], $i),, "\n";
+                push @prompt, "  $i. ", diffColored($group->[$i], $i), "\n";
                 # TODO: collect all sidecars and tell user
             }
         }
-
-        # TODO: if jpgs, use full file MD5 to see if they're binary
-        #       equivalent and tell user
         
-        unless ($all) {
-            while (1) {
-                print "Diff, Continue, Always continue, Trash Number (d/c/a";
-                print '/', diffColored("t$_", $_) for (0..$#$group);
-                print ")? ";
-                
-                chomp(my $in = lc <STDIN>);
+        print @prompt and next if $all;
+        
+        push @prompt, "Diff, Continue, Always continue, Trash Number (d/c/a";
+        push @prompt, '/', diffColored("t$_", $_) for (0..$#$group);
+        push @prompt, ")? ";
+        
+        while (1) {
+            print "\n", @prompt;
+            chomp(my $in = lc <STDIN>);
             
-                if ($in eq 'd') {
-                    # Diff
-                    metadataDiff(@$group);
-                } elsif ($in eq 'c') {
-                    # Continue
+            if ($in eq 'd') {
+                # Diff
+                metadataDiff(@$group);
+            } elsif ($in eq 'c') {
+                # Continue
+                last;
+            } elsif ($in eq 'a') {
+                # Always continue
+                $all = 1;
+                last;
+            } elsif ($in =~ /^t(\d+)$/i) {
+                # Trash Number
+                if ($1 < @$group) {
+                    trashMedia($group->[$1]);
                     last;
-                } elsif ($in eq 'a') {
-                    # Always continue
-                    $all = 1;
-                    last;
-                } elsif ($in =~ /^t(\d+)$/i) {
-                    # Trash Number
-                    if ($1 < @$group) {
-                        trashMedia($group->[$1]);
-                        last;
-                    }
                 }
             }
         }
@@ -336,7 +342,8 @@ sub verifyOrGenerateMd5 {
     }
     
     # The path to file that contains the MD5 info
-    my $md5Path = catpath((splitpath($path))[0..1], 'md5.txt');
+    my ($volume, $dir, $name) = splitpath($path);
+    my $md5Path = catpath($volume, $dir, 'md5.txt');
     
     # Open MD5 file    
     my $fh;
@@ -350,9 +357,7 @@ sub verifyOrGenerateMd5 {
     }
 
     # Try lookup into MD5 file contents
-    # TODO: path platform independent parse
-    $path =~ /([^\\\/]+)$/ or confess "Couldn't find file name from $path";
-    my $key = lc $1;
+    my $key = lc $name;
     my $expectedMd5 = $md5s->{$key};
     if ($expectedMd5) {
         # It's there; verify the existing hash
@@ -396,6 +401,25 @@ sub verifyOrGenerateMd5 {
     # Update MD5 file
     for (sort keys %$md5s) {
         print $fh lc $_, ': ', $md5s->{$_}, "\n";
+    }
+}
+
+#--------------------------------------------------------------------------
+# Removes the cached MD5 hash for the specified path
+sub removeMd5ForPath {
+    my ($path) = @_;
+    
+    # The path to file that contains the MD5 info
+    my ($volume, $dir, $name) = splitpath($path);
+    my $md5Path = catpath($volume, $dir, 'md5.txt');
+    
+    if (open(my $fh, '+<:crlf', $md5Path)) {
+        my @old = <$fh>;
+        my @new = grep { /\Q$name\E:/i } @old;
+        
+        if (@old != @new) {
+            print "Removed $name from $md5Path\n";
+        }
     }
 }
 
@@ -464,6 +488,7 @@ sub getMd5 {
 }
 
 #--------------------------------------------------------------------------
+# Computes the MD5 for a full file
 sub getBareFileMd5 {
     my ($path) = @_;
     
@@ -476,7 +501,8 @@ sub getBareFileMd5 {
 }
 
 #--------------------------------------------------------------------------
-sub getMd5Digest() {
+# Get/verify/canonicalize hash from a Digest::MD5 object
+sub getMd5Digest {
     my ($md5) = @_;
     
     my $hexdigest = lc $md5->hexdigest;
@@ -519,6 +545,8 @@ sub metadataDiff {
 }
 
 #-------------------------------------------------------------------------
+# Read metadata as a hash for the specified path and any XMP sidecar
+# when appropriate
 sub readMetadata {
     my ($path) = @_;
     
@@ -542,27 +570,36 @@ sub readMetadata {
 }
 
 #--------------------------------------------------------------------------
-# Trash this file and any sidecars
+# Trash the specified path and any sidecars
 sub trashMedia {
     my ($path) = @_;
-    print qq(trashMedia("$path");\n);
+    #print qq(trashMedia("$path");\n);
     
-    my ($name, $dirs, $ext) = fileparse($path, qr/\.[^.]*$/);
-    trashFile($_) for glob qq("${dirs}${name}.*");
+    # Note that this assumes a proper extension
+    (my $query = $path) =~ s/[^.]*$/*/;
+    trashFile($_) for glob qq("$query");
 }
 
 #--------------------------------------------------------------------------
+# Trash the specified path by moving it to a .Trash subdir
 sub trashFile {
     my ($path) = @_;
-    print qq(trashFile("$path");\n);
+    #print qq(trashFile("$path");\n);
     
-    my $trashDir = catpath((splitpath($path))[0..1], '.Trash');
+    my ($volume, $dir, $name) = splitpath($path);
+    my $trashDir = catpath($volume, $dir, '.Trash');
     my $trashPath = catfile($trashDir, $name);
-    print qq("$path" -> "$trashPath"\n);
+    
+    #print qq("$path" -> "$trashPath"\n);
+    -d $trashDir or make_path($trashDir) or confess "Failed to make directory $trashDir: $!";
+    move($path, $trashPath) or confess "Failed to move $path to $trashPath: $!";
+    print "Moved $path\n   to $trashPath\n";
+
+    removeMd5ForPath($path);
 }
 
 #--------------------------------------------------------------------------
-# format a date (such as that returned by stat) into string form
+# Format a date (such as that returned by stat) into string form
 sub formatDate {
     my ($sec, $min, $hour, $day, $mon, $year) = localtime $_[0];
     return sprintf '%04d-%02d-%02dT%02d:%02d:%02d',
@@ -570,10 +607,11 @@ sub formatDate {
 }
 
 #--------------------------------------------------------------------------
+# Colorizes text for diffing purposes
 sub diffColored {
     my ($message, $index) = @_;
 
-    my @colors = ('red', 'green');
+    my @colors = ('red', 'green', 'blue');
 
     return colored($message, $colors[$index % scalar @colors]);
 }
