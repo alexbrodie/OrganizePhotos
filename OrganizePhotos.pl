@@ -545,15 +545,20 @@ sub readMetadata {
 # Trash this file and any sidecars
 sub trashMedia {
     my ($path) = @_;
-    #print "trashMedia(\"$path\");\n";
+    print qq(trashMedia("$path");\n);
     
     my ($name, $dirs, $ext) = fileparse($path, qr/\.[^.]*$/);
+    trashFile($_) for glob qq("${dirs}${name}.*");
+}
+
+#--------------------------------------------------------------------------
+sub trashFile {
+    my ($path) = @_;
+    print qq(trashFile("$path");\n);
     
-    my $query ="\"${dirs}${name}\"*";
-    print "trashMedia($query);\n";
-    for (glob $query) {
-        print "\ttrash(\"$_\");\n";
-    }
+    my $trashDir = catpath((splitpath($path))[0..1], '.Trash');
+    my $trashPath = catfile($trashDir, $name);
+    print qq("$path" -> "$trashPath"\n);
 }
 
 #--------------------------------------------------------------------------
