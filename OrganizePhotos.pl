@@ -249,6 +249,7 @@ sub doFindDupeFiles {
             #       equivalent and tell user
             if (!grep { $_ ne $fullMd5s[0] } @fullMd5s) {
                 # All the same
+                push @prompt, "  (All above JPEGs are fully MD5 equavalent)";
             } else {
                 # A full file mismatch
             }
@@ -301,6 +302,7 @@ sub doFindDupeFiles {
 #--------------------------------------------------------------------------
 # Execute Test verb
 sub doTest {
+    removeMd5ForPath($_) for @_;
 }
 
 #--------------------------------------------------------------------------
@@ -415,9 +417,13 @@ sub removeMd5ForPath {
     
     if (open(my $fh, '+<:crlf', $md5Path)) {
         my @old = <$fh>;
-        my @new = grep { /\Q$name\E:/i } @old;
+        my @new = grep { !/\Q$name\E:/i } @old;
         
         if (@old != @new) {
+            seek($fh, 0, 0);
+            truncate($fh, 0);
+            print $fh @new;
+            
             print "Removed $name from $md5Path\n";
         }
     }
@@ -455,7 +461,7 @@ sub getMd5 {
         #my $modified = formatDate((stat($fh))[9]);
         #print "Date modified: $modified\n";
         
-        # TODO: Should we do this for TIFF as well?
+        # TODO: Should we do this for TIFF, DNG as well?
         
         # If JPEG, skip metadata which may change and only hash pixel data
         # and hash from Start of Scan [SOS] to end
@@ -535,6 +541,8 @@ sub metadataDiff {
         }
     }
     
+    @delta = sort { $a->[0] <=> $b->[0] } @delta;
+    
     for (@delta) {
         print
             colored($_->[0] . ':', 'bold'), "\n",
@@ -556,6 +564,7 @@ sub readMetadata {
     
     # If this file can't hold XMP (i.e. not JPEG or TIFF), look for
     # XMP sidecar
+    # TODO: Should we exclude DNG here too?
     if ($path !~ /\.(jpeg|jpeg|tif|tiff)$/i) {
         (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
         if (-s $xmpPath) {
