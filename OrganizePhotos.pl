@@ -518,43 +518,43 @@ sub getMd5Digest {
 }
 
 #--------------------------------------------------------------------------
+# Print all the metadata values which differ in a set of paths
 sub metadataDiff {
-    my ($leftPath, $rightPath) = @_;
+    my @paths = @_;
     
-    my $leftItems = readMetadata($leftPath);
-    my $rightItems = readMetadata($rightPath);
+    my @items = map { readMetadata($_) } @paths;
     
-    my @delta = ();
-    
-    while (my ($key, $value) = each %$leftItems) {
-        my $right = $rightItems->{$key};
-        if (!defined $right or $right ne $value) {
-            # Key is in left with missing or different value
-            push(@delta, [$key, $value, $right]);
+    # Collect all the keys which aren't all equal
+    my %keys = ();
+    for (my $i = 0; $i < @items; $i++) {
+        while (my ($key, $value) = each %{$items[$i]}) {
+            for (my $j = 0; $j < @items; $j++) {
+                if ($i != $j and
+                    (!exists $items[$j]->{$key} or
+                     $items[$j]->{$key} ne $value)) {
+                    $keys{$key} = 1;
+                    last;
+                }
+            }
         }
     }
     
-    while (my ($key, $value) = each %$rightItems) {
-        if (!exists $leftItems->{$key}) {
-            # Key is in right but not left
-            push(@delta, [$key, undef, $value]);
+    # Pretty print all the keys and associated values
+    # which differ
+    for my $key (sort keys %keys) {
+        print colored("$key:", 'bold'), "\n";
+        for (my $i = 0; $i < @items; $i++) {
+            print diffColored(exists $items[$i]->{$key}
+                ? $items[$i]->{$key}
+                : colored('undef', 'faint'), $i), "\n";
         }
-    }
-    
-    @delta = sort { $a->[0] <=> $b->[0] } @delta;
-    
-    for (@delta) {
-        print
-            colored($_->[0] . ':', 'bold'), "\n",
-            defined $_->[1] ? diffColored($_->[1], 0) : 'undef', "\n",
-            defined $_->[2] ? diffColored($_->[2], 1) : 'undef', "\n",
-            "\n";
+        print "\n";
     }
 }
 
 #-------------------------------------------------------------------------
-# Read metadata as a hash for the specified path and any XMP sidecar
-# when appropriate
+# Read metadata as an ExifTool hash for the specified path (and any
+# XMP sidecar when appropriate)
 sub readMetadata {
     my ($path) = @_;
     
@@ -590,7 +590,8 @@ sub trashMedia {
 }
 
 #--------------------------------------------------------------------------
-# Trash the specified path by moving it to a .Trash subdir
+# Trash the specified path by moving it to a .Trash subdir and removing
+# its entry from the md5.txt file
 sub trashFile {
     my ($path) = @_;
     #print qq(trashFile("$path");\n);
@@ -612,7 +613,7 @@ sub trashFile {
 sub formatDate {
     my ($sec, $min, $hour, $day, $mon, $year) = localtime $_[0];
     return sprintf '%04d-%02d-%02dT%02d:%02d:%02d',
-    $year + 1900, $mon + 1, $day, $hour, $min, $sec;
+                $year + 1900, $mon + 1, $day, $hour, $min, $sec;
 }
 
 #--------------------------------------------------------------------------
@@ -620,7 +621,7 @@ sub formatDate {
 sub diffColored {
     my ($message, $index) = @_;
 
-    my @colors = ('red', 'green', 'blue');
+    my @colors = ('red', 'green', 'magenta', 'cyan', 'yellow', 'blue');
 
     return colored($message, $colors[$index % scalar @colors]);
 }
