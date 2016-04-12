@@ -542,11 +542,12 @@ sub metadataDiff {
     # Pretty print all the keys and associated values
     # which differ
     for my $key (sort keys %keys) {
-        print colored("$key:", 'bold'), "\n";
+        print colored("$key:", 'bold'), ' ' x (29 - length $key);
         for (my $i = 0; $i < @items; $i++) {
             print diffColored(exists $items[$i]->{$key}
                 ? $items[$i]->{$key}
-                : colored('undef', 'faint'), $i), "\n";
+                : colored('undef', 'faint'), $i),
+            "\n", ' ' x 30;
         }
         print "\n";
     }
