@@ -237,34 +237,26 @@ sub doFindDupeFiles {
         my @prompt;
         
         # If all in this group are JPEG...
-        if (!grep { !/\.(?:jpeg|jpg)$/i } @$group) {
-            # ...get each's whole file hashes match
-            my @fullMd5s = map { getBareFileMd5($_) } @$group;
-            for (my $i = 0; $i < @$group; $i++) {
-                push @prompt, "  $i. [", $fullMd5s[$i], "] ", diffColored($group->[$i], $i), "\n";
-                # TODO: collect all sidecars and tell user
+        #if (!grep { !/\.(?:jpeg|jpg)$/i } @$group) {
+    
+        for (my $i = 0; $i < @$group; $i++) {
+            my $path = $group->[$i];
+            
+            push @prompt, "  $i. ";
+            
+            # If MD5 isn't a whole file MD5, put compute the wholefile MD5 and add to output
+            if ($path =~ /\.(?:jpeg|jpg)$/i) {
+                push @prompt, '[', getBareFileMd5($path), '] ';
             }
             
-            # TODO: if jpgs, use full file MD5 to see if they're binary
-            #       equivalent and tell user
-            if (!grep { $_ ne $fullMd5s[0] } @fullMd5s) {
-                # All the same
-                push @prompt, "  (All above JPEGs are fully MD5 equavalent)";
-            } else {
-                # A full file mismatch
-            }
-        } else {
-            # At least one non-JPEG
-            for (my $i = 0; $i < @$group; $i++) {
-                push @prompt, "  $i. ", diffColored($group->[$i], $i), "\n";
-                # TODO: collect all sidecars and tell user
-            }
+            push @prompt, coloredByIndex($path, $i), getDirectoryError($path, $i), "\n";
+            # TODO: collect all sidecars and tell user
         }
         
         print @prompt and next if $all;
         
         push @prompt, "Diff, Continue, Always continue, Trash Number (d/c/a";
-        push @prompt, '/', diffColored("t$_", $_) for (0..$#$group);
+        push @prompt, '/', coloredByIndex("t$_", $_) for (0..$#$group);
         push @prompt, ")? ";
         
         while (1) {
@@ -290,19 +282,12 @@ sub doFindDupeFiles {
             }
         }
     }
-    
-    #while (my ($md5, $paths) = each %md5ToPaths) {
-    #    if (@$paths > 1) {
-    #        print "$md5 (", scalar @$paths, ")\n";
-    #        print "\t$_\n" for @$paths;
-    #    }
-    #}
 }
 
 #--------------------------------------------------------------------------
 # Execute Test verb
 sub doTest {
-    removeMd5ForPath($_) for @_;
+    getDirectoryError(rel2abs($_)) for @_;
 }
 
 #--------------------------------------------------------------------------
@@ -544,7 +529,7 @@ sub metadataDiff {
     for my $key (sort keys %keys) {
         print colored("$key:", 'bold'), ' ' x (29 - length $key);
         for (my $i = 0; $i < @items; $i++) {
-            print diffColored(exists $items[$i]->{$key}
+            print coloredByIndex(exists $items[$i]->{$key}
                 ? $items[$i]->{$key}
                 : colored('undef', 'faint'), $i),
             "\n", ' ' x 30;
@@ -577,6 +562,31 @@ sub readMetadata {
     #my $keys = $et->GetTagList($info);
     
     return $info;
+}
+
+#--------------------------------------------------------------------------
+sub getDirectoryError {
+    my ($path, $colorIndex) = @_;
+    
+    my $et = new Image::ExifTool;
+    
+    my $info = $et->ImageInfo($path,
+        [qw(DateTimeOriginal)],
+        {DateFormat => '%F'});
+    
+    my $date1 = $info->{DateTimeOriginal};
+    my $date2 = join('', $date1 =~ /^..(..)-(..)-(..)$/);
+    
+    my $parentDir = (splitdir((splitpath($path))[1]))[-2];
+    
+    if ($parentDir =~ /^(?:$date1|$date2)/) {
+        # Falsy empty string when path is correct
+        return '';
+    } else {
+        # Truthy error string
+        my $backColor = defined $colorIndex ? colorByIndex($colorIndex) : 'red';
+        return ' ' . colored("** Wrong dir! [$date1] **", "bright_white on_$backColor") . ' ';
+    }
 }
 
 #--------------------------------------------------------------------------
@@ -619,10 +629,16 @@ sub formatDate {
 
 #--------------------------------------------------------------------------
 # Colorizes text for diffing purposes
-sub diffColored {
-    my ($message, $index) = @_;
+sub coloredByIndex {
+    my ($message, $colorIndex) = @_;
 
+    return colored($message, colorByIndex($colorIndex));
+}
+
+#--------------------------------------------------------------------------
+sub colorByIndex {
+    my ($colorIndex) = @_;
+    
     my @colors = ('red', 'green', 'magenta', 'cyan', 'yellow', 'blue');
-
-    return colored($message, $colors[$index % scalar @colors]);
+    return $colors[$colorIndex % scalar @colors];
 }
