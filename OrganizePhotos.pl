@@ -8,9 +8,10 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 =head1 SYNOPSIS
  
     OrganizePhotos.pl <verb> <options>
-    OrganizePhotos.pl VerifyMd5
-    OrganizePhotos.pl CheckMd5 [glob_pattern]
-    OrganizePhotos.pl FindDupeFiles
+    OrganizePhotos.pl verify-md5
+    OrganizePhotos.pl check-md5 [glob_pattern]
+    OrganizePhotos.pl find-dupe-files
+    OrganizePhotos.pl metadata-diff
  
 =head1 DESCRIPTION
 
@@ -19,7 +20,11 @@ managed by Adobe Lightroom. This helps with tasks not covered by
 Lightroom such as: backup/archive, integrity checks, consolidation,
 and other OCD metadata organization.
  
-=head2 VerifyMd5
+Metadata operations are powered by Image::ExifTool.
+ 
+=head2 verify-md5
+ 
+Alias: v5
  
 Verifies the MD5 hashes for all contents of all md5.txt files below
 the current directory.
@@ -28,23 +33,40 @@ MD5 hashes are stored in a md5.txt file in the file's one line per file
 with the pattern:
 filename: hash
  
-This method is read-only, if you want to add/update MD5s, use CheckMd5.
+This method is read-only, if you want to add/update MD5s, use check-md5.
  
-=head2 CheckMd5 [glob_pattern]
+=head2 check-md5
+ 
+Alias: c5
  
 For each media files under the current directory, generate the MD5 hash
 and either add to md5.txt file if missing or verify hashes match if
 already present.
 
+This method is read/write, if you want to read-only MD5 checkin,
+use verify-md5.
+ 
+=head2 check-md5 <glob_pattern>
+
+Alias: c5
+
 For each file matching glob_pattern, generate the MD5 hash and either
 add to md5.txt file if missing or verify hashes match if already present.
  
 This method is read/write, if you want to read-only MD5 checkin, 
- use VerifyMd5.
+use verify-md5.
  
-=head2 FindDupeFiles
+=head2 find-dupe-files
  
-Find files that have multiple copies
+Alias: fdf
+
+Find files that have multiple copies under the current directory.
+ 
+=head2 metadata-diff <files>
+ 
+Alias: md
+ 
+Do a diff of the specified media files (including their sidecar metadata).
  
 =head1 TODO
  
@@ -117,12 +139,16 @@ sub main {
     } else {
         my $rawVerb = shift @ARGV;
         my $verb = lc $rawVerb;
-        if ($verb eq 'verifymd5') {
+        if ($verb eq 'verify-md5' or $verb eq 'v5') {
             doVerifyMd5(@ARGV);
-        } elsif ($verb eq 'checkmd5') {
+        } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
             doCheckMd5(@ARGV);
-        } elsif ($verb eq 'finddupefiles') {
+        } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
             doFindDupeFiles(@ARGV);
+        } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
+            doMetadataDiff(@ARGV);
+        } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
+            doGatherTrash(@ARGV);
         } elsif ($verb eq 'test') {
             doTest(@ARGV);
         } else {
@@ -132,7 +158,7 @@ sub main {
 }
 
 #--------------------------------------------------------------------------
-# Execute VerifyMd5 verb
+# Execute verify-md5 verb
 sub doVerifyMd5 {
     our $all = 0;
     local *callback = sub {
@@ -165,7 +191,7 @@ sub doVerifyMd5 {
 }
 
 #--------------------------------------------------------------------------
-# Execute CheckMd5 verb
+# Execute check-md5 verb
 sub doCheckMd5 {
     if ($#_ == -1) {
         # No args - check or add MD5s for all the media files
@@ -189,7 +215,7 @@ sub doCheckMd5 {
 }
 
 #--------------------------------------------------------------------------
-# Execute FindDupeFiles verb
+# Execute find-dupe-files verb
 sub doFindDupeFiles {
     #local our %results = ();
     #local *wanted = sub {
@@ -211,7 +237,12 @@ sub doFindDupeFiles {
     local our %md5ToPaths = ();
     local *callback = sub {
         my ($path, $md5) = @_;
-        push(@{$md5ToPaths{$md5}}, $path);
+        
+        # Omit anything that is .Trash-ed
+        my @dirs = splitdir((splitpath($path))[1]);
+        unless (grep { /^\.Trash$/i } @dirs) {
+            push(@{$md5ToPaths{$md5}}, $path);
+        }
     };
     findMd5s(\&callback, '.');
     
@@ -255,8 +286,10 @@ sub doFindDupeFiles {
         
         print @prompt and next if $all;
         
-        push @prompt, "Diff, Continue, Always continue, Trash Number (d/c/a";
-        push @prompt, '/', coloredByIndex("t$_", $_) for (0..$#$group);
+        push @prompt, "Diff, Continue, Always continue, Trash Number, Open Number (d/c/a";
+        for my $x ('t', 'o') {
+            push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#$group);
+        }
         push @prompt, ")? ";
         
         while (1) {
@@ -279,13 +312,29 @@ sub doFindDupeFiles {
                     trashMedia($group->[$1]);
                     last;
                 }
+            } elsif ($in =~ /^o(\d+)$/i) {
+                # Open Number
+                if ($1 < @$group) {
+                    `open "$group->[$1]"`;
+                }
             }
         }
     }
 }
 
 #--------------------------------------------------------------------------
-# Execute Test verb
+# Execute metadata-diff verb
+sub doMetadataDiff {
+    metadataDiff(@_);
+}
+
+#--------------------------------------------------------------------------
+# Execute collect-trash verb
+sub doCollectTrash {
+}
+
+#--------------------------------------------------------------------------
+# Execute test verb
 sub doTest {
     getDirectoryError(rel2abs($_)) for @_;
 }
@@ -570,22 +619,34 @@ sub getDirectoryError {
     
     my $et = new Image::ExifTool;
     
-    my $info = $et->ImageInfo($path,
-        [qw(DateTimeOriginal)],
-        {DateFormat => '%F'});
+    my @dateProps = qw(DateTimeOriginal MediaCreateDate);
+
+    my $info = $et->ImageInfo($path, \@dateProps, {DateFormat => '%F'});
     
-    my $date1 = $info->{DateTimeOriginal};
-    my $date2 = join('', $date1 =~ /^..(..)-(..)-(..)$/);
+    my $date;
+    for (@dateProps) {
+        if (exists $info->{$_}) {
+            $date = $info->{$_};
+            last;
+        }
+    }
     
-    my $parentDir = (splitdir((splitpath($path))[1]))[-2];
+    if (!defined $date) {
+        warn "Couldn't find date for $path";
+        return '';
+    }
     
-    if ($parentDir =~ /^(?:$date1|$date2)/) {
+    my $yyyy = substr $date, 0, 4;
+    my $date2 = join '', $date =~ /^..(..)-(..)-(..)$/;
+    my @dirs = splitdir((splitpath($path))[1]);
+    if ($dirs[-3] eq $yyyy and
+        $dirs[-2] =~ /^(?:$date|$date2)/) {
         # Falsy empty string when path is correct
         return '';
     } else {
         # Truthy error string
         my $backColor = defined $colorIndex ? colorByIndex($colorIndex) : 'red';
-        return ' ' . colored("** Wrong dir! [$date1] **", "bright_white on_$backColor") . ' ';
+        return ' ' . colored("** Wrong dir! [$date] **", "bright_white on_$backColor") . ' ';
     }
 }
 
