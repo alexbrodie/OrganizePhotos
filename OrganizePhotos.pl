@@ -221,6 +221,7 @@ sub doVerifyMd5 {
 #--------------------------------------------------------------------------
 # Execute add-md5 verb
 sub doAddMd5 {
+    verifyOrGenerateMd5Recursively(1);
 }
 
 #--------------------------------------------------------------------------
@@ -229,10 +230,10 @@ sub doCheckMd5 {
     if ($#_ == -1) {
         # No args - check or add MD5s for all the media files
         # below the current dir
-        verifyOrGenerateMd5Recursively();
+        verifyOrGenerateMd5Recursively(0);
     } else {
         # Glob(s) provided - check or add MD5s for all files that match
-        verifyOrGenerateMd5($_) for sort map { glob } @_;
+        verifyOrGenerateMd5($_, 0) for sort map { glob } @_;
     }
 }
 
@@ -384,10 +385,12 @@ sub findMd5s {
 #--------------------------------------------------------------------------
 # Call verifyOrGenerateMd5 for each media file under the current directory
 sub verifyOrGenerateMd5Recursively {
+    my ($addOnly) = @_;
+    
     local *wanted = sub {
         if (!-d) {
             if (/$mediaType/) {
-                verifyOrGenerateMd5($_)
+                verifyOrGenerateMd5($_, $addOnly)
             } elsif ($_ ne 'md5.txt') {
                 # TODO: Also skip Thumbs.db, .Ds_Store, etc?
                 print "Skipping    MD5 for ", rel2abs($_), "\n";
@@ -404,18 +407,10 @@ sub verifyOrGenerateMd5Recursively {
 # If the file's md5.txt file doesn't have a MD5 for the specified [path],
 # this adds the [path]'s current MD5 to it.
 sub verifyOrGenerateMd5 {
-    my ($path) = @_;
-    
-    $path = rel2abs($path);
-    my $actualMd5 = eval { getMd5($path); };
-    if ($@) {
-        # Can't get the MD5
-        # TODO: for now, skip but we'll want something better in the future
-        warn "UNAVAILABLE MD5 for $path: $@";
-        return;
-    }
+    my ($path, $addOnly) = @_;
     
     # The path to file that contains the MD5 info
+    $path = rel2abs($path);
     my ($volume, $dir, $name) = splitpath($path);
     my $md5Path = catpath($volume, $dir, 'md5.txt');
     
@@ -429,10 +424,26 @@ sub verifyOrGenerateMd5 {
         # File doesn't exist, open for write
         open($fh, '>', $md5Path) or confess "Couldn't open $md5Path: $!";
     }
-
+    
     # Try lookup into MD5 file contents
     my $key = lc $name;
     my $expectedMd5 = $md5s->{$key};
+
+    # In add-only mode, don't compute the hash of a file that
+    # is already in the md5.txt
+    if ($addOnly and $expectedMd5) {
+        return;
+    }
+    
+    # Get the actual MD5 by reading the whole file
+    my $actualMd5 = eval { getMd5($path); };
+    if ($@) {
+        # Can't get the MD5
+        # TODO: for now, skip but we'll want something better in the future
+        warn "UNAVAILABLE MD5 for $path: $@";
+        return;
+    }
+
     if ($expectedMd5) {
         # It's there; verify the existing hash
         if ($expectedMd5 eq $actualMd5) {
@@ -443,8 +454,7 @@ sub verifyOrGenerateMd5 {
             # Mismatch, needs resolving...
             warn "MISMATCH OF MD5 for $path";
             
-            while (1)
-            {
+            while (1) {
                 print "Ignore, Overwrite, Quit (i/o/q)? ";
                 chomp(my $in = lc <STDIN>);
                 
