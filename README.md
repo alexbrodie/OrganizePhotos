@@ -4,14 +4,13 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 # SYNOPSIS
 
-       OrganizePhotos.pl <verb> <options>
-       OrganizePhotos.pl add-md5
-       OrganizePhotos.pl check-md5 [glob_pattern]
-       OrganizePhotos.pl verify-md5
-       OrganizePhotos.pl find-dupe-files
-       OrganizePhotos.pl metadata-diff
-       OrganizePhotos.pl collect-trash
-    
+    OrganizePhotos.pl <verb> <options>
+    OrganizePhotos.pl add-md5
+    OrganizePhotos.pl check-md5 [glob_pattern]
+    OrganizePhotos.pl verify-md5
+    OrganizePhotos.pl find-dupe-files
+    OrganizePhotos.pl metadata-diff
+    OrganizePhotos.pl collect-trash
 
 # DESCRIPTION
 
@@ -51,7 +50,7 @@ Alias: c5
 For each file matching glob\_pattern, generate the MD5 hash and either
 add to md5.txt file if missing or verify hashes match if already present.
 
-This method is read/write, if you want to read-only MD5 checkin, 
+This method is read/write, if you want to read-only MD5 checkin,
 use verify-md5.
 
 ## verify-md5
@@ -91,10 +90,9 @@ For example if we had the following trash:
 
 After collection we would have:
 
-       ./.Trash/Foo/1.jpg
-       ./.Trash/Foo/2.jpg
-       ./.Trash/Bar/1.jpg
-    
+    ./.Trash/Foo/1.jpg
+    ./.Trash/Foo/2.jpg
+    ./.Trash/Bar/1.jpg
 
 # TODO
 
