@@ -84,14 +84,17 @@ and moves that content to the current directory's .Trash perserving
 directory structure.
 
 For example if we had the following trash:
+
     ./Foo/.Trash/1.jpg
     ./Foo/.Trash/2.jpg
     ./Bar/.Trash/1.jpg
 
 After collection we would have:
-    ./.Trash/Foo/1.jpg
-    ./.Trash/Foo/2.jpg
-    ./.Trash/Bar/1.jpg
+
+       ./.Trash/Foo/1.jpg
+       ./.Trash/Foo/2.jpg
+       ./.Trash/Bar/1.jpg
+    
 
 # TODO
 
