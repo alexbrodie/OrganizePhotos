@@ -233,28 +233,10 @@ sub doCheckMd5 {
     if ($#_ == -1) {
         # No args - check or add MD5s for all the media files
         # below the current dir
-<<<<<<< HEAD
         verifyOrGenerateMd5Recursively(0);
     } else {
         # Glob(s) provided - check or add MD5s for all files that match
         verifyOrGenerateMd5($_, 0) for sort map { glob } @_;
-=======
-        local *wanted = sub {
-            if (!-d) {
-                #if (/\.(?:crw|cr2|m4v|mov|mp4|mts|nef|raf)$/i) {
-                if (/\.(?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|raf)$/i) {
-                    verifyOrGenerateMd5($_)
-                } elsif ($_ ne 'md5.txt') {
-                    # TODO: Also skip Thumbs.db, .Ds_Store, etc?
-                    print "Skipping    MD5 for ", rel2abs($_), "\n";
-                }
-            }
-        };
-        find(\&wanted, '.');
-    } else {
-        # Glob(s) provided - check or add MD5s for all files that match
-        verifyOrGenerateMd5($_) for sort map { glob } @_;
->>>>>>> master
     }
 }
 
@@ -300,22 +282,14 @@ sub doFindDupeFiles {
 
     # Sort groups by first element
     @dupes = sort { $a->[0] cmp $b->[0] } @dupes;
-<<<<<<< HEAD
 
     my $all = 0;
     for my $group (@dupes) {
 
-=======
-    
-    my $all = 0;
-    for my $group (@dupes) {
-        
->>>>>>> master
         # Filter out missing files
         # TODO: remove missing files from md5.txt?
         @$group = grep { -e } @$group;
         next unless @$group > 1;
-<<<<<<< HEAD
 
         my @prompt;
 
@@ -348,46 +322,6 @@ sub doFindDupeFiles {
             print "\n", @prompt;
             chomp(my $in = lc <STDIN>);
 
-=======
-        
-        my @prompt;
-        
-        # If all in this group are JPEG...
-        if (!grep { !/\.(?:jpeg|jpg)$/i } @$group) {
-            # ...get each's whole file hashes match
-            my @fullMd5s = map { getBareFileMd5($_) } @$group;
-            for (my $i = 0; $i < @$group; $i++) {
-                push @prompt, "  $i. [", $fullMd5s[$i], "] ", diffColored($group->[$i], $i), "\n";
-                # TODO: collect all sidecars and tell user
-            }
-            
-            # TODO: if jpgs, use full file MD5 to see if they're binary
-            #       equivalent and tell user
-            if (!grep { $_ ne $fullMd5s[0] } @fullMd5s) {
-                # All the same
-                push @prompt, "  (All above JPEGs are fully MD5 equavalent)";
-            } else {
-                # A full file mismatch
-            }
-        } else {
-            # At least one non-JPEG
-            for (my $i = 0; $i < @$group; $i++) {
-                push @prompt, "  $i. ", diffColored($group->[$i], $i), "\n";
-                # TODO: collect all sidecars and tell user
-            }
-        }
-        
-        print @prompt and next if $all;
-        
-        push @prompt, "Diff, Continue, Always continue, Trash Number (d/c/a";
-        push @prompt, '/', diffColored("t$_", $_) for (0..$#$group);
-        push @prompt, ")? ";
-        
-        while (1) {
-            print "\n", @prompt;
-            chomp(my $in = lc <STDIN>);
-            
->>>>>>> master
             if ($in eq 'd') {
                 # Diff
                 metadataDiff(@$group);
@@ -404,14 +338,11 @@ sub doFindDupeFiles {
                     trashMedia($group->[$1]);
                     last;
                 }
-<<<<<<< HEAD
             } elsif ($in =~ /^o(\d+)$/i) {
                 # Open Number
                 if ($1 < @$group) {
                     `open "$group->[$1]"`;
                 }
-=======
->>>>>>> master
             }
         }
     }
@@ -431,11 +362,6 @@ sub doCollectTrash {
 #--------------------------------------------------------------------------
 # Execute test verb
 sub doTest {
-<<<<<<< HEAD
-    getDirectoryError(rel2abs($_)) for @_;
-=======
-    removeMd5ForPath($_) for @_;
->>>>>>> master
 }
 
 #--------------------------------------------------------------------------
@@ -486,18 +412,11 @@ sub verifyOrGenerateMd5 {
     my ($path, $addOnly) = @_;
 
     # The path to file that contains the MD5 info
-<<<<<<< HEAD
     $path = rel2abs($path);
     my ($volume, $dir, $name) = splitpath($path);
     my $md5Path = catpath($volume, $dir, 'md5.txt');
 
     # Open MD5 file
-=======
-    my ($volume, $dir, $name) = splitpath($path);
-    my $md5Path = catpath($volume, $dir, 'md5.txt');
-    
-    # Open MD5 file    
->>>>>>> master
     my $fh;
     my $md5s;
     if (open($fh, '+<:crlf', $md5Path)) {
@@ -535,14 +454,8 @@ sub verifyOrGenerateMd5 {
         } else {
             # Mismatch, needs resolving...
             warn "MISMATCH OF MD5 for $path";
-<<<<<<< HEAD
 
             while (1) {
-=======
-            
-            while (1)
-            {
->>>>>>> master
                 print "Ignore, Overwrite, Quit (i/o/q)? ";
                 chomp(my $in = lc <STDIN>);
 
@@ -580,7 +493,6 @@ sub verifyOrGenerateMd5 {
 # Removes the cached MD5 hash for the specified path
 sub removeMd5ForPath {
     my ($path) = @_;
-<<<<<<< HEAD
 
     # The path to file that contains the MD5 info
     my ($volume, $dir, $name) = splitpath($path);
@@ -590,26 +502,11 @@ sub removeMd5ForPath {
         my @old = <$fh>;
         my @new = grep { !/\Q$name\E:/i } @old;
 
-=======
-    
-    # The path to file that contains the MD5 info
-    my ($volume, $dir, $name) = splitpath($path);
-    my $md5Path = catpath($volume, $dir, 'md5.txt');
-    
-    if (open(my $fh, '+<:crlf', $md5Path)) {
-        my @old = <$fh>;
-        my @new = grep { !/\Q$name\E:/i } @old;
-        
->>>>>>> master
         if (@old != @new) {
             seek($fh, 0, 0);
             truncate($fh, 0);
             print $fh @new;
-<<<<<<< HEAD
 
-=======
-            
->>>>>>> master
             print "Removed $name from $md5Path\n";
         }
     }
@@ -625,11 +522,7 @@ sub readMd5FileFromHandle {
         chomp;
         $_ = lc $_;
         /^([^:]+):\s*($md5pattern)$/ or warn "unexpected line in MD5: $_";
-<<<<<<< HEAD
 
-=======
-        
->>>>>>> master
         $md5s{lc $1} = $2;
     }
     
@@ -647,21 +540,12 @@ sub getMd5 {
     
     for my $path (@_) {
         open(my $fh, '<:raw', $path) or confess "Couldn't open $path: $!";
-<<<<<<< HEAD
         
         #my $modified = formatDate((stat($fh))[9]);
         #print "Date modified: $modified\n";
 
         # TODO: Should we do this for TIFF, DNG as well?
 
-=======
-
-        #my $modified = formatDate((stat($fh))[9]);
-        #print "Date modified: $modified\n";
-        
-        # TODO: Should we do this for TIFF, DNG as well?
-        
->>>>>>> master
         # If JPEG, skip metadata which may change and only hash pixel data
         # and hash from Start of Scan [SOS] to end
         if ($path =~ /\.(?:jpeg|jpg)$/i) {
@@ -723,11 +607,7 @@ sub metadataDiff {
     
     my @items = map { readMetadata($_) } @paths;
     
-<<<<<<< HEAD
     # Collect all the keys which whose values aren't all equal
-=======
-    # Collect all the keys which aren't all equal
->>>>>>> master
     my %keys = ();
     for (my $i = 0; $i < @items; $i++) {
         while (my ($key, $value) = each %{$items[$i]}) {
@@ -741,21 +621,13 @@ sub metadataDiff {
             }
         }
     }
-<<<<<<< HEAD
 
-=======
-    
->>>>>>> master
     # Pretty print all the keys and associated values
     # which differ
     for my $key (sort keys %keys) {
         print colored("$key:", 'bold'), ' ' x (29 - length $key);
         for (my $i = 0; $i < @items; $i++) {
-<<<<<<< HEAD
             print coloredByIndex(exists $items[$i]->{$key}
-=======
-            print diffColored(exists $items[$i]->{$key}
->>>>>>> master
                 ? $items[$i]->{$key}
                 : colored('undef', 'faint'), $i),
             "\n", ' ' x 30;
@@ -769,19 +641,11 @@ sub metadataDiff {
 # XMP sidecar when appropriate)
 sub readMetadata {
     my ($path) = @_;
-<<<<<<< HEAD
 
     my $et = new Image::ExifTool;
 
     $et->ExtractInfo($path) or confess "Couldn't ExtractInfo for $path";
 
-=======
-    
-    my $et = new Image::ExifTool;
-    
-    $et->ExtractInfo($path) or confess "Couldn't ExtractInfo for $path";
-    
->>>>>>> master
     # If this file can't hold XMP (i.e. not JPEG or TIFF), look for
     # XMP sidecar
     # TODO: Should we exclude DNG here too?
@@ -791,22 +655,14 @@ sub readMetadata {
             $et->ExtractInfo($xmpPath) or confess "Couldn't ExtractInfo for $xmpPath";
         }
     }
-<<<<<<< HEAD
 
     my $info = $et->GetInfo();
     #my $keys = $et->GetTagList($info);
 
-=======
-    
-    my $info = $et->GetInfo();
-    #my $keys = $et->GetTagList($info);
-    
->>>>>>> master
     return $info;
 }
 
 #--------------------------------------------------------------------------
-<<<<<<< HEAD
 sub getDirectoryError {
     my ($path, $colorIndex) = @_;
 
@@ -844,17 +700,11 @@ sub getDirectoryError {
 }
 
 #--------------------------------------------------------------------------
-=======
->>>>>>> master
 # Trash the specified path and any sidecars
 sub trashMedia {
     my ($path) = @_;
     #print qq(trashMedia("$path");\n);
-<<<<<<< HEAD
 
-=======
-    
->>>>>>> master
     # Note that this assumes a proper extension
     (my $query = $path) =~ s/[^.]*$/*/;
     trashFile($_) for glob qq("$query");
@@ -866,19 +716,11 @@ sub trashMedia {
 sub trashFile {
     my ($path) = @_;
     #print qq(trashFile("$path");\n);
-<<<<<<< HEAD
 
     my ($volume, $dir, $name) = splitpath($path);
     my $trashDir = catpath($volume, $dir, '.Trash');
     my $trashPath = catfile($trashDir, $name);
 
-=======
-    
-    my ($volume, $dir, $name) = splitpath($path);
-    my $trashDir = catpath($volume, $dir, '.Trash');
-    my $trashPath = catfile($trashDir, $name);
-    
->>>>>>> master
     #print qq("$path" -> "$trashPath"\n);
     -d $trashDir or make_path($trashDir) or confess "Failed to make directory $trashDir: $!";
     move($path, $trashPath) or confess "Failed to move $path to $trashPath: $!";
@@ -897,7 +739,6 @@ sub formatDate {
 
 #--------------------------------------------------------------------------
 # Colorizes text for diffing purposes
-<<<<<<< HEAD
 sub coloredByIndex {
     my ($message, $colorIndex) = @_;
 
@@ -910,12 +751,4 @@ sub colorByIndex {
 
     my @colors = ('red', 'green', 'magenta', 'cyan', 'yellow', 'blue');
     return $colors[$colorIndex % scalar @colors];
-=======
-sub diffColored {
-    my ($message, $index) = @_;
-
-    my @colors = ('red', 'green', 'magenta', 'cyan', 'yellow', 'blue');
-
-    return colored($message, $colors[$index % scalar @colors]);
->>>>>>> master
 }
