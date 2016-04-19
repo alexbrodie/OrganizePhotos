@@ -21,6 +21,7 @@ and other OCD metadata organization.
 
 MD5 hashes are stored in a md5.txt file in the file's one line per file
 with the pattern:
+
     filename: hash
 
 Metadata operations are powered by Image::ExifTool.
