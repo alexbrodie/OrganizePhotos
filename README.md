@@ -20,6 +20,10 @@ managed by Adobe Lightroom. This helps with tasks not covered by
 Lightroom such as: backup/archive, integrity checks, consolidation,
 and other OCD metadata organization.
 
+MD5 hashes are stored in a md5.txt file in the file's one line per file
+with the pattern:
+    filename: hash
+
 Metadata operations are powered by Image::ExifTool.
 
 ## add-md5
@@ -56,10 +60,6 @@ Alias: v5
 
 Verifies the MD5 hashes for all contents of all md5.txt files below
 the current directory.
-
-MD5 hashes are stored in a md5.txt file in the file's one line per file
-with the pattern:
-filename: hash
 
 This method is read-only, if you want to add/update MD5s, use check-md5.
 
