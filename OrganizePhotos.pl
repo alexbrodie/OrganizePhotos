@@ -291,33 +291,39 @@ sub doFindDupeFiles {
         @$group = grep { -e } @$group;
         next unless @$group > 1;
 
+        # Build base of prompt - indexed paths
         my @prompt;
-
-        # If all in this group are JPEG...
-        #if (!grep { !/\.(?:jpeg|jpg)$/i } @$group) {
-
         for (my $i = 0; $i < @$group; $i++) {
             my $path = $group->[$i];
 
             push @prompt, "  $i. ";
 
             # If MD5 isn't a whole file MD5, put compute the wholefile MD5 and add to output
-            if ($path =~ /\.(?:jpeg|jpg)$/i) {
-                push @prompt, '[', getBareFileMd5($path), '] ';
-            }
+            #if ($path =~ /\.(?:jpeg|jpg)$/i) {
+            #    push @prompt, '[', getBareFileMd5($path), '] ';
+            #}
 
-            push @prompt, coloredByIndex($path, $i), getDirectoryError($path, $i), "\n";
+            push @prompt, coloredByIndex($path, $i);
+            
+            # Don't bother cracking the file to get metadata if we're in ignore all mode
+            push @prompt, getDirectoryError($path, $i) unless $all;
+            
+            push @prompt, "\n";
             # TODO: collect all sidecars and tell user
         }
 
+        # Just print that and move on if "Always continue" was
+        # previously specified
         print @prompt and next if $all;
 
+        # Add input options to prompt
         push @prompt, "Diff, Continue, Always continue, Trash Number, Open Number (d/c/a";
         for my $x ('t', 'o') {
             push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#$group);
         }
         push @prompt, ")? ";
 
+        # Get input until something sticks...
         while (1) {
             print "\n", @prompt;
             chomp(my $in = lc <STDIN>);
@@ -434,6 +440,7 @@ sub verifyOrGenerateMd5 {
     # In add-only mode, don't compute the hash of a file that
     # is already in the md5.txt
     if ($addOnly and $expectedMd5) {
+        print "Skippping   MD5 for $path\n";
         return;
     }
 
