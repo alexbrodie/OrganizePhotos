@@ -77,8 +77,10 @@ Find files that have multiple copies under the current directory.
 =over 24
  
 =item B<-a, --always-continue>
- 
+
 Always continue
+ 
+=back
 
 =head2 metadata-diff <files>
 

@@ -138,11 +138,3 @@ under the same terms as Perl itself.
 # SEE ALSO
 
 [Image::ExifTool](https://metacpan.org/pod/Image::ExifTool)
-
-# POD ERRORS
-
-Hey! **The above document had some coding errors, which are explained below:**
-
-- Around line 83:
-
-    You forgot a '=back' before '=head2'
