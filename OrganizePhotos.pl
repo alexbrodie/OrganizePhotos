@@ -11,7 +11,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl add-md5
     OrganizePhotos.pl check-md5 [glob_pattern]
     OrganizePhotos.pl verify-md5
-    OrganizePhotos.pl find-dupe-files
+    OrganizePhotos.pl find-dupe-files [-a | --always-continue]
     OrganizePhotos.pl metadata-diff
     OrganizePhotos.pl collect-trash
 
@@ -71,6 +71,16 @@ This method is read-only, if you want to add/update MD5s, use check-md5.
 Alias: fdf
 
 Find files that have multiple copies under the current directory.
+ 
+=head3 Options
+ 
+=over 24
+ 
+=item B<-a, --always-continue>
+
+Always continue
+ 
+=back
 
 =head2 metadata-diff <files>
 
@@ -148,6 +158,7 @@ use File::Find;
 use File::Glob qw(:globally :nocase);
 use File::Path qw(make_path);
 use File::Spec::Functions qw(:ALL);
+use Getopt::Long;
 use Image::ExifTool;
 use Pod::Usage;
 use Term::ANSIColor;
@@ -166,22 +177,24 @@ sub main {
     if ($#ARGV == -1 || ($#ARGV == 0 && $ARGV[0] =~ /[-\/][?h]/)) {
         pod2usage();
     } else {
+        Getopt::Long::Configure('bundling');
+        
         my $rawVerb = shift @ARGV;
         my $verb = lc $rawVerb;
         if ($verb eq 'add-md5' or $verb eq 'a5') {
-            doAddMd5(@ARGV);
+            doAddMd5();
         } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
-            doCheckMd5(@ARGV);
+            doCheckMd5();
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
-            doVerifyMd5(@ARGV);
+            doVerifyMd5();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
-            doFindDupeFiles(@ARGV);
+            doFindDupeFiles();
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
-            doMetadataDiff(@ARGV);
+            doMetadataDiff();
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
-            doGatherTrash(@ARGV);
+            doGatherTrash();
         } elsif ($verb eq 'test') {
-            doTest(@ARGV);
+            doTest();
         } else {
             die "Unknown verb: $rawVerb\n";
         }
@@ -230,19 +243,22 @@ sub doAddMd5 {
 #--------------------------------------------------------------------------
 # Execute check-md5 verb
 sub doCheckMd5 {
-    if ($#_ == -1) {
+    if ($#ARGV == -1) {
         # No args - check or add MD5s for all the media files
         # below the current dir
         verifyOrGenerateMd5Recursively(0);
     } else {
         # Glob(s) provided - check or add MD5s for all files that match
-        verifyOrGenerateMd5($_, 0) for sort map { glob } @_;
+        verifyOrGenerateMd5($_, 0) for sort map { glob } @ARGV;
     }
 }
 
 #--------------------------------------------------------------------------
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
+    my $all;
+    GetOptions('always-continue' => \$all);
+    
     #local our %results = ();
     #local *wanted = sub {
     #    if (!-d && /^(.{4}\d{4}).*(\.[^.]*)$/) {
@@ -283,7 +299,6 @@ sub doFindDupeFiles {
     # Sort groups by first element
     @dupes = sort { $a->[0] cmp $b->[0] } @dupes;
 
-    my $all = 0;
     for my $group (@dupes) {
 
         # Filter out missing files
@@ -291,33 +306,39 @@ sub doFindDupeFiles {
         @$group = grep { -e } @$group;
         next unless @$group > 1;
 
+        # Build base of prompt - indexed paths
         my @prompt;
-
-        # If all in this group are JPEG...
-        #if (!grep { !/\.(?:jpeg|jpg)$/i } @$group) {
-
         for (my $i = 0; $i < @$group; $i++) {
             my $path = $group->[$i];
 
             push @prompt, "  $i. ";
 
             # If MD5 isn't a whole file MD5, put compute the wholefile MD5 and add to output
-            if ($path =~ /\.(?:jpeg|jpg)$/i) {
-                push @prompt, '[', getBareFileMd5($path), '] ';
-            }
+            #if ($path =~ /\.(?:jpeg|jpg)$/i) {
+            #    push @prompt, '[', getBareFileMd5($path), '] ';
+            #}
 
-            push @prompt, coloredByIndex($path, $i), getDirectoryError($path, $i), "\n";
+            push @prompt, coloredByIndex($path, $i);
+            
+            # Don't bother cracking the file to get metadata if we're in ignore all mode
+            push @prompt, getDirectoryError($path, $i) unless $all;
+            
+            push @prompt, "\n";
             # TODO: collect all sidecars and tell user
         }
 
+        # Just print that and move on if "Always continue" was
+        # previously specified
         print @prompt and next if $all;
 
+        # Add input options to prompt
         push @prompt, "Diff, Continue, Always continue, Trash Number, Open Number (d/c/a";
         for my $x ('t', 'o') {
             push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#$group);
         }
         push @prompt, ")? ";
 
+        # Get input until something sticks...
         while (1) {
             print "\n", @prompt;
             chomp(my $in = lc <STDIN>);
@@ -351,7 +372,7 @@ sub doFindDupeFiles {
 #--------------------------------------------------------------------------
 # Execute metadata-diff verb
 sub doMetadataDiff {
-    metadataDiff(@_);
+    metadataDiff(@ARGV);
 }
 
 #--------------------------------------------------------------------------
@@ -362,6 +383,13 @@ sub doCollectTrash {
 #--------------------------------------------------------------------------
 # Execute test verb
 sub doTest {
+    # -a, --always-continue  => 1
+    # --always-continue  => 0
+    # else  => undef
+    my $all;
+    GetOptions('always-continue|a!' => \$all);
+    
+    print join('; ', "all == $all", @ARGV), "\n";
 }
 
 #--------------------------------------------------------------------------
@@ -434,6 +462,7 @@ sub verifyOrGenerateMd5 {
     # In add-only mode, don't compute the hash of a file that
     # is already in the md5.txt
     if ($addOnly and $expectedMd5) {
+        print "Skippping   MD5 for $path\n";
         return;
     }
 

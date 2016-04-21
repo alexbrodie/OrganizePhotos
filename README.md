@@ -8,7 +8,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl add-md5
     OrganizePhotos.pl check-md5 [glob_pattern]
     OrganizePhotos.pl verify-md5
-    OrganizePhotos.pl find-dupe-files
+    OrganizePhotos.pl find-dupe-files [-a | --always-continue]
     OrganizePhotos.pl metadata-diff
     OrganizePhotos.pl collect-trash
 
@@ -68,6 +68,12 @@ This method is read-only, if you want to add/update MD5s, use check-md5.
 Alias: fdf
 
 Find files that have multiple copies under the current directory.
+
+### Options
+
+- **-a, --always-continue**
+
+    Always continue
 
 ## metadata-diff &lt;files>
 
