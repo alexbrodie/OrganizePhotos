@@ -192,7 +192,7 @@ sub main {
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             doMetadataDiff();
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
-            doGatherTrash();
+            doCollectTrash();
         } elsif ($verb eq 'test') {
             doTest();
         } else {
@@ -204,6 +204,8 @@ sub main {
 #--------------------------------------------------------------------------
 # Execute verify-md5 verb
 sub doVerifyMd5 {
+    GetOptions();
+    
     our $all = 0;
     local *callback = sub {
         my ($path, $expectedMd5) = @_;
@@ -237,12 +239,16 @@ sub doVerifyMd5 {
 #--------------------------------------------------------------------------
 # Execute add-md5 verb
 sub doAddMd5 {
+    GetOptions();
+    
     verifyOrGenerateMd5Recursively(1);
 }
 
 #--------------------------------------------------------------------------
 # Execute check-md5 verb
 sub doCheckMd5 {
+    GetOptions();
+    
     if ($#ARGV == -1) {
         # No args - check or add MD5s for all the media files
         # below the current dir
@@ -372,12 +378,30 @@ sub doFindDupeFiles {
 #--------------------------------------------------------------------------
 # Execute metadata-diff verb
 sub doMetadataDiff {
+    GetOptions();
+    
     metadataDiff(@ARGV);
 }
 
 #--------------------------------------------------------------------------
 # Execute collect-trash verb
 sub doCollectTrash {
+    GetOptions();
+    
+    my $here = rel2abs(curdir());
+    
+    local *wanted = sub {
+        if (-d and lc $_ eq '.trash') {
+            my $path = rel2abs($_);
+            my ($volume, $dir, $name) = splitpath($path);
+            my @dirs = splitdir($dir);
+            
+            print "$here\n";
+            #print "$_;$File::Find::name;", rel2abs($_), "\n";
+            print "$volume; { ", join(', ', @dirs), " }; $name\n";
+        }
+    };
+    find(\&wanted, $here);
 }
 
 #--------------------------------------------------------------------------
@@ -386,10 +410,18 @@ sub doTest {
     # -a, --always-continue  => 1
     # --always-continue  => 0
     # else  => undef
-    my $all;
-    GetOptions('always-continue|a!' => \$all);
+    #my $all;
+    #GetOptions('always-continue|a!' => \$all);
+    #print join('; ', "all == $all", @ARGV), "\n";
     
-    print join('; ', "all == $all", @ARGV), "\n";
+    # No options
+    GetOptions();
+
+    # Simple recursive file search example:
+    #local *wanted = sub {
+    #    my ($name, $path, $dir, $isDir) = ($_, $File::Find::name, $File::Find::dir, -d);
+    #};
+    #find(\&wanted, '.');
 }
 
 #--------------------------------------------------------------------------
@@ -589,10 +621,10 @@ sub getMd5 {
                 read($fh, my $data, 4) or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
                 my ($tag, $size) = unpack('nn', $data);
 
+                last if $tag == 0xffda;
+                
                 $tags .= sprintf("%04x,%04x;", $tag, $size);
                 #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
-
-                last if $tag == 0xffda;
                 
                 my $address = tell($fh) + $size - 2;
                 seek($fh, $address, 0) or confess "Failed to seek $path to $address: $!";
@@ -634,6 +666,7 @@ sub getMd5Digest {
 sub metadataDiff {
     my @paths = @_;
     
+    # Get metadata for all files
     my @items = map { readMetadata($_) } @paths;
     
     # Collect all the keys which whose values aren't all equal
