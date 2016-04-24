@@ -11,8 +11,8 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl add-md5
     OrganizePhotos.pl check-md5 [glob_pattern]
     OrganizePhotos.pl verify-md5
-    OrganizePhotos.pl find-dupe-files [-a | --always-continue]
-    OrganizePhotos.pl metadata-diff
+    OrganizePhotos.pl find-dupe-files [-a]
+    OrganizePhotos.pl metadata-diff <files>
     OrganizePhotos.pl collect-trash
 
 =head1 DESCRIPTION
@@ -35,8 +35,11 @@ Alias: a5
 
 For each media file under the current directory that doesn't have a
 MD5 computed, generate the MD5 hash and add to md5.txt file.
+ 
+This does not modify media files or their sidecars, it only adds entries
+to the md5.txt files.
 
-=head2 check-md5
+=head2 check-md5 [glob_pattern]
 
 Alias: c5
 
@@ -44,18 +47,22 @@ For each media file under the current directory, generate the MD5 hash
 and either add to md5.txt file if missing or verify hashes match if
 already present.
 
-This method is read/write, if you want to read-only MD5 checkin,
-use verify-md5.
+This method is read/write for MD5s, if you want to perform read-only 
+MD5 checks (i.e., don't write to md5.txt), then use verify-md5.
+ 
+This does not modify media files or their sidecars, it only modifies
+the md5.txt files.
+ 
+=head3 Options
+ 
+=over 24
 
-=head2 check-md5 <glob_pattern>
+=item B<glob_pattern>
+ 
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
 
-Alias: c5
-
-For each file matching glob_pattern, generate the MD5 hash and either
-add to md5.txt file if missing or verify hashes match if already present.
-
-This method is read/write, if you want to read-only MD5 checkin,
-use verify-md5.
+=back
 
 =head2 verify-md5
 
@@ -65,8 +72,10 @@ Verifies the MD5 hashes for all contents of all md5.txt files below
 the current directory.
 
 This method is read-only, if you want to add/update MD5s, use check-md5.
+ 
+This method does not modify any file.
 
-=head2 find-dupe-files
+=head2 find-dupe-files [-a]
 
 Alias: fdf
 
@@ -87,7 +96,9 @@ Always continue
 Alias: md
 
 Do a diff of the specified media files (including their sidecar metadata).
-
+ 
+This method does not modify any file.
+ 
 =head2 collect-trash
 
 Alias: ct
@@ -107,6 +118,10 @@ After collection we would have:
     ./.Trash/Foo/1.jpg
     ./.Trash/Foo/2.jpg
     ./.Trash/Bar/1.jpg
+ 
+=head2 remove-empties
+ 
+=begin comment
 
 =head1 TODO
 
@@ -134,6 +149,8 @@ Find XMP or THM files that don't have a cooresponding main file
 
 Flag for CheckMd5/VerifyMd5 to only check files created/modified since
 the provided timestamp or timestamp at last MD5 check
+ 
+=end comment
 
 =head1 AUTHOR
 
