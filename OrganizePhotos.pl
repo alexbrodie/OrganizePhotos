@@ -172,7 +172,7 @@ my $mediaType = qr/\.(?i)(?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|raf)$/;
 main();
 exit 0;
 
-#--------------------------------------------------------------------------
+#==========================================================================
 sub main {
     if ($#ARGV == -1 || ($#ARGV == 0 && $ARGV[0] =~ /[-\/][?h]/)) {
         pod2usage();
@@ -192,7 +192,7 @@ sub main {
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             doMetadataDiff();
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
-            doGatherTrash();
+            doCollectTrash();
         } elsif ($verb eq 'test') {
             doTest();
         } else {
@@ -201,9 +201,11 @@ sub main {
     }
 }
 
-#--------------------------------------------------------------------------
+#==========================================================================
 # Execute verify-md5 verb
 sub doVerifyMd5 {
+    GetOptions();
+    
     our $all = 0;
     local *callback = sub {
         my ($path, $expectedMd5) = @_;
@@ -234,15 +236,19 @@ sub doVerifyMd5 {
     findMd5s(\&callback, '.');
 }
 
-#--------------------------------------------------------------------------
+#==========================================================================
 # Execute add-md5 verb
 sub doAddMd5 {
+    GetOptions();
+    
     verifyOrGenerateMd5Recursively(1);
 }
 
-#--------------------------------------------------------------------------
+#==========================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
+    GetOptions();
+    
     if ($#ARGV == -1) {
         # No args - check or add MD5s for all the media files
         # below the current dir
@@ -253,7 +259,7 @@ sub doCheckMd5 {
     }
 }
 
-#--------------------------------------------------------------------------
+#==========================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
     my $all;
@@ -369,27 +375,64 @@ sub doFindDupeFiles {
     }
 }
 
-#--------------------------------------------------------------------------
+#==========================================================================
 # Execute metadata-diff verb
 sub doMetadataDiff {
+    GetOptions();
+    
     metadataDiff(@ARGV);
 }
 
-#--------------------------------------------------------------------------
+#==========================================================================
 # Execute collect-trash verb
 sub doCollectTrash {
+    GetOptions();
+    
+    my $here = rel2abs(curdir());
+    
+    local *wanted = sub {
+        if (-d and lc $_ eq '.trash') {
+            my $oldFullPath = rel2abs($_);
+            my $oldRelPath = abs2rel($oldFullPath, $here);
+            my @dirs = splitdir($oldRelPath);
+            unshift @dirs, pop @dirs;
+            my $newRelPath = catdir(@dirs);
+            my $newFullPath = rel2abs($newRelPath, $here);
+
+            print "$oldRelPath -> $newRelPath\n";
+            moveDir($oldFullPath, $newFullPath);
+        }
+    };
+    find(\&wanted, $here);
 }
 
-#--------------------------------------------------------------------------
+#==========================================================================
 # Execute test verb
 sub doTest {
     # -a, --always-continue  => 1
     # --always-continue  => 0
     # else  => undef
-    my $all;
-    GetOptions('always-continue|a!' => \$all);
+    #my $all;
+    #GetOptions('always-continue|a!' => \$all);
+    #print join('; ', "all == $all", @ARGV), "\n";
     
-    print join('; ', "all == $all", @ARGV), "\n";
+    # No options
+    GetOptions();
+
+    # Simple recursive file search example:
+    #local *wanted = sub {
+    #    my ($name, $path, $dir, $isDir) = ($_, $File::Find::name, $File::Find::dir, -d);
+    #};
+    #find(\&wanted, '.');
+    
+    my $path = rel2abs($ARGV[0]);
+    my ($volume, $dir, $name) = splitpath($path);
+    my @dirs = splitdir($dir);
+    print join('#', $volume, @dirs, $name), "\n";
+    my $what = catpath($volume, $dir);
+    print "what=$what\n";
+    
+    print "Parent of $path is ", catpath((splitpath($path))[0,1]), "\n";
 }
 
 #--------------------------------------------------------------------------
@@ -589,10 +632,10 @@ sub getMd5 {
                 read($fh, my $data, 4) or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
                 my ($tag, $size) = unpack('nn', $data);
 
+                last if $tag == 0xffda;
+                
                 $tags .= sprintf("%04x,%04x;", $tag, $size);
                 #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
-
-                last if $tag == 0xffda;
                 
                 my $address = tell($fh) + $size - 2;
                 seek($fh, $address, 0) or confess "Failed to seek $path to $address: $!";
@@ -634,6 +677,7 @@ sub getMd5Digest {
 sub metadataDiff {
     my @paths = @_;
     
+    # Get metadata for all files
     my @items = map { readMetadata($_) } @paths;
     
     # Collect all the keys which whose values aren't all equal
@@ -692,6 +736,9 @@ sub readMetadata {
 }
 
 #--------------------------------------------------------------------------
+# If specified media [path] is in the right directory, returns the falsy
+# empty string. If it is in the wrong directory, a short truthy error
+# string (colored by [colorIndex]) is returned.
 sub getDirectoryError {
     my ($path, $colorIndex) = @_;
 
@@ -732,7 +779,7 @@ sub getDirectoryError {
 # Trash the specified path and any sidecars
 sub trashMedia {
     my ($path) = @_;
-    #print qq(trashMedia("$path");\n);
+    #print "trashMedia('$path');\n";
 
     # Note that this assumes a proper extension
     (my $query = $path) =~ s/[^.]*$/*/;
@@ -744,7 +791,7 @@ sub trashMedia {
 # its entry from the md5.txt file
 sub trashFile {
     my ($path) = @_;
-    #print qq(trashFile("$path");\n);
+    #print "trashFile('$path');\n";
 
     my ($volume, $dir, $name) = splitpath($path);
     my $trashDir = catpath($volume, $dir, '.Trash');
@@ -756,6 +803,41 @@ sub trashFile {
     print "Moved $path\n   to $trashPath\n";
 
     removeMd5ForPath($path);
+}
+
+#--------------------------------------------------------------------------
+# Move the [oldPath] directory to [newPath] with merging if [newPath]
+# already exists
+sub moveDir {
+    my ($oldPath, $newPath) = @_;
+    print "moveDir('$oldPath', '$newPath');\n";
+    
+    if (-d $newPath) {
+        # Dest dir already exists, need to move-merge
+        
+        # TODO
+        confess "I can't do this yet, sorry :(";
+    } else {
+        # Dest dir doesn't exist
+        
+        # Create parent folder if it doesn't exist
+        my $parentDir = catpath((splitpath($newPath))[0,1]);
+        -d $parentDir or make_path($parentDir) or confess "Failed to make directory $parentDir: $!";
+        
+        # Move the source to the target now that parent exists
+        move($oldPath, $newPath) or confess "Failed to move $oldPath to $newPath: $!";
+    }
+}
+
+#--------------------------------------------------------------------------
+# Split a path into ($volume, @dirs, $name)
+sub deepSplitPath {
+    my ($path) = @_;
+    
+    my ($volume, $dir, $name) = splitpath($path);
+    my @dirs = splitdir($dir);
+    
+    return ($volume, @dirs, $name);
 }
 
 #--------------------------------------------------------------------------
