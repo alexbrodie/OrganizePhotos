@@ -17,7 +17,20 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl metadata-diff <files>
     OrganizePhotos.pl remove-empties
     OrganizePhotos.pl verify-md5
+ 
+    # Complementary Mac commands:
+ 
+    # Remove empty directories
+    find . -type d -empty -delete
+ 
+    # Mirror SOURCE to TARGET
+    rsync -ah --delete -—delete-during --compress-level=0 --inplace --progress SOURCE TARGET
 
+    # Complementary PC commands:
+ 
+    # Mirror SOURCE to TARGET
+    robocopy /MIR SOURCE TARGET
+ 
 =head1 DESCRIPTION
 
 Helps to manage a collection of photos and videos that are primarily
@@ -209,9 +222,9 @@ exit 0;
 
 #==========================================================================
 sub main {
-    if ($#ARGV == -1 || ($#ARGV == 0 && $ARGV[0] =~ /[-\/][?h]/)) {
+    if ($#ARGV == -1 || ($#ARGV == 0 && $ARGV[0] =~ /^-[?h]$/i)) {
         pod2usage();
-    } else {
+    }else {
         Getopt::Long::Configure('bundling');
         my $rawVerb = shift @ARGV;
         my $verb = lc $rawVerb;
@@ -242,6 +255,9 @@ sub main {
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             GetOptions();
             doMetadataDiff(@ARGV);
+        } elsif ($verb eq 'remove-empties' or $verb eq 're') {
+            GetOptions();
+            doRemoveEmpties();
         } elsif ($verb eq 'test') {
             doTest();
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
@@ -420,11 +436,33 @@ sub doMetadataDiff {
 #==========================================================================
 # Execute metadata-diff verb
 sub doRemoveEmpties {
+    my %dirContentsMap = ();
+    find({
+        preprocess => sub {
+            return grep { lc ne '.trash' } @_;
+        },
+        wanted => sub {
+            push @{$dirContentsMap{$File::Find::dir}}, $_;
+            push @{$dirContentsMap{$File::Find::name}}, '.' if -d;
+        }
+    }, '.');
+    
+    while (my ($dir, $contents) = each %dirContentsMap) {
+        unless (grep { $_ ne '.' and lc $_ ne 'md5.txt' } @$contents) {
+            print "Trashing $dir\n";
+            trashPath($dir);
+        }
+    }
 }
 
 #==========================================================================
 # Execute test verb
 sub doTest {
+    find(sub {
+        if (!-d) {
+            
+        }
+    }, '.');
 }
 
 #==========================================================================
@@ -808,15 +846,15 @@ sub trashMedia {
 
     # Note that this assumes a proper extension
     (my $query = $path) =~ s/[^.]*$/*/;
-    trashFile($_) for glob qq("$query");
+    trashPath($_) for glob qq("$query");
 }
 
 #--------------------------------------------------------------------------
 # Trash the specified path by moving it to a .Trash subdir and removing
 # its entry from the md5.txt file
-sub trashFile {
+sub trashPath {
     my ($path) = @_;
-    #print "trashFile('$path');\n";
+    #print "trashPath('$path');\n";
 
     my ($volume, $dir, $name) = splitpath($path);
     my $trashDir = catpath($volume, $dir, '.Trash');
