@@ -63,18 +63,27 @@ Rather than operate on files under the current directory, operate on
 the specified glob pattern.
 
 =back
-
-=head2 verify-md5
-
-Alias: v5
-
-Verifies the MD5 hashes for all contents of all md5.txt files below
-the current directory.
-
-This method is read-only, if you want to add/update MD5s, use check-md5.
  
-This method does not modify any file.
-
+=head2 collect-trash
+ 
+Alias: ct
+ 
+Looks recursively for .Trash subdirectories under the current directory
+and moves that content to the current directory's .Trash perserving
+directory structure.
+ 
+For example if we had the following trash:
+ 
+    ./Foo/.Trash/1.jpg
+    ./Foo/.Trash/2.jpg
+    ./Bar/.Trash/1.jpg
+ 
+After collection we would have:
+ 
+    ./.Trash/Foo/1.jpg
+    ./.Trash/Foo/2.jpg
+    ./.Trash/Bar/1.jpg
+ 
 =head2 find-dupe-files [-a]
 
 Alias: fdf
@@ -98,29 +107,22 @@ Alias: md
 Do a diff of the specified media files (including their sidecar metadata).
  
 This method does not modify any file.
- 
-=head2 collect-trash
 
-Alias: ct
-
-Looks recursively for .Trash subdirectories under the current directory
-and moves that content to the current directory's .Trash perserving
-directory structure.
-
-For example if we had the following trash:
-
-    ./Foo/.Trash/1.jpg
-    ./Foo/.Trash/2.jpg
-    ./Bar/.Trash/1.jpg
-
-After collection we would have:
-
-    ./.Trash/Foo/1.jpg
-    ./.Trash/Foo/2.jpg
-    ./.Trash/Bar/1.jpg
- 
 =head2 remove-empties
  
+Remove any subdirectories that are empty save an md5.txt file
+
+=head2 verify-md5
+ 
+Alias: v5
+ 
+Verifies the MD5 hashes for all contents of all md5.txt files below
+the current directory.
+ 
+This method is read-only, if you want to add/update MD5s, use check-md5.
+ 
+This method does not modify any file.
+
 =begin comment
 
 =head1 TODO
@@ -128,9 +130,9 @@ After collection we would have:
 =head2 checkup
  
     check-md5
-    find-dupe-files
+    find-dupe-files [-a | --always-continue]
     collect-trash
-    clean-empty
+    remove-empties
 
 =head2 FindMisplacedFiles
 
@@ -207,25 +209,36 @@ sub main {
         my $verb = lc $rawVerb;
         if ($verb eq 'add-md5' or $verb eq 'a5') {
             GetOptions();
-            doAddMd5(@ARGV);
+            @ARGV and die "Unexpected parameters: @ARGV";
+            doAddMd5();
         } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
             GetOptions();
             doCheckMd5(@ARGV);
-        } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
+        } elsif ($verb eq 'checkup' or $verb eq 'c') {
             GetOptions();
-            doVerifyMd5(@ARGV);
+            @ARGV and die "Unexpected parameters: @ARGV";
+            doCheckMd5();
+            doFindDupeFiles();
+            doCollectTrash();
+            doRemoveEmpties();
+        } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
+            GetOptions();
+            @ARGV and die "Unexpected parameters: @ARGV";
+            doCollectTrash();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
             my $all;
             GetOptions('always-continue' => \$all);
-            doFindDupeFiles($all, @ARGV);
+            @ARGV and die "Unexpected parameters: @ARGV";
+            doFindDupeFiles($all);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             GetOptions();
             doMetadataDiff(@ARGV);
-        } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
-            GetOptions();
-            doCollectTrash(@ARGV);
         } elsif ($verb eq 'test') {
             doTest();
+        } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
+            GetOptions();
+            @ARGV and die "Unexpected parameters: @ARGV";
+            doVerifyMd5();
         } else {
             die "Unknown verb: $rawVerb\n";
         }
@@ -274,13 +287,13 @@ sub doAddMd5 {
 #==========================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
-    if ($#ARGV == -1) {
+    if (@_) {
         # No args - check or add MD5s for all the media files
         # below the current dir
         verifyOrGenerateMd5Recursively(0);
     } else {
         # Glob(s) provided - check or add MD5s for all files that match
-        verifyOrGenerateMd5($_, 0) for sort map { glob } @ARGV;
+        verifyOrGenerateMd5($_, 0) for sort map { glob } @_;
     }
 }
 
@@ -397,6 +410,12 @@ sub doFindDupeFiles {
             }
         }
     }
+}
+
+#==========================================================================
+# Execute metadata-diff verb
+sub doMetadataDiff {
+    metadataDiff(@_);
 }
 
 #==========================================================================
