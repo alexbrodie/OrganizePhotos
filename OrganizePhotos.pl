@@ -124,6 +124,13 @@ After collection we would have:
 =begin comment
 
 =head1 TODO
+ 
+=head2 checkup
+ 
+    check-md5
+    find-dupe-files
+    collect-trash
+    clean-empty
 
 =head2 FindMisplacedFiles
 
@@ -199,17 +206,24 @@ sub main {
         my $rawVerb = shift @ARGV;
         my $verb = lc $rawVerb;
         if ($verb eq 'add-md5' or $verb eq 'a5') {
-            doAddMd5();
+            GetOptions();
+            doAddMd5(@ARGV);
         } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
-            doCheckMd5();
+            GetOptions();
+            doCheckMd5(@ARGV);
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
-            doVerifyMd5();
+            GetOptions();
+            doVerifyMd5(@ARGV);
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
-            doFindDupeFiles();
+            my $all;
+            GetOptions('always-continue' => \$all);
+            doFindDupeFiles($all, @ARGV);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
-            doMetadataDiff();
+            GetOptions();
+            doMetadataDiff(@ARGV);
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
-            doCollectTrash();
+            GetOptions();
+            doCollectTrash(@ARGV);
         } elsif ($verb eq 'test') {
             doTest();
         } else {
@@ -221,8 +235,6 @@ sub main {
 #==========================================================================
 # Execute verify-md5 verb
 sub doVerifyMd5 {
-    GetOptions();
-    
     our $all = 0;
     local *callback = sub {
         my ($path, $expectedMd5) = @_;
@@ -256,16 +268,12 @@ sub doVerifyMd5 {
 #==========================================================================
 # Execute add-md5 verb
 sub doAddMd5 {
-    GetOptions();
-    
     verifyOrGenerateMd5Recursively(1);
 }
 
 #==========================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
-    GetOptions();
-    
     if ($#ARGV == -1) {
         # No args - check or add MD5s for all the media files
         # below the current dir
@@ -279,8 +287,7 @@ sub doCheckMd5 {
 #==========================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
-    my $all;
-    GetOptions('always-continue' => \$all);
+    my ($all) = @_;
     
     #local our %results = ();
     #local *wanted = sub {
@@ -395,16 +402,12 @@ sub doFindDupeFiles {
 #==========================================================================
 # Execute metadata-diff verb
 sub doMetadataDiff {
-    GetOptions();
-    
-    metadataDiff(@ARGV);
+    metadataDiff(@_);
 }
 
 #==========================================================================
 # Execute collect-trash verb
 sub doCollectTrash {
-    GetOptions();
-    
     my $here = rel2abs(curdir());
     
     local *wanted = sub {
@@ -426,30 +429,6 @@ sub doCollectTrash {
 #==========================================================================
 # Execute test verb
 sub doTest {
-    # -a, --always-continue  => 1
-    # --always-continue  => 0
-    # else  => undef
-    #my $all;
-    #GetOptions('always-continue|a!' => \$all);
-    #print join('; ', "all == $all", @ARGV), "\n";
-    
-    # No options
-    GetOptions();
-
-    # Simple recursive file search example:
-    #local *wanted = sub {
-    #    my ($name, $path, $dir, $isDir) = ($_, $File::Find::name, $File::Find::dir, -d);
-    #};
-    #find(\&wanted, '.');
-    
-    my $path = rel2abs($ARGV[0]);
-    my ($volume, $dir, $name) = splitpath($path);
-    my @dirs = splitdir($dir);
-    print join('#', $volume, @dirs, $name), "\n";
-    my $what = catpath($volume, $dir);
-    print "what=$what\n";
-    
-    print "Parent of $path is ", catpath((splitpath($path))[0,1]), "\n";
 }
 
 #--------------------------------------------------------------------------
