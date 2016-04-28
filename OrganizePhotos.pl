@@ -8,13 +8,29 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 =head1 SYNOPSIS
 
     OrganizePhotos.pl <verb> <options>
+    
     OrganizePhotos.pl add-md5
     OrganizePhotos.pl check-md5 [glob_pattern]
-    OrganizePhotos.pl verify-md5
-    OrganizePhotos.pl find-dupe-files [-a | --always-continue]
-    OrganizePhotos.pl metadata-diff
+    OrganizePhotos.pl checkup
     OrganizePhotos.pl collect-trash
+    OrganizePhotos.pl find-dupe-files [-a]
+    OrganizePhotos.pl metadata-diff <files>
+    OrganizePhotos.pl remove-empties
+    OrganizePhotos.pl verify-md5
+ 
+    # Complementary Mac commands:
+ 
+    # Remove empty directories
+    find . -type d -empty -delete
+ 
+    # Mirror SOURCE to TARGET
+    rsync -ah --delete -—delete-during --compress-level=0 --inplace --progress SOURCE TARGET
 
+    # Complementary PC commands:
+ 
+    # Mirror SOURCE to TARGET
+    robocopy /MIR SOURCE TARGET
+ 
 =head1 DESCRIPTION
 
 Helps to manage a collection of photos and videos that are primarily
@@ -28,6 +44,8 @@ with the pattern:
     filename: hash
 
 Metadata operations are powered by Image::ExifTool.
+ 
+The following verbs are available:
 
 =head2 add-md5
 
@@ -35,8 +53,11 @@ Alias: a5
 
 For each media file under the current directory that doesn't have a
 MD5 computed, generate the MD5 hash and add to md5.txt file.
+ 
+This does not modify media files or their sidecars, it only adds entries
+to the md5.txt files.
 
-=head2 check-md5
+=head2 check-md5 [glob_pattern]
 
 Alias: c5
 
@@ -44,29 +65,55 @@ For each media file under the current directory, generate the MD5 hash
 and either add to md5.txt file if missing or verify hashes match if
 already present.
 
-This method is read/write, if you want to read-only MD5 checkin,
-use verify-md5.
+This method is read/write for MD5s, if you want to perform read-only 
+MD5 checks (i.e., don't write to md5.txt), then use verify-md5.
+ 
+This does not modify media files or their sidecars, it only modifies
+the md5.txt files.
+ 
+=head3 Options
+ 
+=over 24
 
-=head2 check-md5 <glob_pattern>
+=item B<glob_pattern>
+ 
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
 
-Alias: c5
-
-For each file matching glob_pattern, generate the MD5 hash and either
-add to md5.txt file if missing or verify hashes match if already present.
-
-This method is read/write, if you want to read-only MD5 checkin,
-use verify-md5.
-
-=head2 verify-md5
-
-Alias: v5
-
-Verifies the MD5 hashes for all contents of all md5.txt files below
-the current directory.
-
-This method is read-only, if you want to add/update MD5s, use check-md5.
-
-=head2 find-dupe-files
+=back
+ 
+=head2 checkup
+ 
+Alias: c
+ 
+This command runs the following suggested suite of commands:
+ 
+    check-md5
+    find-dupe-files [-a | --always-continue]
+    collect-trash
+    remove-empties
+ 
+=head2 collect-trash
+ 
+Alias: ct
+ 
+Looks recursively for .Trash subdirectories under the current directory
+and moves that content to the current directory's .Trash perserving
+directory structure.
+ 
+For example if we had the following trash:
+ 
+    ./Foo/.Trash/1.jpg
+    ./Foo/.Trash/2.jpg
+    ./Bar/.Trash/1.jpg
+ 
+After collection we would have:
+ 
+    ./.Trash/Foo/1.jpg
+    ./.Trash/Foo/2.jpg
+    ./.Trash/Bar/1.jpg
+ 
+=head2 find-dupe-files [-a]
 
 Alias: fdf
 
@@ -87,26 +134,25 @@ Always continue
 Alias: md
 
 Do a diff of the specified media files (including their sidecar metadata).
+ 
+This method does not modify any file.
 
-=head2 collect-trash
+=head2 remove-empties
+ 
+Remove any subdirectories that are empty save an md5.txt file
 
-Alias: ct
+=head2 verify-md5
+ 
+Alias: v5
+ 
+Verifies the MD5 hashes for all contents of all md5.txt files below
+the current directory.
+ 
+This method is read-only, if you want to add/update MD5s, use check-md5.
+ 
+This method does not modify any file.
 
-Looks recursively for .Trash subdirectories under the current directory
-and moves that content to the current directory's .Trash perserving
-directory structure.
-
-For example if we had the following trash:
-
-    ./Foo/.Trash/1.jpg
-    ./Foo/.Trash/2.jpg
-    ./Bar/.Trash/1.jpg
-
-After collection we would have:
-
-    ./.Trash/Foo/1.jpg
-    ./.Trash/Foo/2.jpg
-    ./.Trash/Bar/1.jpg
+=begin comment
 
 =head1 TODO
 
@@ -134,6 +180,8 @@ Find XMP or THM files that don't have a cooresponding main file
 
 Flag for CheckMd5/VerifyMd5 to only check files created/modified since
 the provided timestamp or timestamp at last MD5 check
+ 
+=end comment
 
 =head1 AUTHOR
 
@@ -174,27 +222,48 @@ exit 0;
 
 #==========================================================================
 sub main {
-    if ($#ARGV == -1 || ($#ARGV == 0 && $ARGV[0] =~ /[-\/][?h]/)) {
+    if ($#ARGV == -1 || ($#ARGV == 0 && $ARGV[0] =~ /^-[?h]$/i)) {
         pod2usage();
-    } else {
+    }else {
         Getopt::Long::Configure('bundling');
-        
         my $rawVerb = shift @ARGV;
         my $verb = lc $rawVerb;
         if ($verb eq 'add-md5' or $verb eq 'a5') {
+            GetOptions();
+            @ARGV and die "Unexpected parameters: @ARGV";
             doAddMd5();
         } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
+            GetOptions();
+            doCheckMd5(@ARGV);
+        } elsif ($verb eq 'checkup' or $verb eq 'c') {
+            my $all;
+            GetOptions('always-continue|a' => \$all);
+            @ARGV and die "Unexpected parameters: @ARGV";
             doCheckMd5();
-        } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
-            doVerifyMd5();
-        } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
-            doFindDupeFiles();
-        } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
-            doMetadataDiff();
-        } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
+            doFindDupeFiles($all);
             doCollectTrash();
+            doRemoveEmpties();
+        } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
+            GetOptions();
+            @ARGV and die "Unexpected parameters: @ARGV";
+            doCollectTrash();
+        } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
+            my $all;
+            GetOptions('always-continue|a' => \$all);
+            @ARGV and die "Unexpected parameters: @ARGV";
+            doFindDupeFiles($all);
+        } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
+            GetOptions();
+            doMetadataDiff(@ARGV);
+        } elsif ($verb eq 'remove-empties' or $verb eq 're') {
+            GetOptions();
+            doRemoveEmpties();
         } elsif ($verb eq 'test') {
             doTest();
+        } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
+            GetOptions();
+            @ARGV and die "Unexpected parameters: @ARGV";
+            doVerifyMd5();
         } else {
             die "Unknown verb: $rawVerb\n";
         }
@@ -202,68 +271,51 @@ sub main {
 }
 
 #==========================================================================
-# Execute verify-md5 verb
-sub doVerifyMd5 {
-    GetOptions();
-    
-    our $all = 0;
-    local *callback = sub {
-        my ($path, $expectedMd5) = @_;
-        my $actualMd5 = getMd5($path);
-        if ($actualMd5 eq $expectedMd5) {
-            # Hash match
-            print "Verified MD5 for $path\n";
-        } else {
-            # Has MIS-match, needs input
-            warn "ERROR: MD5 mismatch for $path ($actualMd5 != $expectedMd5)\n";
-            unless ($all) {
-                while (1) {
-                    print "Ingore, ignore All, Quit (i/a/q)? ";
-                    chomp(my $in = lc <STDIN>);
-
-                    if ($in eq 'i') {
-                        last;
-                    } elsif ($in eq 'a') {
-                        $all = 1;
-                        last;
-                    } elsif ($in eq 'q') {
-                        confess "MD5 mismatch for $path";
-                    }
-                }
-            }
-        }
-    };
-    findMd5s(\&callback, '.');
-}
-
-#==========================================================================
 # Execute add-md5 verb
 sub doAddMd5 {
-    GetOptions();
-    
     verifyOrGenerateMd5Recursively(1);
 }
 
 #==========================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
-    GetOptions();
-    
-    if ($#ARGV == -1) {
+    if (@_) {
+        # Glob(s) provided - check or add MD5s for all files that match
+        verifyOrGenerateMd5($_, 0) for sort map { glob } @_;
+    } else {
         # No args - check or add MD5s for all the media files
         # below the current dir
         verifyOrGenerateMd5Recursively(0);
-    } else {
-        # Glob(s) provided - check or add MD5s for all files that match
-        verifyOrGenerateMd5($_, 0) for sort map { glob } @ARGV;
     }
+}
+
+#==========================================================================
+# Execute collect-trash verb
+sub doCollectTrash {
+    my $here = rel2abs(curdir());
+    
+    local *wanted = sub {
+        if (-d and lc $_ eq '.trash') {
+            my $oldFullPath = rel2abs($_);
+            my $oldRelPath = abs2rel($oldFullPath, $here);
+            my @dirs = splitdir($oldRelPath);
+            unshift @dirs, pop @dirs;
+            my $newRelPath = catdir(@dirs);
+            my $newFullPath = rel2abs($newRelPath, $here);
+            
+            if ($oldFullPath ne $newFullPath) {
+                print "$oldRelPath -> $newRelPath\n";
+                moveDir($oldFullPath, $newFullPath);
+            }
+        }
+    };
+    find(\&wanted, $here);
 }
 
 #==========================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
-    my $all;
-    GetOptions('always-continue' => \$all);
+    my ($all) = @_;
     
     #local our %results = ();
     #local *wanted = sub {
@@ -378,61 +430,72 @@ sub doFindDupeFiles {
 #==========================================================================
 # Execute metadata-diff verb
 sub doMetadataDiff {
-    GetOptions();
-    
-    metadataDiff(@ARGV);
+    metadataDiff(@_);
 }
 
 #==========================================================================
-# Execute collect-trash verb
-sub doCollectTrash {
-    GetOptions();
-    
-    my $here = rel2abs(curdir());
-    
-    local *wanted = sub {
-        if (-d and lc $_ eq '.trash') {
-            my $oldFullPath = rel2abs($_);
-            my $oldRelPath = abs2rel($oldFullPath, $here);
-            my @dirs = splitdir($oldRelPath);
-            unshift @dirs, pop @dirs;
-            my $newRelPath = catdir(@dirs);
-            my $newFullPath = rel2abs($newRelPath, $here);
-
-            print "$oldRelPath -> $newRelPath\n";
-            moveDir($oldFullPath, $newFullPath);
+# Execute metadata-diff verb
+sub doRemoveEmpties {
+    my %dirContentsMap = ();
+    find({
+        preprocess => sub {
+            return grep { lc ne '.trash' } @_;
+        },
+        wanted => sub {
+            push @{$dirContentsMap{$File::Find::dir}}, $_;
+            push @{$dirContentsMap{$File::Find::name}}, '.' if -d;
         }
-    };
-    find(\&wanted, $here);
+    }, '.');
+    
+    while (my ($dir, $contents) = each %dirContentsMap) {
+        unless (grep { $_ ne '.' and lc $_ ne 'md5.txt' } @$contents) {
+            print "Trashing $dir\n";
+            trashPath($dir);
+        }
+    }
 }
 
 #==========================================================================
 # Execute test verb
 sub doTest {
-    # -a, --always-continue  => 1
-    # --always-continue  => 0
-    # else  => undef
-    #my $all;
-    #GetOptions('always-continue|a!' => \$all);
-    #print join('; ', "all == $all", @ARGV), "\n";
-    
-    # No options
-    GetOptions();
+    find(sub {
+        if (!-d) {
+            
+        }
+    }, '.');
+}
 
-    # Simple recursive file search example:
-    #local *wanted = sub {
-    #    my ($name, $path, $dir, $isDir) = ($_, $File::Find::name, $File::Find::dir, -d);
-    #};
-    #find(\&wanted, '.');
-    
-    my $path = rel2abs($ARGV[0]);
-    my ($volume, $dir, $name) = splitpath($path);
-    my @dirs = splitdir($dir);
-    print join('#', $volume, @dirs, $name), "\n";
-    my $what = catpath($volume, $dir);
-    print "what=$what\n";
-    
-    print "Parent of $path is ", catpath((splitpath($path))[0,1]), "\n";
+#==========================================================================
+# Execute verify-md5 verb
+sub doVerifyMd5 {
+    our $all = 0;
+    local *callback = sub {
+        my ($path, $expectedMd5) = @_;
+        my $actualMd5 = getMd5($path);
+        if ($actualMd5 eq $expectedMd5) {
+            # Hash match
+            print "Verified MD5 for $path\n";
+        } else {
+            # Has MIS-match, needs input
+            warn "ERROR: MD5 mismatch for $path ($actualMd5 != $expectedMd5)\n";
+            unless ($all) {
+                while (1) {
+                    print "Ingore, ignore All, Quit (i/a/q)? ";
+                    chomp(my $in = lc <STDIN>);
+                    
+                    if ($in eq 'i') {
+                        last;
+                    } elsif ($in eq 'a') {
+                        $all = 1;
+                        last;
+                    } elsif ($in eq 'q') {
+                        confess "MD5 mismatch for $path";
+                    }
+                }
+            }
+        }
+    };
+    findMd5s(\&callback, '.');
 }
 
 #--------------------------------------------------------------------------
@@ -466,7 +529,7 @@ sub verifyOrGenerateMd5Recursively {
                 verifyOrGenerateMd5($_, $addOnly)
             } elsif ($_ ne 'md5.txt') {
                 # TODO: Also skip Thumbs.db, .Ds_Store, etc?
-                print "Skipping    MD5 for ", rel2abs($_), "\n";
+                print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
             }
         }
     };
@@ -505,7 +568,7 @@ sub verifyOrGenerateMd5 {
     # In add-only mode, don't compute the hash of a file that
     # is already in the md5.txt
     if ($addOnly and $expectedMd5) {
-        print "Skippping   MD5 for $path\n";
+        print colored("Skippping   MD5 for $path", 'yellow'), "\n";
         return;
     }
 
@@ -521,7 +584,7 @@ sub verifyOrGenerateMd5 {
         # It's there; verify the existing hash
         if ($expectedMd5 eq $actualMd5) {
             # Matches last recorded hash, nothing to do
-            print "Verified    MD5 for $path\n";
+            print colored("Verified    MD5 for $path", 'green'), "\n";
             return;
         } else {
             # Mismatch, needs resolving...
@@ -545,7 +608,7 @@ sub verifyOrGenerateMd5 {
         }
     } else {
         # It wasn't there, it's a new file, we'll add that
-        print "ADDING      MD5 for $path\n";
+        print colored("ADDING      MD5 for $path", 'cyan'), "\n";
     }
 
     # Add/update MD5
@@ -783,15 +846,15 @@ sub trashMedia {
 
     # Note that this assumes a proper extension
     (my $query = $path) =~ s/[^.]*$/*/;
-    trashFile($_) for glob qq("$query");
+    trashPath($_) for glob qq("$query");
 }
 
 #--------------------------------------------------------------------------
 # Trash the specified path by moving it to a .Trash subdir and removing
 # its entry from the md5.txt file
-sub trashFile {
+sub trashPath {
     my ($path) = @_;
-    #print "trashFile('$path');\n";
+    #print "trashPath('$path');\n";
 
     my ($volume, $dir, $name) = splitpath($path);
     my $trashDir = catpath($volume, $dir, '.Trash');
