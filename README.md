@@ -21,7 +21,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
        find . -type d -empty -delete
     
        # Mirror SOURCE to TARGET
-       rsync -ah --delete -—delete-during --compress-level=0 --inplace --progress SOURCE TARGET
+       rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
 
        # Complementary PC commands:
     
@@ -159,11 +159,3 @@ under the same terms as Perl itself.
 # SEE ALSO
 
 [Image::ExifTool](https://metacpan.org/pod/Image::ExifTool)
-
-# POD ERRORS
-
-Hey! **The above document had some coding errors, which are explained below:**
-
-- Around line 27:
-
-    Non-ASCII character seen before =encoding in '-—delete-during'. Assuming UTF-8
