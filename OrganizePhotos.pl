@@ -226,7 +226,7 @@ exit 0;
 
 #==========================================================================
 sub main {
-    if ($#ARGV == -1 || ($#ARGV == 0 && $ARGV[0] =~ /^-[?h]$/i)) {
+    if ($#ARGV == -1 or ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]$/i)) {
         pod2usage();
     }else {
         Getopt::Long::Configure('bundling');
@@ -300,8 +300,9 @@ sub doCheckMd5 {
 sub doCollectTrash {
     my $here = rel2abs(curdir());
     
-    local *wanted = sub {
+    find(sub {
         if (-d and lc eq '.trash') {
+            # Convert $here/bunch/of/dirs/.Trash to $here/.Trash/bunch/of/dirs
             my $oldFullPath = rel2abs($_);
             my $oldRelPath = abs2rel($oldFullPath, $here);
             my @dirs = splitdir($oldRelPath);
@@ -314,8 +315,7 @@ sub doCollectTrash {
                 moveDir($oldFullPath, $newFullPath);
             }
         }
-    };
-    find(\&wanted, $here);
+    }, $here);
 }
 
 #==========================================================================
@@ -326,7 +326,7 @@ sub doFindDupeFiles {
     my %keyToPaths = ();
     if ($byName) {
         find(sub {
-            if (-f) {
+            if (-f and /$mediaFile/) {
                 if (/^(.{4}\d{4}).*(\.[^.]*)$/) {
                     push @{keyToPaths{lc "$1$2"}}, $File::Find::name;
                 } else {
@@ -449,7 +449,7 @@ sub doRemoveEmpties {
     }, '.');
     
     while (my ($dir, $contents) = each %dirContentsMap) {
-        unless (grep { $_ ne '.' and lc $_ ne 'md5.txt' } @$contents) {
+        unless (grep { $_ ne '.' and lc ne 'md5.txt' } @$contents) {
             print "Trashing $dir\n";
             trashPath($dir);
         }
@@ -459,13 +459,17 @@ sub doRemoveEmpties {
 #==========================================================================
 # Execute test verb
 sub doTest {
-    find(sub {
-        if (!-d) {
-            
-        }
-    }, '.');
-}
-
+    find({
+        preprocess => sub {
+            return grep { lc ne '.trash' } @_;
+        },
+        wanted => sub {sub {
+            if (-f and /$mediaFile/) {
+                print "Untrashed media file: $_\n";
+            }
+        }, '.');
+    }
+    
 #==========================================================================
 # Execute verify-md5 verb
 sub doVerifyMd5 {
@@ -506,8 +510,8 @@ sub doVerifyMd5 {
 sub findMd5s {
     my ($callback, $dir) = @_;
 
-    local *wanted = sub {
-        if (!-d && lc $_ eq 'md5.txt') {
+    find(sub {
+        if (-f and lc eq 'md5.txt') {
             open(my $fh, '<:crlf', $_) or confess "Couldn't open $File::Find::name: $!";
             my $md5s = readMd5FileFromHandle($fh);
             my $dir = $File::Find::dir;
@@ -515,8 +519,7 @@ sub findMd5s {
                 $callback->(rel2abs(catpath($dir, $_)), $md5s->{$_});
             }
         }
-    };
-    find(\&wanted, $dir);
+    }, $dir);
 }
 
 #--------------------------------------------------------------------------
@@ -524,8 +527,8 @@ sub findMd5s {
 sub verifyOrGenerateMd5Recursively {
     my ($addOnly) = @_;
 
-    local *wanted = sub {
-        if (!-d) {
+    find(sub {
+        if (-f) {
             if (/$mediaType/) {
                 verifyOrGenerateMd5($_, $addOnly)
             } elsif ($_ ne 'md5.txt') {
@@ -533,8 +536,7 @@ sub verifyOrGenerateMd5Recursively {
                 print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
             }
         }
-    };
-    find(\&wanted, '.');
+    }, '.');
 }
 
 #--------------------------------------------------------------------------
