@@ -4,13 +4,30 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 # SYNOPSIS
 
-    OrganizePhotos.pl <verb> <options>
-    OrganizePhotos.pl add-md5
-    OrganizePhotos.pl check-md5 [glob_pattern]
-    OrganizePhotos.pl verify-md5
-    OrganizePhotos.pl find-dupe-files [-a | --always-continue]
-    OrganizePhotos.pl metadata-diff
-    OrganizePhotos.pl collect-trash
+       OrganizePhotos.pl <verb> <options>
+       
+       OrganizePhotos.pl add-md5
+       OrganizePhotos.pl check-md5 [glob_pattern]
+       OrganizePhotos.pl checkup
+       OrganizePhotos.pl collect-trash
+       OrganizePhotos.pl find-dupe-files [-a] [-n]
+       OrganizePhotos.pl metadata-diff <files>
+       OrganizePhotos.pl remove-empties
+       OrganizePhotos.pl verify-md5
+    
+       # Complementary Mac commands:
+    
+       # Remove empty directories
+       find . -type d -empty -delete
+    
+       # Mirror SOURCE to TARGET
+       rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
+
+       # Complementary PC commands:
+    
+       # Mirror SOURCE to TARGET
+       robocopy /MIR SOURCE TARGET
+    
 
 # DESCRIPTION
 
@@ -26,6 +43,8 @@ with the pattern:
 
 Metadata operations are powered by Image::ExifTool.
 
+The following verbs are available:
+
 ## add-md5
 
 Alias: a5
@@ -33,7 +52,10 @@ Alias: a5
 For each media file under the current directory that doesn't have a
 MD5 computed, generate the MD5 hash and add to md5.txt file.
 
-## check-md5
+This does not modify media files or their sidecars, it only adds entries
+to the md5.txt files.
+
+## check-md5 \[glob\_pattern\]
 
 Alias: c5
 
@@ -41,45 +63,30 @@ For each media file under the current directory, generate the MD5 hash
 and either add to md5.txt file if missing or verify hashes match if
 already present.
 
-This method is read/write, if you want to read-only MD5 checkin,
-use verify-md5.
+This method is read/write for MD5s, if you want to perform read-only 
+MD5 checks (i.e., don't write to md5.txt), then use verify-md5.
 
-## check-md5 &lt;glob\_pattern>
-
-Alias: c5
-
-For each file matching glob\_pattern, generate the MD5 hash and either
-add to md5.txt file if missing or verify hashes match if already present.
-
-This method is read/write, if you want to read-only MD5 checkin,
-use verify-md5.
-
-## verify-md5
-
-Alias: v5
-
-Verifies the MD5 hashes for all contents of all md5.txt files below
-the current directory.
-
-This method is read-only, if you want to add/update MD5s, use check-md5.
-
-## find-dupe-files
-
-Alias: fdf
-
-Find files that have multiple copies under the current directory.
+This does not modify media files or their sidecars, it only modifies
+the md5.txt files.
 
 ### Options
 
-- **-a, --always-continue**
+- **glob\_pattern**
 
-    Always continue
+    Rather than operate on files under the current directory, operate on
+    the specified glob pattern.
 
-## metadata-diff &lt;files>
+## checkup
 
-Alias: md
+Alias: c
 
-Do a diff of the specified media files (including their sidecar metadata).
+This command runs the following suggested suite of commands:
+
+       check-md5
+       find-dupe-files [-a | --always-continue]
+       collect-trash
+       remove-empties
+    
 
 ## collect-trash
 
@@ -91,42 +98,56 @@ directory structure.
 
 For example if we had the following trash:
 
-    ./Foo/.Trash/1.jpg
-    ./Foo/.Trash/2.jpg
-    ./Bar/.Trash/1.jpg
+       ./Foo/.Trash/1.jpg
+       ./Foo/.Trash/2.jpg
+       ./Bar/.Trash/1.jpg
+    
 
 After collection we would have:
 
-    ./.Trash/Foo/1.jpg
-    ./.Trash/Foo/2.jpg
-    ./.Trash/Bar/1.jpg
+       ./.Trash/Foo/1.jpg
+       ./.Trash/Foo/2.jpg
+       ./.Trash/Bar/1.jpg
+    
 
-# TODO
+## find-dupe-files \[-a\]
 
-## FindMisplacedFiles
+Alias: fdf
 
-Find files that aren't in a directory appropriate for their date
+Find files that have multiple copies under the current directory.
 
-## FindDupeFolders
+### Options
 
-Find the folders that represent the same date
+- **-a, --always-continue**
 
-## FindMissingFiles
+    Always continue
 
-Finds files that may be missing based on gaps in sequential photos
+- **-n, --by-name**
 
-## FindScreenShots
+    Search for items based on name rather than the default of MD5
 
-Find files which are screenshots
+## metadata-diff &lt;files>
 
-## FindOrphanedFiles
+Alias: md
 
-Find XMP or THM files that don't have a cooresponding main file
+Do a diff of the specified media files (including their sidecar metadata).
 
-## --if-modified-since
+This method does not modify any file.
 
-Flag for CheckMd5/VerifyMd5 to only check files created/modified since
-the provided timestamp or timestamp at last MD5 check
+## remove-empties
+
+Remove any subdirectories that are empty save an md5.txt file
+
+## verify-md5
+
+Alias: v5
+
+Verifies the MD5 hashes for all contents of all md5.txt files below
+the current directory.
+
+This method is read-only, if you want to add/update MD5s, use check-md5.
+
+This method does not modify any file.
 
 # AUTHOR
 
