@@ -330,7 +330,8 @@ sub doFindDupeFiles {
             preprocess => \&preprocessSkipTrash,
             wanted => sub {
                 if (-f and /$mediaType/) {
-                    if (/^([a-zA-Z0-9_]{4}\d{4})\b.*(\.[^.]+)$/ or
+                    # Different basename formats
+                    if (/^([a-zA-Z0-9_]{4}\d{4}|\d{4}[-_]\d{2}[-_]\d{2}[-_ ]\d{2}[-_]\d{2}[-_]\d{2})\b.*(\.[^.]+)$/ or
                         /^([^-(]*\S)\b\s*(?:-\d+|\(\d+\))?(\.[^.]+)$/) {
                         push @{$keyToPaths{lc "$1$2"}}, rel2abs($_);
                     } else {
