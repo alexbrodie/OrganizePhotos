@@ -7,8 +7,11 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 =head1 SYNOPSIS
 
+    # Calling pattern
     OrganizePhotos.pl <verb> <options>
     
+    ##### Supported operations:
+ 
     OrganizePhotos.pl add-md5
     OrganizePhotos.pl check-md5 [glob_pattern]
     OrganizePhotos.pl checkup
@@ -18,15 +21,24 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl remove-empties
     OrganizePhotos.pl verify-md5
  
-    # Complementary Mac commands:
+    ##### Complementary Mac commands:
  
-    # Remove empty directories
-    find . -type d -empty -delete
+    # Print trash
+    find . -type d -name .Trash
+ 
+    # Remove .DS_Store
+    find . -type f -name .DS_Store -print -delete
+ 
+    # Remove zero byte md5.txt files (omit "-delete" to only print)
+    find . -type f -name md5.txt -empty -print -delete
+ 
+    # Remove empty directories (omit "-delete" to only print)
+    find . -type d -empty -print -delete
  
     # Mirror SOURCE to TARGET
     rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
 
-    # Complementary PC commands:
+    ##### Complementary PC commands:
  
     # Mirror SOURCE to TARGET
     robocopy /MIR SOURCE TARGET
@@ -306,7 +318,7 @@ sub doCollectTrash {
             my $oldFullPath = rel2abs($_);
             my $oldRelPath = abs2rel($oldFullPath, $here);
             my @dirs = splitdir($oldRelPath);
-            unshift @dirs, pop @dirs;
+            @dirs = ((grep { lc ne '.trash' } @dirs), '.Trash');
             my $newRelPath = catdir(@dirs);
             my $newFullPath = rel2abs($newRelPath, $here);
             
@@ -331,8 +343,9 @@ sub doFindDupeFiles {
             wanted => sub {
                 if (-f and /$mediaType/) {
                     # Different basename formats
-                    if (/^([a-zA-Z0-9_]{4}\d{4}|\d{4}[-_]\d{2}[-_]\d{2}[-_ ]\d{2}[-_]\d{2}[-_]\d{2})\b.*(\.[^.]+)$/ or
+                    if (/^([a-zA-Z0-9_]{4}\d{4}|\d{4}[-_]\d{2}[-_]\d{2}[-_ ]\d{2}[-_]\d{2}[-_]\d{2})\b(\.[^.]+)$/ or
                         /^([^-(]*\S)\b\s*(?:-\d+|\(\d+\))?(\.[^.]+)$/) {
+                        #print "$1$2\n";
                         push @{$keyToPaths{lc "$1$2"}}, rel2abs($_);
                     } else {
                         warn "Skipping unknown filename format: $_";
@@ -639,7 +652,7 @@ sub removeMd5ForPath {
 
     if (open(my $fh, '+<:crlf', $md5Path)) {
         my @old = <$fh>;
-        my @new = grep { !/\Q$name\E:/i } @old;
+        my @new = grep { !/^\Q$name\E:/i } @old;
 
         if (@old != @new) {
             seek($fh, 0, 0);
