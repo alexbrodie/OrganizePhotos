@@ -325,12 +325,17 @@ sub doFindDupeFiles {
     
     my %keyToPaths = ();
     if ($byName) {
-        find(sub {
-            if (-f and /$mediaFile/) {
-                if (/^(.{4}\d{4}).*(\.[^.]*)$/) {
-                    push @{keyToPaths{lc "$1$2"}}, $File::Find::name;
-                } else {
-                    warn "Skipping unknown filename format: $_";
+        # Make hash from base filename to files that have that base name
+        find({
+            preprocess => \&preprocessSkipTrash,
+            wanted => sub {
+                if (-f and /$mediaType/) {
+                    if (/^([a-zA-Z0-9_]{4}\d{4})\b.*(\.[^.]+)$/ or
+                        /^([^-(]*\S)\b\s*(?:-\d+|\(\d+\))?(\.[^.]+)$/) {
+                        push @{$keyToPaths{lc "$1$2"}}, rel2abs($_);
+                    } else {
+                        warn "Skipping unknown filename format: $_";
+                    }
                 }
             }
         }, '.');
@@ -338,12 +343,7 @@ sub doFindDupeFiles {
         # Make hash from MD5 to files with that MD5
         findMd5s(sub {
             my ($path, $md5) = @_;
-            
-            # Omit anything that is .Trash-ed
-            my @dirs = splitdir((splitpath($path))[1]);
-            unless (grep { lc eq '.trash' } @dirs) {
-                push @{$keyToPaths{$md5}}, $path;
-            }
+            push @{$keyToPaths{$md5}}, $path;
         }, '.');
     }
     
@@ -439,9 +439,7 @@ sub doMetadataDiff {
 sub doRemoveEmpties {
     my %dirContentsMap = ();
     find({
-        preprocess => sub {
-            return grep { lc ne '.trash' } @_;
-        },
+        preprocess => \&preprocessSkipTrash,
         wanted => sub {
             push @{$dirContentsMap{$File::Find::dir}}, $_;
             push @{$dirContentsMap{$File::Find::name}}, '.' if -d;
@@ -460,15 +458,14 @@ sub doRemoveEmpties {
 # Execute test verb
 sub doTest {
     find({
-        preprocess => sub {
-            return grep { lc ne '.trash' } @_;
-        },
-        wanted => sub {sub {
-            if (-f and /$mediaFile/) {
+        preprocess => \&preprocessSkipTrash,
+        wanted => sub {
+            if (-f and /$mediaType/) {
                 print "Untrashed media file: $_\n";
             }
-        }, '.');
-    }
+        },
+    }, '.');
+}
     
 #==========================================================================
 # Execute verify-md5 verb
@@ -510,13 +507,16 @@ sub doVerifyMd5 {
 sub findMd5s {
     my ($callback, $dir) = @_;
 
-    find(sub {
-        if (-f and lc eq 'md5.txt') {
-            open(my $fh, '<:crlf', $_) or confess "Couldn't open $File::Find::name: $!";
-            my $md5s = readMd5FileFromHandle($fh);
-            my $dir = $File::Find::dir;
-            for (sort keys %$md5s) {
-                $callback->(rel2abs(catpath($dir, $_)), $md5s->{$_});
+    find({
+        preprocess => \&preprocessSkipTrash,
+        wanted => sub {
+            if (-f and lc eq 'md5.txt') {
+                open(my $fh, '<:crlf', $_) or confess "Couldn't open $File::Find::name: $!";
+                my $md5s = readMd5FileFromHandle($fh);
+                my $dir = $File::Find::dir;
+                for (sort keys %$md5s) {
+                    $callback->(rel2abs(catpath($dir, $_)), $md5s->{$_});
+                }
             }
         }
     }, $dir);
@@ -904,6 +904,12 @@ sub deepSplitPath {
     my @dirs = splitdir($dir);
     
     return ($volume, @dirs, $name);
+}
+    
+#--------------------------------------------------------------------------
+# 'preprocess' callback for find of File::Find which skips .Trash dirs
+sub preprocessSkipTrash  {
+    return grep { !-d or lc ne '.trash' } @_;
 }
 
 #--------------------------------------------------------------------------
