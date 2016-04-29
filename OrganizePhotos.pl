@@ -301,7 +301,7 @@ sub doCollectTrash {
     my $here = rel2abs(curdir());
     
     local *wanted = sub {
-        if (-d and lc $_ eq '.trash') {
+        if (-d and lc eq '.trash') {
             my $oldFullPath = rel2abs($_);
             my $oldRelPath = abs2rel($oldFullPath, $here);
             my @dirs = splitdir($oldRelPath);
@@ -323,40 +323,35 @@ sub doCollectTrash {
 sub doFindDupeFiles {
     my ($all, $byName) = @_;
     
-    #local our %results = ();
-    #local *wanted = sub {
-    #    if (!-d && /^(.{4}\d{4}).*(\.[^.]*)$/) {
-    #        push(@{$results{lc "$1$2"}}, $File::Find::name);
-    #    }
-    #};
-    #find(\&wanted, '.');
+    my %keyToPaths = ();
+    if ($byName) {
+        find(sub {
+            if (-f) {
+                if (/^(.{4}\d{4}).*(\.[^.]*)$/) {
+                    push @{keyToPaths{lc "$1$2"}}, $File::Find::name;
+                } else {
+                    warn "Skipping unknown filename format: $_";
+                }
+            }
+        }, '.');
+    } else {
+        # Make hash from MD5 to files with that MD5
+        findMd5s(sub {
+            my ($path, $md5) = @_;
+            
+            # Omit anything that is .Trash-ed
+            my @dirs = splitdir((splitpath($path))[1]);
+            unless (grep { lc eq '.trash' } @dirs) {
+                push @{$keyToPaths{$md5}}, $path;
+            }
+        }, '.');
+    }
     
-    #for (sort keys %results) {
-    #    my @result = @{$results{$_}};
-    #    if (@result > 1) {
-    #        print "$_ (@{[scalar @result]}) \n";
-    #        print "  @{[getMd5($_)]} : $_\n" for @result;
-    #    }
-    #}
-
-    # Make hash from MD5 to files with that MD5
-    local our %md5ToPaths = ();
-    local *callback = sub {
-        my ($path, $md5) = @_;
-
-        # Omit anything that is .Trash-ed
-        my @dirs = splitdir((splitpath($path))[1]);
-        unless (grep { /^\.Trash$/i } @dirs) {
-            push(@{$md5ToPaths{$md5}}, $path);
-        }
-    };
-    findMd5s(\&callback, '.');
-
     # Put everthing that has dupes in an array for sorting
     my @dupes = ();
-    while (my ($md5, $paths) = each %md5ToPaths) {
+    while (my ($md5, $paths) = each %keyToPaths) {
         if (@$paths > 1) {
-            push(@dupes, [sort @$paths]);
+            push @dupes, [sort @$paths];
         }
     }
 
