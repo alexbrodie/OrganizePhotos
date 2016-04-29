@@ -24,7 +24,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     find . -type d -empty -delete
  
     # Mirror SOURCE to TARGET
-    rsync -ah --delete -—delete-during --compress-level=0 --inplace --progress SOURCE TARGET
+    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
 
     # Complementary PC commands:
  
