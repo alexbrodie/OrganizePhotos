@@ -13,7 +13,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl check-md5 [glob_pattern]
     OrganizePhotos.pl checkup
     OrganizePhotos.pl collect-trash
-    OrganizePhotos.pl find-dupe-files [-a]
+    OrganizePhotos.pl find-dupe-files [-a] [-n]
     OrganizePhotos.pl metadata-diff <files>
     OrganizePhotos.pl remove-empties
     OrganizePhotos.pl verify-md5
@@ -126,6 +126,10 @@ Find files that have multiple copies under the current directory.
 =item B<-a, --always-continue>
 
 Always continue
+ 
+=item B<-n, --by-name>
+ 
+Search for items based on name rather than the default of MD5
  
 =back
 
@@ -248,10 +252,12 @@ sub main {
             @ARGV and die "Unexpected parameters: @ARGV";
             doCollectTrash();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
-            my $all;
-            GetOptions('always-continue|a' => \$all);
+            my ($all, $byName);
+            GetOptions(
+                'always-continue|a' => \$all,
+                'by-name|n' => \$byName);
             @ARGV and die "Unexpected parameters: @ARGV";
-            doFindDupeFiles($all);
+            doFindDupeFiles($all, $byName);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             GetOptions();
             doMetadataDiff(@ARGV);
@@ -315,7 +321,7 @@ sub doCollectTrash {
 #==========================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
-    my ($all) = @_;
+    my ($all, $byName) = @_;
     
     #local our %results = ();
     #local *wanted = sub {
