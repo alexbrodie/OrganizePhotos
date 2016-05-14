@@ -7,9 +7,12 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 =head1 SYNOPSIS
 
-    # Calling pattern
-    OrganizePhotos.pl <verb> <options>
-    
+	##### Typical workflow
+	    
+	# Import via Lightroom
+	OrganizePhotos.pl checkup /deepest/common/ancestor/dir
+	# Arvhive /deepest/common/ancestor/dir (see below)
+	
     ##### Supported operations:
  
     OrganizePhotos.pl add-md5
@@ -23,7 +26,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
  
     ##### Complementary Mac commands:
  
-    # Print trash
+    # Print trash directories
     find . -type d -name .Trash
  
     # Remove .DS_Store
@@ -56,6 +59,10 @@ with the pattern:
     filename: hash
 
 Metadata operations are powered by Image::ExifTool.
+
+The calling pattern for each command follows the pattern:
+
+    OrganizePhotos.pl <verb> <options>
  
 The following verbs are available:
 
@@ -567,66 +574,93 @@ sub verifyOrGenerateMd5 {
     my ($volume, $dir, $name) = splitpath($path);
     my $md5Path = catpath($volume, $dir, 'md5.txt');
 
-    # Open MD5 file
-    my $fh;
-    my $md5s;
-    if (open($fh, '+<:crlf', $md5Path)) {
-        # Read existing contents
-        $md5s = readMd5FileFromHandle($fh);
-    } else {
-        # File doesn't exist, open for write
-        open($fh, '>', $md5Path) or confess "Couldn't open $md5Path: $!";
-    }
-
-    # Try lookup into MD5 file contents
     my $key = lc $name;
-    my $expectedMd5 = $md5s->{$key};
+    my ($expectedMd5, $actualMd5);
+	
+	# Check cache from last call (this can often be called
+	# repeatedly with files in same folder, so this prevents
+	# unnecessary rereads)
+	our ($lastMd5Path, $lastMd5s);
+	if ($lastMd5Path and $md5Path eq $lastMd5Path) {
+		$expectedMd5 = $lastMd5s->{$key};
+	}
 
-    # In add-only mode, don't compute the hash of a file that
-    # is already in the md5.txt
-    if ($addOnly and $expectedMd5) {
-        print colored("Skippping   MD5 for $path", 'yellow'), "\n";
-        return;
-    }
+	# Loop twice, once for cached info and one for file info
+    my ($fh, $md5s);
+	while (1) {
+	    # In add-only mode, don't compute the hash of a file that
+	    # is already in the md5.txt
+	    if ($addOnly and defined $expectedMd5) {
+	        print colored("Skipping    MD5 for $path", 'yellow'), "\n";
+	        return;
+	    }
 
-    # Get the actual MD5 by reading the whole file
-    my $actualMd5 = eval { getMd5($path); };
-    if ($@) {
-        # Can't get the MD5
-        # TODO: for now, skip but we'll want something better in the future
-        warn "UNAVAILABLE MD5 for $path: $@";
-        return;
-    }
-    if ($expectedMd5) {
-        # It's there; verify the existing hash
-        if ($expectedMd5 eq $actualMd5) {
-            # Matches last recorded hash, nothing to do
-            print colored("Verified    MD5 for $path", 'green'), "\n";
-            return;
-        } else {
-            # Mismatch, needs resolving...
-            warn "MISMATCH OF MD5 for $path";
+		# Compute the MD5 if we haven't already and need it
+		if (!defined $actualMd5 and (defined $expectedMd5 or defined $fh)) {
+			# Get the actual MD5 by reading the whole file
+	    	$actualMd5 = eval { getMd5($path); };
+	    	if ($@) {
+	    		# Can't get the MD5
+	        	# TODO: for now, skip but we'll want something better in the future
+	        	warn "UNAVAILABLE MD5 for $path: $@";
+	        	return;
+	    	}
+		}
+	
+	    if (defined $expectedMd5) {
+	        # It's there; verify the existing hash
+	        if ($expectedMd5 eq $actualMd5) {
+	            # Matches last recorded hash, nothing to do
+	            print colored("Verified    MD5 for $path", 'green'), "\n";
+	            return;
+	        } elsif (defined $fh) {
+	            # Mismatch and we can update MD5, needs resolving...
+	            warn "MISMATCH OF MD5 for $path";
 
-            while (1) {
-                print "Ignore, Overwrite, Quit (i/o/q)? ";
-                chomp(my $in = lc <STDIN>);
+	            while (1) {
+	                print "Ignore, Overwrite, Quit (i/o/q)? ";
+	                chomp(my $in = lc <STDIN>);
 
-                if ($in eq 'i') {
-                    # Ignore the error and return
-                    return;
-                } elsif ($in eq 'o') {
-                    # Exit loop to fall through to save actualMd5
-                    last;
-                } elsif ($in eq 'q') {
-                    # User requested to terminate
-                    confess "MD5 mismatch for $path";
-                }
-            }
-        }
-    } else {
-        # It wasn't there, it's a new file, we'll add that
-        print colored("ADDING      MD5 for $path", 'cyan'), "\n";
-    }
+	                if ($in eq 'i') {
+	                    # Ignore the error and return
+	                    return;
+	                } elsif ($in eq 'o') {
+	                    # Exit loop to fall through to save actualMd5
+	                    last;
+	                } elsif ($in eq 'q') {
+	                    # User requested to terminate
+	                    confess "MD5 mismatch for $path";
+	                }
+	            }
+				
+				# Write MD5
+	        	print colored("UPDATING    MD5 for $path", 'magenta'), "\n";
+				last;
+	        }
+	    } elsif (defined $fh) {
+	        # It wasn't there, it's a new file, we'll add that
+	        print colored("ADDING      MD5 for $path", 'blue'), "\n";
+			last;
+	    }
+
+	    # Open MD5 file if we haven't already done so
+		if (!defined $fh) {			
+		    if (open($fh, '+<:crlf', $md5Path)) {
+		        # Read existing contents
+		        $md5s = readMd5FileFromHandle($fh);
+		    } else {
+		        # File doesn't exist, open for write
+		        open($fh, '>', $md5Path) or confess "Couldn't open $md5Path: $!";
+		    }
+
+			# Cache info
+			$lastMd5Path = $md5Path;
+			$lastMd5s = $md5s;
+			
+		    # Try lookup into MD5 file contents
+			$expectedMd5 = $md5s->{$key};
+		}
+	}
 
     # Add/update MD5
     $md5s->{$key} = $actualMd5;
@@ -673,7 +707,8 @@ sub readMd5FileFromHandle {
     for (<$fh>) {
         chomp;
         $_ = lc $_;
-        /^([^:]+):\s*($md5pattern)$/ or warn "unexpected line in MD5: $_";
+        /^([^:]+):\s*($md5pattern)$/ or
+            warn "unexpected line in MD5: $_";
 
         $md5s{lc $1} = $2;
     }
@@ -691,7 +726,8 @@ sub getMd5 {
     my $md5 = new Digest::MD5;
     
     for my $path (@_) {
-        open(my $fh, '<:raw', $path) or confess "Couldn't open $path: $!";
+        open(my $fh, '<:raw', $path) or
+            confess "Couldn't open $path: $!";
         
         #my $modified = formatDate((stat($fh))[9]);
         #print "Date modified: $modified\n";
@@ -702,23 +738,27 @@ sub getMd5 {
         # and hash from Start of Scan [SOS] to end
         if ($path =~ /\.(?:jpeg|jpg)$/i) {
             # Read Start of Image [SOI]
-            read($fh, my $soiData, 2) or confess "Failed to read SOI from $path: $!";
+            read($fh, my $soiData, 2) or
+                confess "Failed to read SOI from $path: $!";
             my ($soi) = unpack('n', $soiData);
-            $soi == 0xffd8 or confess "File didn't start with SOI marker: $path";
+            $soi == 0xffd8 or
+                confess "File didn't start with SOI marker: $path";
 
             # Read blobs until SOS
             my $tags = '';
             while (1) {
-                read($fh, my $data, 4) or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
+                read($fh, my $data, 4) or
+                    confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
+                
                 my ($tag, $size) = unpack('nn', $data);
-
                 last if $tag == 0xffda;
                 
                 $tags .= sprintf("%04x,%04x;", $tag, $size);
                 #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
                 
                 my $address = tell($fh) + $size - 2;
-                seek($fh, $address, 0) or confess "Failed to seek $path to $address: $!";
+                seek($fh, $address, 0) or
+                    confess "Failed to seek $path to $address: $!";
             }
         }
 
@@ -747,7 +787,8 @@ sub getMd5Digest {
     my ($md5) = @_;
     
     my $hexdigest = lc $md5->hexdigest;
-    $hexdigest =~ /$md5pattern/ or confess "unexpected MD5: $hexdigest";
+    $hexdigest =~ /$md5pattern/ or
+        confess "unexpected MD5: $hexdigest";
     
     return $hexdigest;
 }
@@ -797,7 +838,8 @@ sub readMetadata {
 
     my $et = new Image::ExifTool;
 
-    $et->ExtractInfo($path) or confess "Couldn't ExtractInfo for $path";
+    $et->ExtractInfo($path) or
+        confess "Couldn't ExtractInfo for $path";
 
     # If this file can't hold XMP (i.e. not JPEG or TIFF), look for
     # XMP sidecar
@@ -805,7 +847,8 @@ sub readMetadata {
     if ($path !~ /\.(jpeg|jpeg|tif|tiff)$/i) {
         (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
         if (-s $xmpPath) {
-            $et->ExtractInfo($xmpPath) or confess "Couldn't ExtractInfo for $xmpPath";
+            $et->ExtractInfo($xmpPath) or
+                confess "Couldn't ExtractInfo for $xmpPath";
         }
     }
 
@@ -878,8 +921,10 @@ sub trashPath {
     my $trashPath = catfile($trashDir, $name);
 
     #print qq("$path" -> "$trashPath"\n);
-    -d $trashDir or make_path($trashDir) or confess "Failed to make directory $trashDir: $!";
-    move($path, $trashPath) or confess "Failed to move $path to $trashPath: $!";
+    -d $trashDir or make_path($trashDir) or
+        confess "Failed to make directory $trashDir: $!";
+    move($path, $trashPath) or
+        confess "Failed to move $path to $trashPath: $!";
     print "Moved $path\n   to $trashPath\n";
 
     removeMd5ForPath($path);
@@ -902,10 +947,12 @@ sub moveDir {
         
         # Create parent folder if it doesn't exist
         my $parentDir = catpath((splitpath($newPath))[0,1]);
-        -d $parentDir or make_path($parentDir) or confess "Failed to make directory $parentDir: $!";
+        -d $parentDir or make_path($parentDir) or
+            confess "Failed to make directory $parentDir: $!";
         
         # Move the source to the target now that parent exists
-        move($oldPath, $newPath) or confess "Failed to move $oldPath to $newPath: $!";
+        move($oldPath, $newPath) or
+            confess "Failed to move $oldPath to $newPath: $!";
     }
 }
 
@@ -946,6 +993,6 @@ sub coloredByIndex {
 sub colorByIndex {
     my ($colorIndex) = @_;
 
-    my @colors = ('red', 'green', 'magenta', 'cyan', 'yellow', 'blue');
+    my @colors = ('red', 'green', 'yellow', 'blue', 'magenta', 'cyan');
     return $colors[$colorIndex % scalar @colors];
 }
