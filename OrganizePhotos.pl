@@ -145,6 +145,10 @@ Find files that have multiple copies under the current directory.
 =item B<-a, --always-continue>
 
 Always continue
+
+=item B<-d, --auto-diff>
+
+Automatically do the 'd' diff command for every new group of files
  
 =item B<-n, --by-name>
  
@@ -271,12 +275,12 @@ sub main {
             @ARGV and die "Unexpected parameters: @ARGV";
             doCollectTrash();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
-            my ($all, $byName);
-            GetOptions(
-                'always-continue|a' => \$all,
-                'by-name|n' => \$byName);
+            my ($all, $autoDiff, $byName);
+            GetOptions('always-continue|a' => \$all,
+                       'auto-diff|d' => \$autoDiff,
+                       'by-name|n' => \$byName);
             @ARGV and die "Unexpected parameters: @ARGV";
-            doFindDupeFiles($all, $byName);
+            doFindDupeFiles($all, $byName, $autoDiff);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             GetOptions();
             doMetadataDiff(@ARGV);
@@ -340,7 +344,7 @@ sub doCollectTrash {
 #==========================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
-    my ($all, $byName) = @_;
+    my ($all, $byName, $autoDiff) = @_;
     
     my %keyToPaths = ();
     if ($byName) {
@@ -383,7 +387,7 @@ sub doFindDupeFiles {
     # Sort groups by first element
     @dupes = sort { $a->[0] cmp $b->[0] } @dupes;
 
-    for (my $dupeIndex = 0; $dupeIndex lt @dupes; $dupeIndex++) {
+    for (my $dupeIndex = 0; $dupeIndex < @dupes; $dupeIndex++) {
 		my $group = $dupes[$dupeIndex];
 		
         # Build base of prompt - indexed paths
@@ -417,6 +421,8 @@ sub doFindDupeFiles {
             push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#$group);
         }
         push @prompt, ")? ";
+		
+		metadataDiff(@$group) if $autoDiff;
 
         # Get input until something sticks...
         while (1) {
