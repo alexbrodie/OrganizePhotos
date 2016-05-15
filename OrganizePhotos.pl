@@ -379,7 +379,9 @@ sub doFindDupeFiles {
         	# Filter out missing files
 			@$paths = grep { -e } @$paths;
 	        if (@$paths > 1) {
-				push @dupes, [sort @$paths];
+				push @dupes, [sort {
+					$a cmp $b
+				} @$paths];
 			}
         }
     }
