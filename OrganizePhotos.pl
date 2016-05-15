@@ -7,11 +7,11 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 =head1 SYNOPSIS
 
-	##### Typical workflow
-	    
-	# Import via Lightroom
-	OrganizePhotos.pl checkup /deepest/common/ancestor/dir
-	# Arvhive /deepest/common/ancestor/dir (see below)
+    ##### Typical workflow
+    
+    # Import via Lightroom
+    OrganizePhotos.pl checkup /deepest/common/ancestor/dir
+    # Arvhive /deepest/common/ancestor/dir (see below)
 	
     ##### Supported operations:
  
@@ -298,7 +298,7 @@ sub main {
 #==========================================================================
 # Execute add-md5 verb
 sub doAddMd5 {
-    verifyOrGenerateMd5Recursively(1);
+    verifyOrGenerateMd5Recursively(1, 1);
 }
 
 #==========================================================================
@@ -306,11 +306,11 @@ sub doAddMd5 {
 sub doCheckMd5 {
     if (@_) {
         # Glob(s) provided - check or add MD5s for all files that match
-        verifyOrGenerateMd5($_, 0) for sort map { glob } @_;
+        verifyOrGenerateMd5($_) for sort map { glob } @_;
     } else {
         # No args - check or add MD5s for all the media files
         # below the current dir
-        verifyOrGenerateMd5Recursively(0);
+        verifyOrGenerateMd5Recursively();
     }
 }
 
@@ -372,22 +372,22 @@ sub doFindDupeFiles {
     my @dupes = ();
     while (my ($md5, $paths) = each %keyToPaths) {
         if (@$paths > 1) {
-            push @dupes, [sort @$paths];
+        	# Filter out missing files
+			@$paths = grep { -e } @$paths;
+	        if (@$paths > 1) {
+				push @dupes, [sort @$paths];
+			}
         }
     }
 
     # Sort groups by first element
     @dupes = sort { $a->[0] cmp $b->[0] } @dupes;
 
-    for my $group (@dupes) {
-
-        # Filter out missing files
-        # TODO: remove missing files from md5.txt?
-        @$group = grep { -e } @$group;
-        next unless @$group > 1;
-
+    for (my $dupeIndex = 0; $dupeIndex lt @dupes; $dupeIndex++) {
+		my $group = $dupes[$dupeIndex];
+		
         # Build base of prompt - indexed paths
-        my @prompt;
+        my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, "\n");
         for (my $i = 0; $i < @$group; $i++) {
             my $path = $group->[$i];
 
@@ -546,15 +546,17 @@ sub findMd5s {
 #--------------------------------------------------------------------------
 # Call verifyOrGenerateMd5 for each media file under the current directory
 sub verifyOrGenerateMd5Recursively {
-    my ($addOnly) = @_;
+    my ($addOnly, $omitSkipMessage) = @_;
 
     find(sub {
         if (-f) {
             if (/$mediaType/) {
-                verifyOrGenerateMd5($_, $addOnly)
+                verifyOrGenerateMd5($_, $addOnly, $omitSkipMessage);
             } elsif ($_ ne 'md5.txt') {
                 # TODO: Also skip Thumbs.db, .Ds_Store, etc?
-                print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
+				unless ($omitSkipMessage) {
+                	print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
+				}
             }
         }
     }, '.');
@@ -567,7 +569,7 @@ sub verifyOrGenerateMd5Recursively {
 # If the file's md5.txt file doesn't have a MD5 for the specified [path],
 # this adds the [path]'s current MD5 to it.
 sub verifyOrGenerateMd5 {
-    my ($path, $addOnly) = @_;
+    my ($path, $addOnly, $omitSkipMessage) = @_;
 
     # The path to file that contains the MD5 info
     $path = rel2abs($path);
@@ -591,7 +593,9 @@ sub verifyOrGenerateMd5 {
 	    # In add-only mode, don't compute the hash of a file that
 	    # is already in the md5.txt
 	    if ($addOnly and defined $expectedMd5) {
-	        print colored("Skipping    MD5 for $path", 'yellow'), "\n";
+			unless ($omitSkipMessage) {
+	        	print colored("Skipping    MD5 for $path", 'yellow'), "\n";
+			}
 	        return;
 	    }
 
@@ -602,7 +606,7 @@ sub verifyOrGenerateMd5 {
 	    	if ($@) {
 	    		# Can't get the MD5
 	        	# TODO: for now, skip but we'll want something better in the future
-	        	warn "UNAVAILABLE MD5 for $path: $@";
+	        	warn colored("UNAVAILABLE MD5 for $path with error:", 'red'), "\n\t$@";
 	        	return;
 	    	}
 		}
@@ -800,19 +804,23 @@ sub metadataDiff {
     
     # Get metadata for all files
     my @items = map { readMetadata($_) } @paths;
+	
+	my @tagsToSkip = qw(CurrentIPTCDigest DocumentID FileInodeChangeDate HistoryInstanceID IPTCDigest InstanceID OriginalDocumentID ThumbnailImage);
     
     # Collect all the keys which whose values aren't all equal
     my %keys = ();
     for (my $i = 0; $i < @items; $i++) {
         while (my ($key, $value) = each %{$items[$i]}) {
-            for (my $j = 0; $j < @items; $j++) {
-                if ($i != $j and
-                    (!exists $items[$j]->{$key} or
-                     $items[$j]->{$key} ne $value)) {
-                    $keys{$key} = 1;
-                    last;
-                }
-            }
+			unless ($key ~~ @tagsToSkip) {
+	            for (my $j = 0; $j < @items; $j++) {
+	                if ($i != $j and
+	                    (!exists $items[$j]->{$key} or
+	                     $items[$j]->{$key} ne $value)) {
+	                    $keys{$key} = 1;
+	                    last;
+	                }
+	            }
+			}
         }
     }
 
