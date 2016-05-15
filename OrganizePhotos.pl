@@ -380,7 +380,33 @@ sub doFindDupeFiles {
 			@$paths = grep { -e } @$paths;
 	        if (@$paths > 1) {
 				push @dupes, [sort {
-					$a cmp $b
+					# Try to sort paths trying to put the most likely
+					# master copies first and duplicates last
+					
+					my (undef, @as) = deepSplitPath($a);
+					my (undef, @bs) = deepSplitPath($b);
+					
+					for (my $i = 0; $i < @as; $i++) {
+						# If A is in a subdir of B, then B goes first
+						return 1 if $i >= @bs;
+						
+						my ($aa, $bb) = ($as[$i], $bs[$i]);
+						if ($aa ne $bb) {
+							if ($aa =~ /^\Q$bb\E(.+)/) {
+								# A is a substring of B, put B first
+								return -1;
+							} elsif ($bb =~ /^\Q$aa\E(.+)/) {
+								# B is a substring of A, put A first
+								return 1;
+							}
+						
+							return $aa cmp $bb;
+						}
+					}
+					
+					# If B is in a subdir of be then B goes first
+					# else they are equal
+					return @bs > @as ? -1 : 0;
 				} @$paths];
 			}
         }
