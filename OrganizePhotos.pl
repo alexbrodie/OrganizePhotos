@@ -1067,6 +1067,6 @@ sub coloredByIndex {
 sub colorByIndex {
     my ($colorIndex) = @_;
 
-    my @colors = ('red', 'green', 'yellow', 'blue', 'magenta', 'cyan');
+    my @colors = ('green', 'red', 'blue', 'yellow', 'magenta', 'cyan');
     return $colors[$colorIndex % scalar @colors];
 }
