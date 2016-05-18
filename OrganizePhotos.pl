@@ -19,7 +19,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl check-md5 [glob_pattern]
     OrganizePhotos.pl checkup
     OrganizePhotos.pl collect-trash
-    OrganizePhotos.pl find-dupe-files [-a] [-n]
+    OrganizePhotos.pl find-dupe-files [-a] [-d] [-n]
     OrganizePhotos.pl metadata-diff <files>
     OrganizePhotos.pl remove-empties
     OrganizePhotos.pl verify-md5
@@ -76,7 +76,7 @@ MD5 computed, generate the MD5 hash and add to md5.txt file.
 This does not modify media files or their sidecars, it only adds entries
 to the md5.txt files.
 
-=head2 check-md5 [glob_pattern]
+=head2 check-md5
 
 Alias: c5
 
@@ -100,6 +100,11 @@ Rather than operate on files under the current directory, operate on
 the specified glob pattern.
 
 =back
+
+=head3 Examples
+
+    # Check or add MD5 for all CR2 files in the current directory
+    $ OrganizePhotos.pl c5 *.CR2
  
 =head2 checkup
  
@@ -111,6 +116,16 @@ This command runs the following suggested suite of commands:
     find-dupe-files [-a | --always-continue]
     collect-trash
     remove-empties
+ 
+=head3 Options
+
+=over 24
+ 
+=item B<-a, --always-continue>
+
+Always continue
+
+=back
  
 =head2 collect-trash
  
@@ -132,7 +147,7 @@ After collection we would have:
     ./.Trash/Foo/2.jpg
     ./.Trash/Bar/1.jpg
  
-=head2 find-dupe-files [-a]
+=head2 find-dupe-files
 
 Alias: fdf
 
@@ -398,6 +413,19 @@ sub doFindDupeFiles {
 							} elsif ($bb =~ /^\Q$aa\E(.+)/) {
 								# B is a substring of A, put A first
 								return 1;
+							}
+							
+							# Try as filename and extension
+							my ($an, $ae) = $aa =~ /(.*)\.([^.]*)$/;
+							my ($bn, $be) = $bb =~ /(.*)\.([^.]*)$/;
+							if (defined $ae and defined $be and $ae eq $be) {
+								if ($an =~ /^\Q$bn\E(.+)/) {
+									# A's filename is a substring of B's, put A first
+									return 1;
+								} elsif ($bn =~ /^\Q$an\E(.+)/) {
+									# B's filename is a substring of A's, put B first
+									return -1;
+								}
 							}
 						
 							return $aa cmp $bb;
@@ -886,6 +914,10 @@ sub readMetadata {
     # If this file can't hold XMP (i.e. not JPEG or TIFF), look for
     # XMP sidecar
     # TODO: Should we exclude DNG here too?
+	# TODO: How do we prevent things like FileSize from being overwritten
+	#       by the XMP sidecar? read it first? exclude fields somehow (eg 
+	#       by "file" group)?
+	#       (FileSize, FileModifyDate, FileAccessDate, FilePermissions)
     if ($path !~ /\.(jpeg|jpeg|tif|tiff)$/i) {
         (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
         if (-s $xmpPath) {
