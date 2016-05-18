@@ -911,6 +911,8 @@ sub readMetadata {
     $et->ExtractInfo($path) or
         confess "Couldn't ExtractInfo for $path";
 
+	my $info = $et->GetInfo();
+
     # If this file can't hold XMP (i.e. not JPEG or TIFF), look for
     # XMP sidecar
     # TODO: Should we exclude DNG here too?
@@ -923,10 +925,11 @@ sub readMetadata {
         if (-s $xmpPath) {
             $et->ExtractInfo($xmpPath) or
                 confess "Couldn't ExtractInfo for $xmpPath";
+				
+			$info = { %{$et->GetInfo()}, %$info };
         }
     }
 
-    my $info = $et->GetInfo();
     #my $keys = $et->GetTagList($info);
 
     return $info;
