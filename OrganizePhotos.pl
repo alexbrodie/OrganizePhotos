@@ -37,6 +37,12 @@ OrganizePhotos - utilities for managing a collection of photos/videos
  
     # Remove empty directories (omit "-delete" to only print)
     find . -type d -empty -print -delete
+
+    # Remove the executable bit for media files
+    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2" -or -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V" -or -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG" -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF" -or -iname "md5.txt" \) -print -exec chmod -x {} \;
+	
+    # Remove the downloaded-and-untrusted extended attribute for the current tree
+	xattr -d -r com.apple.quarantine .
  
     # Mirror SOURCE to TARGET
     rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
@@ -344,13 +350,15 @@ sub doCollectTrash {
             my $oldFullPath = rel2abs($_);
             my $oldRelPath = abs2rel($oldFullPath, $here);
             my @dirs = splitdir($oldRelPath);
-            @dirs = ((grep { lc ne '.trash' } @dirs), '.Trash');
+            @dirs = ('.Trash', (grep { lc ne '.trash' } @dirs));
             my $newRelPath = catdir(@dirs);
             my $newFullPath = rel2abs($newRelPath, $here);
             
             if ($oldFullPath ne $newFullPath) {
                 print "$oldRelPath -> $newRelPath\n";
                 moveDir($oldFullPath, $newFullPath);
+            } else {
+            	#print "Noop for path $oldRelPath\n";
             }
         }
     }, $here);
@@ -867,7 +875,11 @@ sub metadataDiff {
     # Get metadata for all files
     my @items = map { readMetadata($_) } @paths;
 	
-	my @tagsToSkip = qw(CurrentIPTCDigest DocumentID FileInodeChangeDate HistoryInstanceID IPTCDigest InstanceID OriginalDocumentID ThumbnailImage);
+	my @tagsToSkip = qw(
+		CurrentIPTCDigest DocumentID DustRemovalData 
+		FileInodeChangeDate FileName HistoryInstanceID 
+		IPTCDigest InstanceID OriginalDocumentID
+		PreviewImage RawFileName ThumbnailImage);
     
     # Collect all the keys which whose values aren't all equal
     my %keys = ();
