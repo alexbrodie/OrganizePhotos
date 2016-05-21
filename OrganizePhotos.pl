@@ -57,7 +57,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 Helps to manage a collection of photos and videos that are primarily
 managed by Adobe Lightroom. This helps with tasks not covered by
 Lightroom such as: backup/archive, integrity checks, consolidation,
-and other OCD metadata organization.
+and other OCD metadataorganization.
 
 MD5 hashes are stored in a md5.txt file in the file's one line per file
 with the pattern:
@@ -399,8 +399,6 @@ sub doFindDupeFiles {
     my @dupes = ();
     while (my ($md5, $paths) = each %keyToPaths) {
         if (@$paths > 1) {
-        	# Filter out missing files
-			@$paths = grep { -e } @$paths;
 	        if (@$paths > 1) {
 				push @dupes, [sort {
 					# Try to sort paths trying to put the most likely
@@ -453,6 +451,10 @@ sub doFindDupeFiles {
 
     for (my $dupeIndex = 0; $dupeIndex < @dupes; $dupeIndex++) {
 		my $group = $dupes[$dupeIndex];
+
+        # Filter out missing files
+		@$group = grep { -e } @$group;
+		next if @$group < 2;
 		
         # Build base of prompt - indexed paths
         my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, "\n");
@@ -602,10 +604,12 @@ sub findMd5s {
         preprocess => \&preprocessSkipTrash,
         wanted => sub {
             if (-f and lc eq 'md5.txt') {
-                open(my $fh, '<:crlf', $_) or confess "Couldn't open $File::Find::name: $!";
+                open(my $fh, '<:crlf', $_) 
+					or confess "Couldn't open $File::Find::name: $!";
                 my $md5s = readMd5FileFromHandle($fh);
                 my $dir = $File::Find::dir;
                 for (sort keys %$md5s) {
+					# REVIEW: should catpath be catfile on the next line?
                     $callback->(rel2abs(catpath($dir, $_)), $md5s->{$_});
                 }
             }
@@ -724,7 +728,8 @@ sub verifyOrGenerateMd5 {
 		        $md5s = readMd5FileFromHandle($fh);
 		    } else {
 		        # File doesn't exist, open for write
-		        open($fh, '>', $md5Path) or confess "Couldn't open $md5Path: $!";
+		        open($fh, '>', $md5Path) 
+					or confess "Couldn't open $md5Path: $!";
 		    }
 
 			# Cache info
@@ -800,8 +805,8 @@ sub getMd5 {
     my $md5 = new Digest::MD5;
     
     for my $path (@_) {
-        open(my $fh, '<:raw', $path) or
-            confess "Couldn't open $path: $!";
+        open(my $fh, '<:raw', $path)
+            or confess "Couldn't open $path: $!";
         
         #my $modified = formatDate((stat($fh))[9]);
         #print "Date modified: $modified\n";
@@ -812,17 +817,17 @@ sub getMd5 {
         # and hash from Start of Scan [SOS] to end
         if ($path =~ /\.(?:jpeg|jpg)$/i) {
             # Read Start of Image [SOI]
-            read($fh, my $soiData, 2) or
-                confess "Failed to read SOI from $path: $!";
+            read($fh, my $soiData, 2)
+                or confess "Failed to read SOI from $path: $!";
             my ($soi) = unpack('n', $soiData);
-            $soi == 0xffd8 or
-                confess "File didn't start with SOI marker: $path";
+            $soi == 0xffd8
+                or confess "File didn't start with SOI marker: $path";
 
             # Read blobs until SOS
             my $tags = '';
             while (1) {
-                read($fh, my $data, 4) or
-                    confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
+                read($fh, my $data, 4)
+                    or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
                 
                 my ($tag, $size) = unpack('nn', $data);
                 last if $tag == 0xffda;
@@ -831,8 +836,8 @@ sub getMd5 {
                 #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
                 
                 my $address = tell($fh) + $size - 2;
-                seek($fh, $address, 0) or
-                    confess "Failed to seek $path to $address: $!";
+                seek($fh, $address, 0)
+                    or confess "Failed to seek $path to $address: $!";
             }
         }
 
@@ -847,7 +852,8 @@ sub getMd5 {
 sub getBareFileMd5 {
     my ($path) = @_;
     
-    open(my $fh, '<:raw', $path) or confess "Couldn't open $path: $!";
+    open(my $fh, '<:raw', $path) 
+		or confess "Couldn't open $path: $!";
     
     my $md5 = new Digest::MD5;
     $md5->addfile($fh);
@@ -861,8 +867,8 @@ sub getMd5Digest {
     my ($md5) = @_;
     
     my $hexdigest = lc $md5->hexdigest;
-    $hexdigest =~ /$md5pattern/ or
-        confess "unexpected MD5: $hexdigest";
+    $hexdigest =~ /$md5pattern/
+        or confess "unexpected MD5: $hexdigest";
     
     return $hexdigest;
 }
@@ -885,6 +891,7 @@ sub metadataDiff {
     my %keys = ();
     for (my $i = 0; $i < @items; $i++) {
         while (my ($key, $value) = each %{$items[$i]}) {
+			no warnings 'experimental::smartmatch';
 			unless ($key ~~ @tagsToSkip) {
 	            for (my $j = 0; $j < @items; $j++) {
 	                if ($i != $j and
@@ -920,8 +927,8 @@ sub readMetadata {
 
     my $et = new Image::ExifTool;
 
-    $et->ExtractInfo($path) or
-        confess "Couldn't ExtractInfo for $path";
+    $et->ExtractInfo($path)
+        or confess "Couldn't ExtractInfo for $path";
 
 	my $info = $et->GetInfo();
 
@@ -935,8 +942,8 @@ sub readMetadata {
     if ($path !~ /\.(jpeg|jpeg|tif|tiff)$/i) {
         (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
         if (-s $xmpPath) {
-            $et->ExtractInfo($xmpPath) or
-                confess "Couldn't ExtractInfo for $xmpPath";
+            $et->ExtractInfo($xmpPath)
+                or confess "Couldn't ExtractInfo for $xmpPath";
 				
 			$info = { %{$et->GetInfo()}, %$info };
         }
@@ -1009,13 +1016,7 @@ sub trashPath {
     my $trashDir = catpath($volume, $dir, '.Trash');
     my $trashPath = catfile($trashDir, $name);
 
-    #print qq("$path" -> "$trashPath"\n);
-    -d $trashDir or make_path($trashDir) or
-        confess "Failed to make directory $trashDir: $!";
-    move($path, $trashPath) or
-        confess "Failed to move $path to $trashPath: $!";
-    print "Moved $path\n   to $trashPath\n";
-
+    moveFile($path, $trashPath);
     removeMd5ForPath($path);
 }
 
@@ -1028,20 +1029,21 @@ sub moveDir {
     
     if (-d $newPath) {
         # Dest dir already exists, need to move-merge
+		
+		-d $oldPath
+			or confess "Can't move a non-directory to a directory ($oldPath > $newPath)";
         
-        # TODO
-        confess "I can't do this yet, sorry :(";
+		for my $oldChild (glob(catfile($oldPath, '*'))) {
+			(my $newChild = $oldChild) =~ s/^\Q$oldPath\E/$newPath/
+				or confess "$oldChild should start with $oldPath";
+			
+			moveFile($oldChild, $newChild);
+		}
     } else {
         # Dest dir doesn't exist
         
-        # Create parent folder if it doesn't exist
-        my $parentDir = catpath((splitpath($newPath))[0,1]);
-        -d $parentDir or make_path($parentDir) or
-            confess "Failed to make directory $parentDir: $!";
-        
-        # Move the source to the target now that parent exists
-        move($oldPath, $newPath) or
-            confess "Failed to move $oldPath to $newPath: $!";
+        # Move the source to the target
+        moveFile($oldPath, $newPath);
     }
 }
 
@@ -1060,6 +1062,27 @@ sub deepSplitPath {
 # 'preprocess' callback for find of File::Find which skips .Trash dirs
 sub preprocessSkipTrash  {
     return grep { !-d or lc ne '.trash' } @_;
+}
+
+#--------------------------------------------------------------------------
+# Move [oldPath] to [newPath] in a convinient and safe manner
+sub moveFile {
+	my ($oldPath, $newPath) = @_;
+	
+	# Haven't gotten to recursive merge (for dirs 'if -d') yet...
+	-e $newPath 
+		and confess "I can't overwrite files ($oldPath > $newPath)";
+    
+    # Create parent folder if it doesn't exist
+    my $newParentDir = catpath((splitpath($newPath))[0,1]);
+    -d $newParentDir or make_path($newParentDir) 
+		or confess "Failed to make directory $newParentDir: $!";
+		
+	# Do the real move
+    move($oldPath, $newPath)
+		or confess "Failed to move $oldPath to $newPath: $!";
+
+	print "Moved $oldPath\n   to $newPath\n";
 }
 
 #--------------------------------------------------------------------------
