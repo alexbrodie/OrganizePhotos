@@ -8,13 +8,13 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 =head1 SYNOPSIS
 
     ##### Typical workflow
-    
+
     # Import via Lightroom
     OrganizePhotos.pl checkup /deepest/common/ancestor/dir
     # Arvhive /deepest/common/ancestor/dir (see below)
-	
+
     ##### Supported operations:
- 
+
     OrganizePhotos.pl add-md5
     OrganizePhotos.pl check-md5 [glob_pattern]
     OrganizePhotos.pl checkup
@@ -23,35 +23,45 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl metadata-diff <files>
     OrganizePhotos.pl remove-empties
     OrganizePhotos.pl verify-md5
- 
+
+    ##### Complementary ExifTool commands:
+
+    # Append all keyword metadata from SOURCE to DESTINATION
+    exiftool -addTagsfromfile SOURCE -HierarchicalSubject -Subject DESTINATION
+
     ##### Complementary Mac commands:
- 
+
     # Print trash directories
     find . -type d -name .Trash
- 
+
     # Remove .DS_Store
     find . -type f -name .DS_Store -print -delete
- 
+
     # Remove zero byte md5.txt files (omit "-delete" to only print)
     find . -type f -name md5.txt -empty -print -delete
- 
+
     # Remove empty directories (omit "-delete" to only print)
     find . -type d -empty -print -delete
 
     # Remove the executable bit for media files
-    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2" -or -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V" -or -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG" -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF" -or -iname "md5.txt" \) -print -exec chmod -x {} \;
-	
+    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2" -or 
+        -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V" -or 
+        -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG" -or 
+        -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF" 
+        -or -iname "md5.txt" \) -print -exec chmod -x {} \;
+
     # Remove the downloaded-and-untrusted extended attribute for the current tree
-	xattr -d -r com.apple.quarantine .
- 
+    xattr -d -r com.apple.quarantine .
+
     # Mirror SOURCE to TARGET
-    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
+    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
+        SOURCE TARGET
 
     ##### Complementary PC commands:
- 
+
     # Mirror SOURCE to TARGET
     robocopy /MIR SOURCE TARGET
- 
+
 =head1 DESCRIPTION
 
 Helps to manage a collection of photos and videos that are primarily
@@ -69,7 +79,7 @@ Metadata operations are powered by Image::ExifTool.
 The calling pattern for each command follows the pattern:
 
     OrganizePhotos.pl <verb> <options>
- 
+
 The following verbs are available:
 
 =head2 add-md5
@@ -78,7 +88,7 @@ Alias: a5
 
 For each media file under the current directory that doesn't have a
 MD5 computed, generate the MD5 hash and add to md5.txt file.
- 
+
 This does not modify media files or their sidecars, it only adds entries
 to the md5.txt files.
 
@@ -90,18 +100,18 @@ For each media file under the current directory, generate the MD5 hash
 and either add to md5.txt file if missing or verify hashes match if
 already present.
 
-This method is read/write for MD5s, if you want to perform read-only 
+This method is read/write for MD5s, if you want to perform read-only
 MD5 checks (i.e., don't write to md5.txt), then use verify-md5.
- 
+
 This does not modify media files or their sidecars, it only modifies
 the md5.txt files.
- 
+
 =head3 Options
- 
+
 =over 24
 
 =item B<glob_pattern>
- 
+
 Rather than operate on files under the current directory, operate on
 the specified glob pattern.
 
@@ -111,58 +121,58 @@ the specified glob pattern.
 
     # Check or add MD5 for all CR2 files in the current directory
     $ OrganizePhotos.pl c5 *.CR2
- 
+
 =head2 checkup
- 
+
 Alias: c
- 
+
 This command runs the following suggested suite of commands:
- 
+
     check-md5
     find-dupe-files [-a | --always-continue]
     collect-trash
     remove-empties
- 
+
 =head3 Options
 
 =over 24
- 
+
 =item B<-a, --always-continue>
 
 Always continue
 
 =back
- 
+
 =head2 collect-trash
- 
+
 Alias: ct
- 
+
 Looks recursively for .Trash subdirectories under the current directory
 and moves that content to the current directory's .Trash perserving
 directory structure.
- 
+
 For example if we had the following trash:
- 
+
     ./Foo/.Trash/1.jpg
     ./Foo/.Trash/2.jpg
     ./Bar/.Trash/1.jpg
- 
+
 After collection we would have:
- 
+
     ./.Trash/Foo/1.jpg
     ./.Trash/Foo/2.jpg
     ./.Trash/Bar/1.jpg
- 
+
 =head2 find-dupe-files
 
 Alias: fdf
 
 Find files that have multiple copies under the current directory.
- 
+
 =head3 Options
- 
+
 =over 24
- 
+
 =item B<-a, --always-continue>
 
 Always continue
@@ -170,11 +180,11 @@ Always continue
 =item B<-d, --auto-diff>
 
 Automatically do the 'd' diff command for every new group of files
- 
+
 =item B<-n, --by-name>
- 
+
 Search for items based on name rather than the default of MD5
- 
+
 =back
 
 =head2 metadata-diff <files>
@@ -182,22 +192,22 @@ Search for items based on name rather than the default of MD5
 Alias: md
 
 Do a diff of the specified media files (including their sidecar metadata).
- 
+
 This method does not modify any file.
 
 =head2 remove-empties
- 
+
 Remove any subdirectories that are empty save an md5.txt file
 
 =head2 verify-md5
- 
+
 Alias: v5
- 
+
 Verifies the MD5 hashes for all contents of all md5.txt files below
 the current directory.
- 
+
 This method is read-only, if you want to add/update MD5s, use check-md5.
- 
+
 This method does not modify any file.
 
 =begin comment
@@ -207,7 +217,7 @@ This method does not modify any file.
 =head2 FindMisplacedFiles
 
 Find files that aren't in a directory appropriate for their date
- 
+
 =head2 FindDupeFolders
 
 Find the folders that represent the same date
@@ -228,7 +238,7 @@ Find XMP or THM files that don't have a cooresponding main file
 
 Flag for CheckMd5/VerifyMd5 to only check files created/modified since
 the provided timestamp or timestamp at last MD5 check
- 
+
 =end comment
 
 =head1 AUTHOR
@@ -249,6 +259,7 @@ use warnings;
 
 use Carp qw(confess);
 use Digest::MD5;
+use File::Compare;
 use File::Copy;
 use File::Find;
 use File::Glob qw(:globally :nocase);
@@ -268,11 +279,11 @@ my $mediaType = qr/\.(?i)(?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|raf)$/;
 main();
 exit 0;
 
-#==========================================================================
+#==============================================================================
 sub main {
     if ($#ARGV == -1 or ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]$/i)) {
         pod2usage();
-    }else {
+    } else {
         Getopt::Long::Configure('bundling');
         my $rawVerb = shift @ARGV;
         my $verb = lc $rawVerb;
@@ -320,13 +331,13 @@ sub main {
     }
 }
 
-#==========================================================================
+#==============================================================================
 # Execute add-md5 verb
 sub doAddMd5 {
     verifyOrGenerateMd5Recursively(1, 1);
 }
 
-#==========================================================================
+#==============================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
     if (@_) {
@@ -339,11 +350,11 @@ sub doCheckMd5 {
     }
 }
 
-#==========================================================================
+#==============================================================================
 # Execute collect-trash verb
 sub doCollectTrash {
     my $here = rel2abs(curdir());
-    
+
     find(sub {
         if (-d and lc eq '.trash') {
             # Convert $here/bunch/of/dirs/.Trash to $here/.Trash/bunch/of/dirs
@@ -353,22 +364,22 @@ sub doCollectTrash {
             @dirs = ('.Trash', (grep { lc ne '.trash' } @dirs));
             my $newRelPath = catdir(@dirs);
             my $newFullPath = rel2abs($newRelPath, $here);
-            
+
             if ($oldFullPath ne $newFullPath) {
                 print "$oldRelPath -> $newRelPath\n";
                 moveDir($oldFullPath, $newFullPath);
             } else {
-            	#print "Noop for path $oldRelPath\n";
+                #print "Noop for path $oldRelPath\n";
             }
         }
     }, $here);
 }
 
-#==========================================================================
+#==============================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
     my ($all, $byName, $autoDiff) = @_;
-    
+
     my %keyToPaths = ();
     if ($byName) {
         # Make hash from base filename to files that have that base name
@@ -394,55 +405,55 @@ sub doFindDupeFiles {
             push @{$keyToPaths{$md5}}, $path;
         }, '.');
     }
-    
+
     # Put everthing that has dupes in an array for sorting
     my @dupes = ();
     while (my ($md5, $paths) = each %keyToPaths) {
         if (@$paths > 1) {
-	        if (@$paths > 1) {
-				push @dupes, [sort {
-					# Try to sort paths trying to put the most likely
-					# master copies first and duplicates last
-					
-					my (undef, @as) = deepSplitPath($a);
-					my (undef, @bs) = deepSplitPath($b);
-					
-					for (my $i = 0; $i < @as; $i++) {
-						# If A is in a subdir of B, then B goes first
-						return 1 if $i >= @bs;
-						
-						my ($aa, $bb) = ($as[$i], $bs[$i]);
-						if ($aa ne $bb) {
-							if ($aa =~ /^\Q$bb\E(.+)/) {
-								# A is a substring of B, put B first
-								return -1;
-							} elsif ($bb =~ /^\Q$aa\E(.+)/) {
-								# B is a substring of A, put A first
-								return 1;
-							}
-							
-							# Try as filename and extension
-							my ($an, $ae) = $aa =~ /(.*)\.([^.]*)$/;
-							my ($bn, $be) = $bb =~ /(.*)\.([^.]*)$/;
-							if (defined $ae and defined $be and $ae eq $be) {
-								if ($an =~ /^\Q$bn\E(.+)/) {
-									# A's filename is a substring of B's, put A first
-									return 1;
-								} elsif ($bn =~ /^\Q$an\E(.+)/) {
-									# B's filename is a substring of A's, put B first
-									return -1;
-								}
-							}
-						
-							return $aa cmp $bb;
-						}
-					}
-					
-					# If B is in a subdir of be then B goes first
-					# else they are equal
-					return @bs > @as ? -1 : 0;
-				} @$paths];
-			}
+            if (@$paths > 1) {
+                push @dupes, [sort {
+                    # Try to sort paths trying to put the most likely
+                    # master copies first and duplicates last
+
+                    my (undef, @as) = deepSplitPath($a);
+                    my (undef, @bs) = deepSplitPath($b);
+
+                    for (my $i = 0; $i < @as; $i++) {
+                        # If A is in a subdir of B, then B goes first
+                        return 1 if $i >= @bs;
+
+                        my ($aa, $bb) = ($as[$i], $bs[$i]);
+                        if ($aa ne $bb) {
+                            if ($aa =~ /^\Q$bb\E(.+)/) {
+                                # A is a substring of B, put B first
+                                return -1;
+                            } elsif ($bb =~ /^\Q$aa\E(.+)/) {
+                                # B is a substring of A, put A first
+                                return 1;
+                            }
+
+                            # Try as filename and extension
+                            my ($an, $ae) = $aa =~ /(.*)\.([^.]*)$/;
+                            my ($bn, $be) = $bb =~ /(.*)\.([^.]*)$/;
+                            if (defined $ae and defined $be and $ae eq $be) {
+                                if ($an =~ /^\Q$bn\E(.+)/) {
+                                    # A's filename is a substring of B's, put A first
+                                    return 1;
+                                } elsif ($bn =~ /^\Q$an\E(.+)/) {
+                                    # B's filename is a substring of A's, put B first
+                                    return -1;
+                                }
+                            }
+
+                            return $aa cmp $bb;
+                        }
+                    }
+
+                    # If B is in a subdir of be then B goes first
+                    # else they are equal
+                    return @bs > @as ? -1 : 0;
+                } @$paths];
+            }
         }
     }
 
@@ -450,12 +461,12 @@ sub doFindDupeFiles {
     @dupes = sort { $a->[0] cmp $b->[0] } @dupes;
 
     for (my $dupeIndex = 0; $dupeIndex < @dupes; $dupeIndex++) {
-		my $group = $dupes[$dupeIndex];
+        my $group = $dupes[$dupeIndex];
 
         # Filter out missing files
-		@$group = grep { -e } @$group;
-		next if @$group < 2;
-		
+        @$group = grep { -e } @$group;
+        next if @$group < 2;
+
         # Build base of prompt - indexed paths
         my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, "\n");
         for (my $i = 0; $i < @$group; $i++) {
@@ -469,10 +480,10 @@ sub doFindDupeFiles {
             #}
 
             push @prompt, coloredByIndex($path, $i);
-            
+
             # Don't bother cracking the file to get metadata if we're in ignore all mode
             push @prompt, getDirectoryError($path, $i) unless $all;
-            
+
             push @prompt, "\n";
             # TODO: collect all sidecars and tell user
         }
@@ -487,8 +498,8 @@ sub doFindDupeFiles {
             push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#$group);
         }
         push @prompt, ")? ";
-		
-		metadataDiff(@$group) if $autoDiff;
+
+        metadataDiff(@$group) if $autoDiff;
 
         # Get input until something sticks...
         while (1) {
@@ -521,13 +532,13 @@ sub doFindDupeFiles {
     }
 }
 
-#==========================================================================
+#==============================================================================
 # Execute metadata-diff verb
 sub doMetadataDiff {
     metadataDiff(@_);
 }
 
-#==========================================================================
+#==============================================================================
 # Execute metadata-diff verb
 sub doRemoveEmpties {
     my %dirContentsMap = ();
@@ -538,7 +549,7 @@ sub doRemoveEmpties {
             push @{$dirContentsMap{$File::Find::name}}, '.' if -d;
         }
     }, '.');
-    
+
     while (my ($dir, $contents) = each %dirContentsMap) {
         unless (grep { $_ ne '.' and lc ne 'md5.txt' } @$contents) {
             print "Trashing $dir\n";
@@ -547,20 +558,27 @@ sub doRemoveEmpties {
     }
 }
 
-#==========================================================================
+#==============================================================================
 # Execute test verb
 sub doTest {
-    find({
-        preprocess => \&preprocessSkipTrash,
-        wanted => sub {
-            if (-f and /$mediaType/) {
-                print "Untrashed media file: $_\n";
-            }
-        },
-    }, '.');
+    my $sourceRoot = '/Volumes/Agnus/Media/AlexPhoto/MetadataMigration/Data';
+    my $targetRoot = '/Volumes/Agnus/Media/AlexPhoto/LrRoot';
+    find(sub {
+        if (-f) {
+            my $sourcePath = rel2abs($_);
+
+            (my $targetPath = $sourcePath) =~ s/^\Q$sourceRoot\E/$targetRoot/i
+                or die "$sourcePath didn't start with $sourceRoot";
+
+            -s $targetPath
+                or die "$targetPath doesn't exist";
+                
+            print "From $sourcePath\n  to $targetPath\n";
+        }
+    }, $sourceRoot . '/2003/031001 Riding');
 }
-    
-#==========================================================================
+
+#==============================================================================
 # Execute verify-md5 verb
 sub doVerifyMd5 {
     our $all = 0;
@@ -577,7 +595,7 @@ sub doVerifyMd5 {
                 while (1) {
                     print "Ingore, ignore All, Quit (i/a/q)? ";
                     chomp(my $in = lc <STDIN>);
-                    
+
                     if ($in eq 'i') {
                         last;
                     } elsif ($in eq 'a') {
@@ -593,7 +611,7 @@ sub doVerifyMd5 {
     findMd5s(\&callback, '.');
 }
 
-#--------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 # For each item in each md5.txt file under [dir], invoke [callback]
 # passing it full path and MD5 hash as arguments like
 #      callback($absolutePath, $md5AsString)
@@ -604,12 +622,12 @@ sub findMd5s {
         preprocess => \&preprocessSkipTrash,
         wanted => sub {
             if (-f and lc eq 'md5.txt') {
-                open(my $fh, '<:crlf', $_) 
-					or confess "Couldn't open $File::Find::name: $!";
+                open(my $fh, '<:crlf', $_)
+                    or confess "Couldn't open $File::Find::name: $!";
                 my $md5s = readMd5FileFromHandle($fh);
                 my $dir = $File::Find::dir;
                 for (sort keys %$md5s) {
-					# REVIEW: should catpath be catfile on the next line?
+                    # REVIEW: should catpath be catfile on the next line?
                     $callback->(rel2abs(catpath($dir, $_)), $md5s->{$_});
                 }
             }
@@ -617,7 +635,7 @@ sub findMd5s {
     }, $dir);
 }
 
-#--------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 # Call verifyOrGenerateMd5 for each media file under the current directory
 sub verifyOrGenerateMd5Recursively {
     my ($addOnly, $omitSkipMessage) = @_;
@@ -628,15 +646,15 @@ sub verifyOrGenerateMd5Recursively {
                 verifyOrGenerateMd5($_, $addOnly, $omitSkipMessage);
             } elsif ($_ ne 'md5.txt') {
                 # TODO: Also skip Thumbs.db, .Ds_Store, etc?
-				unless ($omitSkipMessage) {
-                	print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
-				}
+                unless ($omitSkipMessage) {
+                    print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
+                }
             }
         }
     }, '.');
 }
 
-#--------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 # If the file's md5.txt file has a MD5 for the specified [path], this
 # verifies it matches the current MD5.
 #
@@ -652,94 +670,94 @@ sub verifyOrGenerateMd5 {
 
     my $key = lc $name;
     my ($expectedMd5, $actualMd5);
-	
-	# Check cache from last call (this can often be called
-	# repeatedly with files in same folder, so this prevents
-	# unnecessary rereads)
-	our ($lastMd5Path, $lastMd5s);
-	if ($lastMd5Path and $md5Path eq $lastMd5Path) {
-		$expectedMd5 = $lastMd5s->{$key};
-	}
 
-	# Loop twice, once for cached info and one for file info
+    # Check cache from last call (this can often be called
+    # repeatedly with files in same folder, so this prevents
+    # unnecessary rereads)
+    our ($lastMd5Path, $lastMd5s);
+    if ($lastMd5Path and $md5Path eq $lastMd5Path) {
+        $expectedMd5 = $lastMd5s->{$key};
+    }
+
+    # Loop twice, once for cached info and one for file info
     my ($fh, $md5s);
-	while (1) {
-	    # In add-only mode, don't compute the hash of a file that
-	    # is already in the md5.txt
-	    if ($addOnly and defined $expectedMd5) {
-			unless ($omitSkipMessage) {
-	        	print colored("Skipping    MD5 for $path", 'yellow'), "\n";
-			}
-	        return;
-	    }
+    while (1) {
+        # In add-only mode, don't compute the hash of a file that
+        # is already in the md5.txt
+        if ($addOnly and defined $expectedMd5) {
+            unless ($omitSkipMessage) {
+                print colored("Skipping    MD5 for $path", 'yellow'), "\n";
+            }
+            return;
+        }
 
-		# Compute the MD5 if we haven't already and need it
-		if (!defined $actualMd5 and (defined $expectedMd5 or defined $fh)) {
-			# Get the actual MD5 by reading the whole file
-	    	$actualMd5 = eval { getMd5($path); };
-	    	if ($@) {
-	    		# Can't get the MD5
-	        	# TODO: for now, skip but we'll want something better in the future
-	        	warn colored("UNAVAILABLE MD5 for $path with error:", 'red'), "\n\t$@";
-	        	return;
-	    	}
-		}
-	
-	    if (defined $expectedMd5) {
-	        # It's there; verify the existing hash
-	        if ($expectedMd5 eq $actualMd5) {
-	            # Matches last recorded hash, nothing to do
-	            print colored("Verified    MD5 for $path", 'green'), "\n";
-	            return;
-	        } elsif (defined $fh) {
-	            # Mismatch and we can update MD5, needs resolving...
-	            warn "MISMATCH OF MD5 for $path";
+        # Compute the MD5 if we haven't already and need it
+        if (!defined $actualMd5 and (defined $expectedMd5 or defined $fh)) {
+            # Get the actual MD5 by reading the whole file
+            $actualMd5 = eval { getMd5($path); };
+            if ($@) {
+                # Can't get the MD5
+                # TODO: for now, skip but we'll want something better in the future
+                warn colored("UNAVAILABLE MD5 for $path with error:", 'red'), "\n\t$@";
+                return;
+            }
+        }
 
-	            while (1) {
-	                print "Ignore, Overwrite, Quit (i/o/q)? ";
-	                chomp(my $in = lc <STDIN>);
+        if (defined $expectedMd5) {
+            # It's there; verify the existing hash
+            if ($expectedMd5 eq $actualMd5) {
+                # Matches last recorded hash, nothing to do
+                print colored("Verified    MD5 for $path", 'green'), "\n";
+                return;
+            } elsif (defined $fh) {
+                # Mismatch and we can update MD5, needs resolving...
+                warn "MISMATCH OF MD5 for $path";
 
-	                if ($in eq 'i') {
-	                    # Ignore the error and return
-	                    return;
-	                } elsif ($in eq 'o') {
-	                    # Exit loop to fall through to save actualMd5
-	                    last;
-	                } elsif ($in eq 'q') {
-	                    # User requested to terminate
-	                    confess "MD5 mismatch for $path";
-	                }
-	            }
-				
-				# Write MD5
-	        	print colored("UPDATING    MD5 for $path", 'magenta'), "\n";
-				last;
-	        }
-	    } elsif (defined $fh) {
-	        # It wasn't there, it's a new file, we'll add that
-	        print colored("ADDING      MD5 for $path", 'blue'), "\n";
-			last;
-	    }
+                while (1) {
+                    print "Ignore, Overwrite, Quit (i/o/q)? ";
+                    chomp(my $in = lc <STDIN>);
 
-	    # Open MD5 file if we haven't already done so
-		if (!defined $fh) {			
-		    if (open($fh, '+<:crlf', $md5Path)) {
-		        # Read existing contents
-		        $md5s = readMd5FileFromHandle($fh);
-		    } else {
-		        # File doesn't exist, open for write
-		        open($fh, '>', $md5Path) 
-					or confess "Couldn't open $md5Path: $!";
-		    }
+                    if ($in eq 'i') {
+                        # Ignore the error and return
+                        return;
+                    } elsif ($in eq 'o') {
+                        # Exit loop to fall through to save actualMd5
+                        last;
+                    } elsif ($in eq 'q') {
+                        # User requested to terminate
+                        confess "MD5 mismatch for $path";
+                    }
+                }
 
-			# Cache info
-			$lastMd5Path = $md5Path;
-			$lastMd5s = $md5s;
-			
-		    # Try lookup into MD5 file contents
-			$expectedMd5 = $md5s->{$key};
-		}
-	}
+                # Write MD5
+                print colored("UPDATING    MD5 for $path", 'magenta'), "\n";
+                last;
+            }
+        } elsif (defined $fh) {
+            # It wasn't there, it's a new file, we'll add that
+            print colored("ADDING      MD5 for $path", 'blue'), "\n";
+            last;
+        }
+
+        # Open MD5 file if we haven't already done so
+        if (!defined $fh) {
+            if (open($fh, '+<:crlf', $md5Path)) {
+                # Read existing contents
+                $md5s = readMd5FileFromHandle($fh);
+            } else {
+                # File doesn't exist, open for write
+                open($fh, '>', $md5Path)
+                    or confess "Couldn't open $md5Path: $!";
+            }
+
+            # Cache info
+            $lastMd5Path = $md5Path;
+            $lastMd5s = $md5s;
+
+            # Try lookup into MD5 file contents
+            $expectedMd5 = $md5s->{$key};
+        }
+    }
 
     # Add/update MD5
     $md5s->{$key} = $actualMd5;
@@ -781,7 +799,7 @@ sub removeMd5ForPath {
 # Deserialize a md5.txt file handle into a filename -> MD5 hash
 sub readMd5FileFromHandle {
     my ($fh) = @_;
-    
+
     my %md5s = ();
     for (<$fh>) {
         chomp;
@@ -791,7 +809,7 @@ sub readMd5FileFromHandle {
 
         $md5s{lc $1} = $2;
     }
-    
+
     return \%md5s;
 }
 
@@ -801,13 +819,13 @@ sub readMd5FileFromHandle {
 # the hash for the pixel data.
 sub getMd5 {
     use Digest::MD5;
-    
+
     my $md5 = new Digest::MD5;
-    
+
     for my $path (@_) {
         open(my $fh, '<:raw', $path)
             or confess "Couldn't open $path: $!";
-        
+
         #my $modified = formatDate((stat($fh))[9]);
         #print "Date modified: $modified\n";
 
@@ -828,13 +846,13 @@ sub getMd5 {
             while (1) {
                 read($fh, my $data, 4)
                     or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
-                
+
                 my ($tag, $size) = unpack('nn', $data);
                 last if $tag == 0xffda;
-                
+
                 $tags .= sprintf("%04x,%04x;", $tag, $size);
                 #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
-                
+
                 my $address = tell($fh) + $size - 2;
                 seek($fh, $address, 0)
                     or confess "Failed to seek $path to $address: $!";
@@ -843,7 +861,7 @@ sub getMd5 {
 
         $md5->addfile($fh);
     }
-    
+
     return getMd5Digest($md5);
 }
 
@@ -851,10 +869,10 @@ sub getMd5 {
 # Computes the MD5 for a full file
 sub getBareFileMd5 {
     my ($path) = @_;
-    
-    open(my $fh, '<:raw', $path) 
-		or confess "Couldn't open $path: $!";
-    
+
+    open(my $fh, '<:raw', $path)
+        or confess "Couldn't open $path: $!";
+
     my $md5 = new Digest::MD5;
     $md5->addfile($fh);
 
@@ -865,11 +883,11 @@ sub getBareFileMd5 {
 # Get/verify/canonicalize hash from a Digest::MD5 object
 sub getMd5Digest {
     my ($md5) = @_;
-    
+
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$md5pattern/
         or confess "unexpected MD5: $hexdigest";
-    
+
     return $hexdigest;
 }
 
@@ -877,31 +895,31 @@ sub getMd5Digest {
 # Print all the metadata values which differ in a set of paths
 sub metadataDiff {
     my @paths = @_;
-    
+
     # Get metadata for all files
     my @items = map { readMetadata($_) } @paths;
-	
-	my @tagsToSkip = qw(
-		CurrentIPTCDigest DocumentID DustRemovalData 
-		FileInodeChangeDate FileName HistoryInstanceID 
-		IPTCDigest InstanceID OriginalDocumentID
-		PreviewImage RawFileName ThumbnailImage);
-    
+
+    my @tagsToSkip = qw(
+        CurrentIPTCDigest DocumentID DustRemovalData
+        FileInodeChangeDate FileName HistoryInstanceID
+        IPTCDigest InstanceID OriginalDocumentID
+        PreviewImage RawFileName ThumbnailImage);
+
     # Collect all the keys which whose values aren't all equal
     my %keys = ();
     for (my $i = 0; $i < @items; $i++) {
         while (my ($key, $value) = each %{$items[$i]}) {
-			no warnings 'experimental::smartmatch';
-			unless ($key ~~ @tagsToSkip) {
-	            for (my $j = 0; $j < @items; $j++) {
-	                if ($i != $j and
-	                    (!exists $items[$j]->{$key} or
-	                     $items[$j]->{$key} ne $value)) {
-	                    $keys{$key} = 1;
-	                    last;
-	                }
-	            }
-			}
+            no warnings 'experimental::smartmatch';
+            unless ($key ~~ @tagsToSkip) {
+                for (my $j = 0; $j < @items; $j++) {
+                    if ($i != $j and
+                        (!exists $items[$j]->{$key} or
+                         $items[$j]->{$key} ne $value)) {
+                        $keys{$key} = 1;
+                        last;
+                    }
+                }
+            }
         }
     }
 
@@ -930,22 +948,22 @@ sub readMetadata {
     $et->ExtractInfo($path)
         or confess "Couldn't ExtractInfo for $path";
 
-	my $info = $et->GetInfo();
+    my $info = $et->GetInfo();
 
     # If this file can't hold XMP (i.e. not JPEG or TIFF), look for
     # XMP sidecar
     # TODO: Should we exclude DNG here too?
-	# TODO: How do we prevent things like FileSize from being overwritten
-	#       by the XMP sidecar? read it first? exclude fields somehow (eg 
-	#       by "file" group)?
-	#       (FileSize, FileModifyDate, FileAccessDate, FilePermissions)
+    # TODO: How do we prevent things like FileSize from being overwritten
+    #       by the XMP sidecar? read it first? exclude fields somehow (eg
+    #       by "file" group)?
+    #       (FileSize, FileModifyDate, FileAccessDate, FilePermissions)
     if ($path !~ /\.(jpeg|jpeg|tif|tiff)$/i) {
         (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
         if (-s $xmpPath) {
             $et->ExtractInfo($xmpPath)
                 or confess "Couldn't ExtractInfo for $xmpPath";
-				
-			$info = { %{$et->GetInfo()}, %$info };
+
+            $info = { %{$et->GetInfo()}, %$info };
         }
     }
 
@@ -1026,22 +1044,29 @@ sub trashPath {
 sub moveDir {
     my ($oldPath, $newPath) = @_;
     print "moveDir('$oldPath', '$newPath');\n";
-    
+
     if (-d $newPath) {
         # Dest dir already exists, need to move-merge
-		
-		-d $oldPath
-			or confess "Can't move a non-directory to a directory ($oldPath > $newPath)";
-        
-		for my $oldChild (glob(catfile($oldPath, '*'))) {
-			(my $newChild = $oldChild) =~ s/^\Q$oldPath\E/$newPath/
-				or confess "$oldChild should start with $oldPath";
-			
-			moveFile($oldChild, $newChild);
-		}
+
+        -d $oldPath
+            or confess "Can't move a non-directory to a directory ($oldPath > $newPath)";
+
+        for my $oldChild (glob(catfile($oldPath, '*'))) {
+            (my $newChild = $oldChild) =~ s/^\Q$oldPath\E/$newPath/
+                or confess "$oldChild should start with $oldPath";
+
+            if (-e $newChild and compare($newChild, $oldChild) == 0) {
+                # newChild already exists and is identical to oldChild
+                # so let's just remove oldChild
+                print "Removing $oldChild which already exists at $newChild\n";
+                #unlink $oldChild;
+            } else {
+                moveFile($oldChild, $newChild);
+            }
+        }
     } else {
         # Dest dir doesn't exist
-        
+
         # Move the source to the target
         moveFile($oldPath, $newPath);
     }
@@ -1051,13 +1076,13 @@ sub moveDir {
 # Split a path into ($volume, @dirs, $name)
 sub deepSplitPath {
     my ($path) = @_;
-    
+
     my ($volume, $dir, $name) = splitpath($path);
     my @dirs = splitdir($dir);
-    
+
     return ($volume, @dirs, $name);
 }
-    
+
 #--------------------------------------------------------------------------
 # 'preprocess' callback for find of File::Find which skips .Trash dirs
 sub preprocessSkipTrash  {
@@ -1067,22 +1092,22 @@ sub preprocessSkipTrash  {
 #--------------------------------------------------------------------------
 # Move [oldPath] to [newPath] in a convinient and safe manner
 sub moveFile {
-	my ($oldPath, $newPath) = @_;
-	
-	# Haven't gotten to recursive merge (for dirs 'if -d') yet...
-	-e $newPath 
-		and confess "I can't overwrite files ($oldPath > $newPath)";
-    
+    my ($oldPath, $newPath) = @_;
+
+    # Haven't gotten to recursive merge (for dirs 'if -d') yet...
+    -e $newPath
+        and confess "I can't overwrite files ($oldPath > $newPath)";
+
     # Create parent folder if it doesn't exist
     my $newParentDir = catpath((splitpath($newPath))[0,1]);
-    -d $newParentDir or make_path($newParentDir) 
-		or confess "Failed to make directory $newParentDir: $!";
-		
-	# Do the real move
-    move($oldPath, $newPath)
-		or confess "Failed to move $oldPath to $newPath: $!";
+    -d $newParentDir or make_path($newParentDir)
+        or confess "Failed to make directory $newParentDir: $!";
 
-	print "Moved $oldPath\n   to $newPath\n";
+    # Do the real move
+    move($oldPath, $newPath)
+        or confess "Failed to move $oldPath to $newPath: $!";
+
+    print "Moved $oldPath\n   to $newPath\n";
 }
 
 #--------------------------------------------------------------------------
