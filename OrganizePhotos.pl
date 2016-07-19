@@ -581,7 +581,11 @@ sub doTest {
 
             -s $targetPath
                 or die "$targetPath doesn't exist";
-                
+
+            appendMetadata(
+                $sourcePath, $targetPath, 
+                qw(Subject HierarchicalSubject));
+                    
             print "From $sourcePath\n  to $targetPath\n";
         }
     }, $sourceRoot . '/2003/031001 Riding');
