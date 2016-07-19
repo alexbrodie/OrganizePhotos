@@ -41,10 +41,10 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     find . -type d -empty -print -delete
 
     # Remove the executable bit for media files
-    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2" -or 
-        -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V" -or 
-        -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG" -or 
-        -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF" 
+    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2"
+        -or -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V"
+        -or -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG"
+        -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF"
         -or -iname "md5.txt" \) -print -exec chmod -x {} \;
 
     # Remove the downloaded-and-untrusted extended attribute for the current tree

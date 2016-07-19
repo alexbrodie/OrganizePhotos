@@ -44,10 +44,10 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     find . -type d -empty -print -delete
 
     # Remove the executable bit for media files
-    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2" -or 
-        -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V" -or 
-        -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG" -or 
-        -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF" 
+    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2"
+        -or -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V"
+        -or -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG"
+        -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF"
         -or -iname "md5.txt" \) -print -exec chmod -x {} \;
 
     # Remove the downloaded-and-untrusted extended attribute for the current tree
@@ -279,7 +279,7 @@ my $mediaType = qr/\.(?i)(?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|raf)$/;
 main();
 exit 0;
 
-#==============================================================================
+#===============================================================================
 sub main {
     if ($#ARGV == -1 or ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]$/i)) {
         pod2usage();
@@ -331,13 +331,13 @@ sub main {
     }
 }
 
-#==============================================================================
+#===============================================================================
 # Execute add-md5 verb
 sub doAddMd5 {
     verifyOrGenerateMd5Recursively(1, 1);
 }
 
-#==============================================================================
+#===============================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
     if (@_) {
@@ -350,7 +350,7 @@ sub doCheckMd5 {
     }
 }
 
-#==============================================================================
+#===============================================================================
 # Execute collect-trash verb
 sub doCollectTrash {
     my $here = rel2abs(curdir());
@@ -375,7 +375,7 @@ sub doCollectTrash {
     }, $here);
 }
 
-#==============================================================================
+#===============================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
     my ($all, $byName, $autoDiff) = @_;
@@ -532,13 +532,13 @@ sub doFindDupeFiles {
     }
 }
 
-#==============================================================================
+#===============================================================================
 # Execute metadata-diff verb
 sub doMetadataDiff {
     metadataDiff(@_);
 }
 
-#==============================================================================
+#===============================================================================
 # Execute metadata-diff verb
 sub doRemoveEmpties {
     my %dirContentsMap = ();
@@ -558,7 +558,7 @@ sub doRemoveEmpties {
     }
 }
 
-#==============================================================================
+#===============================================================================
 # Execute test verb
 sub doTest {
     my $sourceRoot = '/Volumes/Agnus/Media/AlexPhoto/MetadataMigration/Data';
@@ -578,7 +578,7 @@ sub doTest {
     }, $sourceRoot . '/2003/031001 Riding');
 }
 
-#==============================================================================
+#===============================================================================
 # Execute verify-md5 verb
 sub doVerifyMd5 {
     our $all = 0;
@@ -611,7 +611,7 @@ sub doVerifyMd5 {
     findMd5s(\&callback, '.');
 }
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # For each item in each md5.txt file under [dir], invoke [callback]
 # passing it full path and MD5 hash as arguments like
 #      callback($absolutePath, $md5AsString)
@@ -635,7 +635,7 @@ sub findMd5s {
     }, $dir);
 }
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Call verifyOrGenerateMd5 for each media file under the current directory
 sub verifyOrGenerateMd5Recursively {
     my ($addOnly, $omitSkipMessage) = @_;
@@ -654,7 +654,7 @@ sub verifyOrGenerateMd5Recursively {
     }, '.');
 }
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # If the file's md5.txt file has a MD5 for the specified [path], this
 # verifies it matches the current MD5.
 #
@@ -772,7 +772,7 @@ sub verifyOrGenerateMd5 {
     }
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Removes the cached MD5 hash for the specified path
 sub removeMd5ForPath {
     my ($path) = @_;
@@ -795,8 +795,8 @@ sub removeMd5ForPath {
     }
 }
 
-#--------------------------------------------------------------------------
-# Deserialize a md5.txt file handle into a filename -> MD5 hash
+#-------------------------------------------------------------------------------
+# Deserialize a md5.txt file handle into a filename => MD5 hash
 sub readMd5FileFromHandle {
     my ($fh) = @_;
 
@@ -813,7 +813,7 @@ sub readMd5FileFromHandle {
     return \%md5s;
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Calculates and returns the MD5 digest of a (set of) file(s). For JPEG
 # files, this skips the metadata portion of the files and only computes
 # the hash for the pixel data.
@@ -865,7 +865,7 @@ sub getMd5 {
     return getMd5Digest($md5);
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Computes the MD5 for a full file
 sub getBareFileMd5 {
     my ($path) = @_;
@@ -879,7 +879,7 @@ sub getBareFileMd5 {
     return getMd5Digest($md5);
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Get/verify/canonicalize hash from a Digest::MD5 object
 sub getMd5Digest {
     my ($md5) = @_;
@@ -891,7 +891,7 @@ sub getMd5Digest {
     return $hexdigest;
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Print all the metadata values which differ in a set of paths
 sub metadataDiff {
     my @paths = @_;
@@ -931,13 +931,13 @@ sub metadataDiff {
             print coloredByIndex(exists $items[$i]->{$key}
                 ? $items[$i]->{$key}
                 : colored('undef', 'faint'), $i),
-            "\n", ' ' x 30;
+                "\n", ' ' x 30;
         }
         print "\n";
     }
 }
 
-#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Read metadata as an ExifTool hash for the specified path (and any
 # XMP sidecar when appropriate)
 sub readMetadata {
@@ -972,7 +972,7 @@ sub readMetadata {
     return $info;
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # If specified media [path] is in the right directory, returns the falsy
 # empty string. If it is in the wrong directory, a short truthy error
 # string (colored by [colorIndex]) is returned.
@@ -1012,7 +1012,7 @@ sub getDirectoryError {
     }
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Trash the specified path and any sidecars
 sub trashMedia {
     my ($path) = @_;
@@ -1023,7 +1023,7 @@ sub trashMedia {
     trashPath($_) for glob qq("$query");
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Trash the specified path by moving it to a .Trash subdir and removing
 # its entry from the md5.txt file
 sub trashPath {
@@ -1038,7 +1038,7 @@ sub trashPath {
     removeMd5ForPath($path);
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Move the [oldPath] directory to [newPath] with merging if [newPath]
 # already exists
 sub moveDir {
@@ -1072,7 +1072,7 @@ sub moveDir {
     }
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Split a path into ($volume, @dirs, $name)
 sub deepSplitPath {
     my ($path) = @_;
@@ -1083,13 +1083,13 @@ sub deepSplitPath {
     return ($volume, @dirs, $name);
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # 'preprocess' callback for find of File::Find which skips .Trash dirs
 sub preprocessSkipTrash  {
     return grep { !-d or lc ne '.trash' } @_;
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Move [oldPath] to [newPath] in a convinient and safe manner
 sub moveFile {
     my ($oldPath, $newPath) = @_;
@@ -1110,15 +1110,15 @@ sub moveFile {
     print "Moved $oldPath\n   to $newPath\n";
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Format a date (such as that returned by stat) into string form
 sub formatDate {
     my ($sec, $min, $hour, $day, $mon, $year) = localtime $_[0];
     return sprintf '%04d-%02d-%02dT%02d:%02d:%02d',
-                $year + 1900, $mon + 1, $day, $hour, $min, $sec;
+        $year + 1900, $mon + 1, $day, $hour, $min, $sec;
 }
 
-#--------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Colorizes text for diffing purposes
 sub coloredByIndex {
     my ($message, $colorIndex) = @_;
@@ -1126,7 +1126,7 @@ sub coloredByIndex {
     return colored($message, colorByIndex($colorIndex));
 }
 
-#--------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 sub colorByIndex {
     my ($colorIndex) = @_;
 
