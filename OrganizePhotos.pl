@@ -258,6 +258,8 @@ use strict;
 use warnings;
 
 use Carp qw(confess);
+use Data::Compare;
+use Data::Dumper;
 use Digest::MD5;
 use File::Compare;
 use File::Copy;
@@ -560,6 +562,13 @@ sub doRemoveEmpties {
 
 #===============================================================================
 # Execute test verb
+sub doTestX {
+    my $dir = "/Users/alexbrodie/temp";
+    appendMetadata(
+        "$dir/source.xmp", "$dir/dest.xmp",
+        qw(Subject HierarchicalSubject));
+}
+
 sub doTest {
     my $sourceRoot = '/Volumes/Agnus/Media/AlexPhoto/MetadataMigration/Data';
     my $targetRoot = '/Volumes/Agnus/Media/AlexPhoto/LrRoot';
@@ -935,6 +944,40 @@ sub metadataDiff {
         }
         print "\n";
     }
+}
+
+#-------------------------------------------------------------------------------
+sub appendMetadata {
+    my ($source, $dest) = @_;
+    
+    my $et = new Image::ExifTool;
+
+    my @tags = qw(Subject HierarchicalSubject);
+    
+    $et->ExtractInfo($dest)
+        or confess "Couldn't ExtractInfo for $dest";
+
+    my $info = $et->GetInfo(@tags);
+    #print "Dest data before:\n", Dumper($info);
+
+    my $updates = $et->SetNewValuesFromFile(
+        $source, { Replace => 0 }, @tags);
+    #print "Updates:\n", Dumper($updates);
+    
+    # Compute backup path
+    my $backup = $dest;
+    $backup =~ s/\.([^.]*)$/_bak.$1/;
+    for (my $i = 2; -s $backup; $i++) {
+        $backup =~ s/_bak\d*\.([^.]*)$/_bak$i.$1/;
+    }
+    
+    copy $dest, $backup
+        or confess "Couldn't copy $dest to $backup: $!";
+
+    $et->WriteInfo($dest)
+        or confess "Couldn't WriteInfo for $dest";
+
+    print "Updated $dest\n original backed up to $backup\n";
 }
 
 #-------------------------------------------------------------------------------
