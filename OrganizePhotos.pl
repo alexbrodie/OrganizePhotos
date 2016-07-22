@@ -573,22 +573,31 @@ sub doTest {
     my $sourceRoot = '/Volumes/Agnus/Media/AlexPhoto/MetadataMigration/Data';
     my $targetRoot = '/Volumes/Agnus/Media/AlexPhoto/LrRoot';
     find(sub {
-        if (-f) {
+        if (-f and /\.xmp$/i) {
             my $sourcePath = rel2abs($_);
+
+            #$sourcePath =~ /2015-?(\d\d)-?(\d\d)/ 
+            #    or die "Not of expected format: $sourcePath";
+            #my $mmdd = $1 * 100 + $2; 
+                
+            #/Volumes/Agnus/Media/AlexPhoto/LrRoot/2015/2015-06-05/5D3_8591.xmp doesn't exist at /Users/alexbrodie/Documents/OrganizePhotos/OrganizePhotos.pl line 582.
+            #if ($mmdd >= 1230) {
 
             (my $targetPath = $sourcePath) =~ s/^\Q$sourceRoot\E/$targetRoot/i
                 or die "$sourcePath didn't start with $sourceRoot";
 
             -s $targetPath
                 or die "$targetPath doesn't exist";
-
+                
             appendMetadata(
                 $sourcePath, $targetPath, 
                 qw(Subject HierarchicalSubject));
                     
             print "From $sourcePath\n  to $targetPath\n";
+            #}
         }
-    }, $sourceRoot . '/2003/031001 Riding');
+    }, $sourceRoot . '/2016');
+    #}, $sourceRoot);
 }
 
 #===============================================================================
