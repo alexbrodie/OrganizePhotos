@@ -15,14 +15,15 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
     ##### Supported operations:
 
-    OrganizePhotos.pl add-md5
-    OrganizePhotos.pl check-md5 [glob_pattern]
-    OrganizePhotos.pl checkup
-    OrganizePhotos.pl collect-trash
-    OrganizePhotos.pl find-dupe-files [-a] [-d] [-n]
-    OrganizePhotos.pl metadata-diff <files>
-    OrganizePhotos.pl remove-empties
-    OrganizePhotos.pl verify-md5
+     * add-md5
+     * append-metadata <source file> <target file>
+     * check-md5 [glob_pattern]
+     * checkup
+     * collect-trash
+     * find-dupe-files [-a] [-d] [-n]
+     * metadata-diff <files...>
+     * remove-empties
+     * verify-md5
 
     ##### Complementary ExifTool commands:
 
@@ -293,6 +294,9 @@ sub main {
             GetOptions();
             @ARGV and die "Unexpected parameters: @ARGV";
             doAddMd5();
+        } elsif ($verb eq 'append-metadata' or $verb eq 'am') {
+            GetOptions();
+            doAppendMetadata(@ARGV);
         } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
             GetOptions();
             doCheckMd5(@ARGV);
@@ -337,6 +341,14 @@ sub main {
 # Execute add-md5 verb
 sub doAddMd5 {
     verifyOrGenerateMd5Recursively(1, 1);
+}
+
+#===============================================================================
+# Execute append-metadata verb
+sub doAppendMetadata {
+    my ($src, $dst) = @_;
+    
+    appendMetadata($src, $dst, qw(Subject HierarchicalSubject));
 }
 
 #===============================================================================
@@ -573,14 +585,12 @@ sub doTest {
     my $sourceRoot = '/Volumes/Agnus/Media/AlexPhoto/MetadataMigration/Data';
     my $targetRoot = '/Volumes/Agnus/Media/AlexPhoto/LrRoot';
     find(sub {
-        if (-f and /\.xmp$/i) {
+        if (-f and !/\.xmp$/i) {
             my $sourcePath = rel2abs($_);
 
             #$sourcePath =~ /2015-?(\d\d)-?(\d\d)/ 
             #    or die "Not of expected format: $sourcePath";
-            #my $mmdd = $1 * 100 + $2; 
-                
-            #/Volumes/Agnus/Media/AlexPhoto/LrRoot/2015/2015-06-05/5D3_8591.xmp doesn't exist at /Users/alexbrodie/Documents/OrganizePhotos/OrganizePhotos.pl line 582.
+            #my $mmdd = $1 * 100 + $2;                 
             #if ($mmdd >= 1230) {
 
             (my $targetPath = $sourcePath) =~ s/^\Q$sourceRoot\E/$targetRoot/i
@@ -594,10 +604,11 @@ sub doTest {
                 qw(Subject HierarchicalSubject));
                     
             print "From $sourcePath\n  to $targetPath\n";
+            
             #}
         }
-    }, $sourceRoot . '/2016');
-    #}, $sourceRoot);
+    #}, $sourceRoot . '/2016');
+    }, $sourceRoot);
 }
 
 #===============================================================================
@@ -967,30 +978,40 @@ sub appendMetadata {
 
     my @tags = qw(Subject HierarchicalSubject);
     
+    @tags = map { ("$_->$_", "$_+>$_") } @tags;
+    #print join(', ', @tags), "\n";
+    
     $et->ExtractInfo($dest)
         or confess "Couldn't ExtractInfo for $dest";
 
     my $info = $et->GetInfo(@tags);
-    #print "Dest data before:\n", Dumper($info);
+    print "$dest (before):\n", Dumper($info);
 
     my $updates = $et->SetNewValuesFromFile(
         $source, { Replace => 0 }, @tags);
-    #print "Updates:\n", Dumper($updates);
+    print "$source (updates):\n", Dumper($updates);
     
     # Compute backup path
-    my $backup = $dest;
-    $backup =~ s/\.([^.]*)$/_bak.$1/;
+    my $backup = "${dest}_bak";
     for (my $i = 2; -s $backup; $i++) {
-        $backup =~ s/_bak\d*\.([^.]*)$/_bak$i.$1/;
+        $backup =~ s/_bak\d*$/_bak$i/;
     }
     
     copy $dest, $backup
         or confess "Couldn't copy $dest to $backup: $!";
 
-    $et->WriteInfo($dest)
-        or confess "Couldn't WriteInfo for $dest";
+    my $write = $et->WriteInfo($dest);
+    if ($write == 1) {
+        # updated
+        print "Updated $dest\n original backed up to $backup\n";
+    } elsif ($write == 2) {
+        # noop
+        print "$dest was already up to date\n";
+    } else {
+        # failure
+        confess "Couldn't WriteInfo for $dest";
+    }
 
-    print "Updated $dest\n original backed up to $backup\n";
 }
 
 #-------------------------------------------------------------------------------
