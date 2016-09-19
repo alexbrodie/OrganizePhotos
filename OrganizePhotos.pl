@@ -7,24 +7,13 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 =head1 SYNOPSIS
 
-    ##### Typical workflow
+    # Help:
+    OrganizePhotos.pl -h
 
-    # Import via Lightroom
+    # Typical workflow:
+    # Import via Lightroom 
     OrganizePhotos.pl checkup /photos/root/dir
-    # Arvhive /photos/root/dir (see below)
-
-    ##### Supported operations:
-
-     * add-md5
-     * append-metadata <target file> <source files...>
-     * check-md5 [glob_pattern]
-     * checkup
-     * collect-trash
-     * consolodate-metadata <dir>
-     * find-dupe-files [-a] [-d] [-n]
-     * metadata-diff <files...>
-     * remove-empties
-     * verify-md5
+    # Archive /photos/root/dir (see help)
 
 =head1 DESCRIPTION
 
@@ -46,9 +35,33 @@ The calling pattern for each command follows the pattern:
 
 The following verbs are available:
 
+=over 5
+
+=item B<add-md5>
+
+=item B<append-metadata> <target file> <source files...>
+
+=item B<check-md5> [glob_patterns...]
+
+=item B<checkup> [-a]
+
+=item B<collect-trash>
+
+=item B<consolodate-metadata> <dir>
+
+=item B<find-dupe-files> [-a] [-d] [-n]
+
+=item B<metadata-diff> <files...>
+
+=item B<remove-empties>
+
+=item B<verify-md5>
+
+=back
+
 =head2 add-md5
 
-Alias: a5
+I<Alias: a5>
 
 For each media file under the current directory that doesn't have a
 MD5 computed, generate the MD5 hash and add to md5.txt file.
@@ -58,7 +71,7 @@ to the md5.txt files.
 
 =head2 check-md5
 
-Alias: c5
+I<Alias: c5>
 
 For each media file under the current directory, generate the MD5 hash
 and either add to md5.txt file if missing or verify hashes match if
@@ -88,7 +101,7 @@ the specified glob pattern.
 
 =head2 checkup
 
-Alias: c
+I<Alias: c>
 
 This command runs the following suggested suite of commands:
 
@@ -109,7 +122,7 @@ Always continue
 
 =head2 collect-trash
 
-Alias: ct
+I<Alias: ct>
 
 Looks recursively for .Trash subdirectories under the current directory
 and moves that content to the current directory's .Trash perserving
@@ -127,9 +140,13 @@ After collection we would have:
     ./.Trash/Foo/2.jpg
     ./.Trash/Bar/1.jpg
 
+=head2 consolodate-metadata
+
+I<Alias: cm>
+
 =head2 find-dupe-files
 
-Alias: fdf
+I<Alias: fdf>
 
 Find files that have multiple copies under the current directory.
 
@@ -332,6 +349,7 @@ sub main {
             doMetadataDiff(@ARGV);
         } elsif ($verb eq 'remove-empties' or $verb eq 're') {
             GetOptions();
+            @ARGV and die "Unexpected parameters: @ARGV";
             doRemoveEmpties();
         } elsif ($verb eq 'test') {
             doTest();
