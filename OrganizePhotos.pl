@@ -10,58 +10,21 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     ##### Typical workflow
 
     # Import via Lightroom
-    OrganizePhotos.pl checkup /deepest/common/ancestor/dir
-    # Arvhive /deepest/common/ancestor/dir (see below)
+    OrganizePhotos.pl checkup /photos/root/dir
+    # Arvhive /photos/root/dir (see below)
 
     ##### Supported operations:
 
      * add-md5
-     * append-metadata <source file> <target file>
+     * append-metadata <target file> <source files...>
      * check-md5 [glob_pattern]
      * checkup
      * collect-trash
+     * consolodate-metadata <dir>
      * find-dupe-files [-a] [-d] [-n]
      * metadata-diff <files...>
      * remove-empties
      * verify-md5
-
-    ##### Complementary ExifTool commands:
-
-    # Append all keyword metadata from SOURCE to DESTINATION
-    exiftool -addTagsfromfile SOURCE -HierarchicalSubject -Subject DESTINATION
-
-    ##### Complementary Mac commands:
-
-    # Print trash directories
-    find . -type d -name .Trash
-
-    # Remove .DS_Store
-    find . -type f -name .DS_Store -print -delete
-
-    # Remove zero byte md5.txt files (omit "-delete" to only print)
-    find . -type f -name md5.txt -empty -print -delete
-
-    # Remove empty directories (omit "-delete" to only print)
-    find . -type d -empty -print -delete
-
-    # Remove the executable bit for media files
-    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2"
-        -or -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V"
-        -or -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG"
-        -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF"
-        -or -iname "md5.txt" \) -print -exec chmod -x {} \;
-
-    # Remove the downloaded-and-untrusted extended attribute for the current tree
-    xattr -d -r com.apple.quarantine .
-
-    # Mirror SOURCE to TARGET
-    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
-        SOURCE TARGET
-
-    ##### Complementary PC commands:
-
-    # Mirror SOURCE to TARGET
-    robocopy /MIR SOURCE TARGET
 
 =head1 DESCRIPTION
 
@@ -242,6 +205,46 @@ the provided timestamp or timestamp at last MD5 check
 
 =end comment
 
+=head1 Related commands
+
+=head2 Complementary ExifTool commands
+
+    # Append all keyword metadata from SOURCE to DESTINATION
+    exiftool -addTagsfromfile SOURCE -HierarchicalSubject -Subject DESTINATION
+
+=head2 Complementary Mac commands
+
+    # Print trash directories
+    find . -type d -name .Trash
+
+    # Remove .DS_Store (omit "-delete" to only print)
+    find . -type f -name .DS_Store -print -delete
+
+    # Remove zero byte md5.txt files (omit "-delete" to only print)
+    find . -type f -name md5.txt -empty -print -delete
+
+    # Remove empty directories (omit "-delete" to only print)
+    find . -type d -empty -print -delete
+
+    # Remove the executable bit for media files
+    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2"
+        -or -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V"
+        -or -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG"
+        -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF"
+        -or -iname "md5.txt" \) -print -exec chmod -x {} \;
+
+    # Remove the downloaded-and-untrusted extended attribute for the current tree
+    xattr -d -r com.apple.quarantine .
+
+    # Mirror SOURCE to TARGET
+    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
+        SOURCE TARGET
+
+=head2 Complementary PC commands
+
+    # Mirror SOURCE to TARGET
+    robocopy /MIR SOURCE TARGET
+
 =head1 AUTHOR
 
 Copyright 2016, Alex Brodie
@@ -284,8 +287,10 @@ exit 0;
 
 #===============================================================================
 sub main {
-    if ($#ARGV == -1 or ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]$/i)) {
-        pod2usage();
+    if ($#ARGV == -1) {
+        pod2usage();        
+    } elsif ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]$/i) {
+        pod2usage(-verbose => 2);
     } else {
         Getopt::Long::Configure('bundling');
         my $rawVerb = shift @ARGV;
@@ -312,6 +317,9 @@ sub main {
             GetOptions();
             @ARGV and die "Unexpected parameters: @ARGV";
             doCollectTrash();
+        } elsif ($verb eq 'consolodate-metadata' or $verb eq 'cm') {
+            GetOptions();
+            doConsolodateMetadata(@ARGV);
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
             my ($all, $autoDiff, $byName);
             GetOptions('always-continue|a' => \$all,
@@ -346,9 +354,7 @@ sub doAddMd5 {
 #===============================================================================
 # Execute append-metadata verb
 sub doAppendMetadata {
-    my ($src, $dst) = @_;
-    
-    appendMetadata($src, $dst, qw(Subject HierarchicalSubject));
+    appendMetadata(@_);
 }
 
 #===============================================================================
@@ -387,6 +393,25 @@ sub doCollectTrash {
             }
         }
     }, $here);
+}
+#===============================================================================
+# Execute consolodate-metadata verb
+sub doConsolodateMetadata {
+    my ($dir) = @_;
+    
+    # Loop over non-trashed media files in $dir...
+    find({
+        preprocess => \&preprocessSkipTrash,
+        wanted => sub {
+            if (-f and /$mediaType/) {
+                # ...and look for sidecars and backups of the form
+                # basename_bak\d*.ext
+                # basename_bak\d*.xmp
+                # basename.ext_bak\d*
+                # basename.xmp_bak\d*
+            }
+        }
+    }, $dir);
 }
 
 #===============================================================================
@@ -541,6 +566,12 @@ sub doFindDupeFiles {
                 if ($1 < @$group) {
                     `open "$group->[$1]"`;
                 }
+            } elsif ($in =~ /^m(\d+)-(\d+)$/) {
+                # Merge 1 to 2
+                if (0 <= $1 and $1 < @$group and 0 <= $2 and $2 < @$group and $1 != $2) {
+                    print "merging $group->[$1] into $group->[$2]\n";
+                    die "TODO";
+                }
             }
         }
     }
@@ -574,13 +605,6 @@ sub doRemoveEmpties {
 
 #===============================================================================
 # Execute test verb
-sub doTestX {
-    my $dir = "/Users/alexbrodie/temp";
-    appendMetadata(
-        "$dir/source.xmp", "$dir/dest.xmp",
-        qw(Subject HierarchicalSubject));
-}
-
 sub doTest {
     my $sourceRoot = '/Volumes/Agnus/Media/AlexPhoto/MetadataMigration/Data';
     my $targetRoot = '/Volumes/Agnus/Media/AlexPhoto/LrRoot';
@@ -599,11 +623,7 @@ sub doTest {
             -s $targetPath
                 or die "$targetPath doesn't exist";
                 
-            appendMetadata(
-                $sourcePath, $targetPath, 
-                qw(Subject HierarchicalSubject));
-                    
-            print "From $sourcePath\n  to $targetPath\n";
+            appendMetadata($targetPath, $sourcePath);
             
             #}
         }
@@ -626,7 +646,7 @@ sub doVerifyMd5 {
             warn "ERROR: MD5 mismatch for $path ($actualMd5 != $expectedMd5)\n";
             unless ($all) {
                 while (1) {
-                    print "Ingore, ignore All, Quit (i/a/q)? ";
+                    print "Ignore, ignore All, Quit (i/a/q)? ";
                     chomp(my $in = lc <STDIN>);
 
                     if ($in eq 'i') {
@@ -972,44 +992,49 @@ sub metadataDiff {
 
 #-------------------------------------------------------------------------------
 sub appendMetadata {
-    my ($source, $dest) = @_;
+    my ($target, @sources) = @_;
     
     my $et = new Image::ExifTool;
 
     my @tags = qw(Subject HierarchicalSubject);
     
+    # There's subtlety to appending list type tags. We must manually
+    # remove and then re-add everything with "Replace" off to prevent
+    # overwriting existing tags and/or duplicating tags that are in both.
     @tags = map { ("$_->$_", "$_+>$_") } @tags;
     #print join(', ', @tags), "\n";
     
-    $et->ExtractInfo($dest)
-        or confess "Couldn't ExtractInfo for $dest";
+    $et->ExtractInfo($target)
+        or confess "Couldn't ExtractInfo for $target";
 
     my $info = $et->GetInfo(@tags);
-    print "$dest (before):\n", Dumper($info);
+    print "$target (before):\n", Dumper($info);
 
-    my $updates = $et->SetNewValuesFromFile(
-        $source, { Replace => 0 }, @tags);
-    print "$source (updates):\n", Dumper($updates);
-    
+    for my $source (@sources) {
+        my $updates = $et->SetNewValuesFromFile(
+            $source, { Replace => 0 }, @tags);
+        print "$source (updates):\n", Dumper($updates);
+    }
+        
     # Compute backup path
-    my $backup = "${dest}_bak";
+    my $backup = "${target}_bak";
     for (my $i = 2; -s $backup; $i++) {
         $backup =~ s/_bak\d*$/_bak$i/;
     }
     
-    copy $dest, $backup
-        or confess "Couldn't copy $dest to $backup: $!";
+    copy $target, $backup
+        or confess "Couldn't copy $target to $backup: $!";
 
-    my $write = $et->WriteInfo($dest);
+    my $write = $et->WriteInfo($target);
     if ($write == 1) {
         # updated
-        print "Updated $dest\n original backed up to $backup\n";
+        print "Updated $target\n original backed up to $backup\n";
     } elsif ($write == 2) {
         # noop
-        print "$dest was already up to date\n";
+        print "$target was already up to date\n";
     } else {
         # failure
-        confess "Couldn't WriteInfo for $dest";
+        confess "Couldn't WriteInfo for $target";
     }
 
 }
@@ -1090,7 +1115,8 @@ sub getDirectoryError {
 }
 
 #-------------------------------------------------------------------------------
-# Trash the specified path and any sidecars
+# Trash the specified path and any sidecars (anything with the same path
+# except for extension)
 sub trashMedia {
     my ($path) = @_;
     #print "trashMedia('$path');\n";
@@ -1150,7 +1176,7 @@ sub moveDir {
 }
 
 #-------------------------------------------------------------------------------
-# Split a path into ($volume, @dirs, $name)
+# Split a [path] into ($volume, @dirs, $name)
 sub deepSplitPath {
     my ($path) = @_;
 
@@ -1168,6 +1194,8 @@ sub preprocessSkipTrash  {
 
 #-------------------------------------------------------------------------------
 # Move [oldPath] to [newPath] in a convinient and safe manner
+# [oldPath] - original path of file
+# [newPath] - desired target path for the file
 sub moveFile {
     my ($oldPath, $newPath) = @_;
 
@@ -1197,13 +1225,17 @@ sub formatDate {
 
 #-------------------------------------------------------------------------------
 # Colorizes text for diffing purposes
+# [message] - Text to color
+# [colorIndex] - Index for a color class
 sub coloredByIndex {
     my ($message, $colorIndex) = @_;
 
     return colored($message, colorByIndex($colorIndex));
 }
 
-#------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+# Returns a color name (usable with colored()) based on an index
+# [colorIndex] - Index for a color class
 sub colorByIndex {
     my ($colorIndex) = @_;
 
