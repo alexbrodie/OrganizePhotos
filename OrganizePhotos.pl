@@ -588,7 +588,7 @@ sub doFindDupeFiles {
                 # Merge 1 to 2
                 if (0 <= $1 and $1 < @$group and 0 <= $2 and $2 < @$group and $1 != $2) {
                     print "merging $group->[$1] into $group->[$2]\n";
-                    die "TODO";
+                    appendMetadata($group->[$2], $group->[$1]);
                 }
             }
         }
