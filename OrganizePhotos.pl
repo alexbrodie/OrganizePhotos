@@ -299,6 +299,8 @@ my $md5pattern = qr/[0-9a-f]{32}/;
 # Media file extensions
 my $mediaType = qr/\.(?i)(?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|raf)$/;
 
+my $verbose = 0;
+
 main();
 exit 0;
 
@@ -517,7 +519,7 @@ sub doFindDupeFiles {
     # Sort groups by first element
     @dupes = sort { $a->[0] cmp $b->[0] } @dupes;
 
-    for (my $dupeIndex = 0; $dupeIndex < @dupes; $dupeIndex++) {
+    DUPES: for (my $dupeIndex = 0; $dupeIndex < @dupes; $dupeIndex++) {
         my $group = $dupes[$dupeIndex];
 
         # Filter out missing files
@@ -557,40 +559,52 @@ sub doFindDupeFiles {
         push @prompt, ")? ";
 
         metadataDiff(@$group) if $autoDiff;
+        
+        my $itemCount = @$group;
 
         # Get input until something sticks...
-        while (1) {
+        PROMPT: while (1) {
             print "\n", @prompt;
-            chomp(my $in = lc <STDIN>);
+            chomp(my $command = lc <STDIN>);
 
-            if ($in eq 'd') {
-                # Diff
-                metadataDiff(@$group);
-            } elsif ($in eq 'c') {
-                # Continue
-                last;
-            } elsif ($in eq 'a') {
-                # Always continue
-                $all = 1;
-                last;
-            } elsif ($in =~ /^t(\d+)$/i) {
-                # Trash Number
-                if ($1 < @$group) {
-                    trashMedia($group->[$1]);
-                    last;
-                }
-            } elsif ($in =~ /^o(\d+)$/i) {
-                # Open Number
-                if ($1 < @$group) {
-                    `open "$group->[$1]"`;
-                }
-            } elsif ($in =~ /^m(\d+)-(\d+)$/) {
-                # Merge 1 to 2
-                if (0 <= $1 and $1 < @$group and 0 <= $2 and $2 < @$group and $1 != $2) {
-                    print "merging $group->[$1] into $group->[$2]\n";
-                    appendMetadata($group->[$2], $group->[$1]);
+            for (split /;/, $command) {
+                if ($_ eq 'd') {
+                    # Diff
+                    metadataDiff(@$group);
+                } elsif ($_ eq 'c') {
+                    # Continue
+                    last PROMPT;
+                } elsif ($_ eq 'a') {
+                    # Always continue
+                    $all = 1;
+                    last PROMPT;
+                } elsif (/^t(\d+)$/) {
+                    # Trash Number
+                    if ($1 < @$group) {
+                        if (defined $group->[$1]) {
+                            trashMedia($group->[$1]);
+                            $group->[$1] = undef;
+                            $itemCount--;
+                            last PROMPT if $itemCount < 2;
+                        }
+                    } else {
+                        print "$1 is out of range [0,", (@$group - 1), "]";
+                        last PROMPT;
+                    }
+                } elsif (/^o(\d+)$/i) {
+                    # Open Number
+                    if ($1 < @$group) {
+                        `open "$group->[$1]"`;
+                    }
+                } elsif (/^m(\d+(?:,\d+)+)$/) {
+                    # Merge 1,2,3,4,... into 0
+                    my @matches = split ',', $1;
+                    appendMetadata(map { $group->[$_] } @matches);
                 }
             }
+            
+            # Unless someone did a last PROMPT (i.e. "next group please"), restart this group
+            redo DUPES;
         }
     }
 }
@@ -1012,20 +1026,117 @@ sub metadataDiff {
 sub appendMetadata {
     my ($target, @sources) = @_;
     
+    my @properties = qw(XPKeywords Rating Subject HierarchicalSubject);
+    
+    # Extract current metadata in target
+    my $etTarget = new Image::ExifTool;
+    $etTarget->ExtractInfo($target)
+        or confess "Couldn't ExtractInfo for $target";
+    my $infoTarget = $etTarget->GetInfo(@properties);
+    if ($verbose) {
+        print "$target: ", Dumper($infoTarget);
+    }
+    
+    my $rating = $infoTarget->{Rating};
+    my $oldRating = $rating;
+    #print "Rating: ", defined $oldRating ? $oldRating : "(null)", "\n";
+    
+    my $oldXpKeywords = $infoTarget->{XPKeywords};
+    my %xpKeywords = map { $1 => 1 } split /\s*,\s*/, $oldXpKeywords || '';
+    #print "XPKeywords: ", defined $oldXpKeywords ? "\"$oldXpKeywords\"" : "(null)", "\n";
+        
+    for my $source (@sources) {
+        # Extract metadata in source to merge in
+        my $etSource = new Image::ExifTool;
+        $etSource->ExtractInfo($source)
+            or confess "Couldn't ExtractInfo for $source";            
+        my $infoSource = $etSource->GetInfo(@properties);
+        if ($verbose) {
+            print "$source: ", Dumper($infoSource);
+        }
+        
+        # Add rating if we don't already have one
+        unless (defined $rating) {
+            $rating = $infoSource->{Rating};
+        }
+        
+        # Merge in keywords
+        for (split /\s*,\s*/, $infoSource->{XPKeywords} || '') {
+            $xpKeywords{$_}++;
+        }
+    }
+    
+    my $dirty = 0;
+    
+    # Update rating if it's changed
+    if (defined $rating and (!defined $oldRating or $rating ne $oldRating)) {
+        print "Rating: ", 
+            defined $oldRating ? $oldRating : "(null)", 
+            " -> $rating\n";
+        $etTarget->SetNewValue('Rating', $rating)
+            or die "Couldn't set Rating";
+        $dirty = 1;
+    }
+    
+    # Update XPKeywords if it's changed
+    my $newXpKeywords = join ', ', sort keys %xpKeywords;
+    if ($newXpKeywords and (!defined $oldXpKeywords or $newXpKeywords ne $oldXpKeywords)) {
+        print "XPKeywords: ", 
+            defined $oldXpKeywords ? "\"$oldXpKeywords\"" : "(null)", 
+            " -> \"$newXpKeywords\"\n";
+        $etTarget->SetNewValue('XPKeywords', $newXpKeywords)
+            or die "Couldn't set XPKeywords";
+        $dirty = 1;
+    }
+    
+    # Write file if metadata is dirty
+    if ($dirty) {
+        # Compute backup path
+        my $backup = "${target}_bak";
+        for (my $i = 2; -s $backup; $i++) {
+            $backup =~ s/_bak\d*$/_bak$i/;
+        }
+    
+        # Make backup
+        copy $target, $backup
+            or confess "Couldn't copy $target to $backup: $!";
+
+        # Update metadata in target file
+        my $write = $etTarget->WriteInfo($target);
+        if ($write == 1) {
+            # updated
+            print "Updated $target\nOriginal backed up to $backup\n";
+        } elsif ($write == 2) {
+            # noop
+            print "$target was already up to date\n";
+        } else {
+            # failure
+            confess "Couldn't WriteInfo for $target";
+        }
+    }
+}
+
+#-------------------------------------------------------------------------------
+sub appendMetadata3 {
+    my ($target, @sources) = @_;
+    
     my $et = new Image::ExifTool;
 
-    my @tags = qw(Subject HierarchicalSubject);
+    my @tags = ();
     
     # There's subtlety to appending list type tags. We must manually
     # remove and then re-add everything with "Replace" off to prevent
     # overwriting existing tags and/or duplicating tags that are in both.
-    @tags = map { ("$_->$_", "$_+>$_") } @tags;
+    push @tags, map { ("$_->$_", "$_+>$_") } qw(Subject HierarchicalSubject);
+    push @tags, "XPKeywords+>XPKeywords";
+    push @tags, qw(Rating);
+
     #print join(', ', @tags), "\n";
     
     $et->ExtractInfo($target)
         or confess "Couldn't ExtractInfo for $target";
 
-    my $info = $et->GetInfo(@tags);
+    my $info = $et->GetInfo(qw(Subject HierarchicalSubject XPKeywords Rating));
     print "$target (before):\n", Dumper($info);
 
     for my $source (@sources) {
@@ -1054,7 +1165,6 @@ sub appendMetadata {
         # failure
         confess "Couldn't WriteInfo for $target";
     }
-
 }
 
 #-------------------------------------------------------------------------------
