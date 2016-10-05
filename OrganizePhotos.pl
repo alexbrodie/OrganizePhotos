@@ -638,29 +638,17 @@ sub doRemoveEmpties {
 #===============================================================================
 # Execute test verb
 sub doTest {
-    my $sourceRoot = '/Volumes/Agnus/Media/AlexPhoto/MetadataMigration/Data';
-    my $targetRoot = '/Volumes/Agnus/Media/AlexPhoto/LrRoot';
-    find(sub {
-        if (-f and !/\.xmp$/i) {
-            my $sourcePath = rel2abs($_);
-
-            #$sourcePath =~ /2015-?(\d\d)-?(\d\d)/ 
-            #    or die "Not of expected format: $sourcePath";
-            #my $mmdd = $1 * 100 + $2;                 
-            #if ($mmdd >= 1230) {
-
-            (my $targetPath = $sourcePath) =~ s/^\Q$sourceRoot\E/$targetRoot/i
-                or die "$sourcePath didn't start with $sourceRoot";
-
-            -s $targetPath
-                or die "$targetPath doesn't exist";
-                
-            appendMetadata($targetPath, $sourcePath);
-            
-            #}
-        }
-    #}, $sourceRoot . '/2016');
-    }, $sourceRoot);
+    print Dumper(@ARGV);
+    for my $filename (@ARGV) {
+        my @properties = qw(XPKeywords Rating Subject HierarchicalSubject LastKeywordXMP Keywords);
+    
+        # Extract current metadata in target
+        my $et = new Image::ExifTool;
+        $et->ExtractInfo($filename)
+            or confess "Couldn't ExtractInfo for $filename";
+        my $info = $et->GetInfo(@properties);
+        print "$filename: ", Dumper($info);
+    }
 }
 
 #===============================================================================
@@ -1026,7 +1014,7 @@ sub metadataDiff {
 sub appendMetadata {
     my ($target, @sources) = @_;
     
-    my @properties = qw(XPKeywords Rating Subject HierarchicalSubject);
+    my @properties = qw(XPKeywords Rating Subject HierarchicalSubject LastKeywordXMP Keywords);
     
     # Extract current metadata in target
     my $etTarget = new Image::ExifTool;
@@ -1039,11 +1027,15 @@ sub appendMetadata {
     
     my $rating = $infoTarget->{Rating};
     my $oldRating = $rating;
-    #print "Rating: ", defined $oldRating ? $oldRating : "(null)", "\n";
     
-    my $oldXpKeywords = $infoTarget->{XPKeywords};
-    my %xpKeywords = map { $1 => 1 } split /\s*,\s*/, $oldXpKeywords || '';
-    #print "XPKeywords: ", defined $oldXpKeywords ? "\"$oldXpKeywords\"" : "(null)", "\n";
+    my %keywordTypes = ();
+    for (qw(XPKeywords Subject HierarchicalSubject LastKeywordXMP Keywords)) {
+        my $old = $infoTarget->{$_};
+        $keywordTypes{$_} = {
+            OLD => $old, 
+            NEW => {map { $_ => 1 } split /\s*,\s*/, ($old || '')}
+        };
+    }
         
     for my $source (@sources) {
         # Extract metadata in source to merge in
@@ -1060,12 +1052,15 @@ sub appendMetadata {
             $rating = $infoSource->{Rating};
         }
         
-        # Merge in keywords
-        for (split /\s*,\s*/, $infoSource->{XPKeywords} || '') {
-            $xpKeywords{$_}++;
+        # For each field, loop over each component of the source's value
+        # and add it to the set of new values
+        while (my ($name, $value) = each %keywordTypes) {
+            for (split /\s*,\s*/, $infoSource->{$name}) {
+                $value->{NEW}->{$_} = 1;
+            }
         }
     }
-    
+
     my $dirty = 0;
     
     # Update rating if it's changed
@@ -1077,16 +1072,18 @@ sub appendMetadata {
             or die "Couldn't set Rating";
         $dirty = 1;
     }
-    
-    # Update XPKeywords if it's changed
-    my $newXpKeywords = join ', ', sort keys %xpKeywords;
-    if ($newXpKeywords and (!defined $oldXpKeywords or $newXpKeywords ne $oldXpKeywords)) {
-        print "XPKeywords: ", 
-            defined $oldXpKeywords ? "\"$oldXpKeywords\"" : "(null)", 
-            " -> \"$newXpKeywords\"\n";
-        $etTarget->SetNewValue('XPKeywords', $newXpKeywords)
-            or die "Couldn't set XPKeywords";
-        $dirty = 1;
+        
+    while (my ($name, $value) = each %keywordTypes) {
+        my $old = $value->{OLD};
+        my $new = join ', ', sort keys $value->{NEW};
+        if (($old || '') ne $new) {
+            print "$name: ",
+                defined $old ? "\"$old\"" : "(null)",
+                " -> \"$new\"\n";            
+            $etTarget->SetNewValue($name, $new)
+                or die "Couldn't set $name";
+            $dirty = 1;
+        }
     }
     
     # Write file if metadata is dirty
@@ -1113,57 +1110,6 @@ sub appendMetadata {
             # failure
             confess "Couldn't WriteInfo for $target";
         }
-    }
-}
-
-#-------------------------------------------------------------------------------
-sub appendMetadata3 {
-    my ($target, @sources) = @_;
-    
-    my $et = new Image::ExifTool;
-
-    my @tags = ();
-    
-    # There's subtlety to appending list type tags. We must manually
-    # remove and then re-add everything with "Replace" off to prevent
-    # overwriting existing tags and/or duplicating tags that are in both.
-    push @tags, map { ("$_->$_", "$_+>$_") } qw(Subject HierarchicalSubject);
-    push @tags, "XPKeywords+>XPKeywords";
-    push @tags, qw(Rating);
-
-    #print join(', ', @tags), "\n";
-    
-    $et->ExtractInfo($target)
-        or confess "Couldn't ExtractInfo for $target";
-
-    my $info = $et->GetInfo(qw(Subject HierarchicalSubject XPKeywords Rating));
-    print "$target (before):\n", Dumper($info);
-
-    for my $source (@sources) {
-        my $updates = $et->SetNewValuesFromFile(
-            $source, { Replace => 0 }, @tags);
-        print "$source (updates):\n", Dumper($updates);
-    }
-        
-    # Compute backup path
-    my $backup = "${target}_bak";
-    for (my $i = 2; -s $backup; $i++) {
-        $backup =~ s/_bak\d*$/_bak$i/;
-    }
-    
-    copy $target, $backup
-        or confess "Couldn't copy $target to $backup: $!";
-
-    my $write = $et->WriteInfo($target);
-    if ($write == 1) {
-        # updated
-        print "Updated $target\n original backed up to $backup\n";
-    } elsif ($write == 2) {
-        # noop
-        print "$target was already up to date\n";
-    } else {
-        # failure
-        confess "Couldn't WriteInfo for $target";
     }
 }
 
