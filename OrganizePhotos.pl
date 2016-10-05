@@ -1,4 +1,8 @@
 #!/usr/bin/perl
+#
+# Commands to regenerate documentation:
+#   pod2markdown OrganizePhotos.pl > README.md
+#
 =pod
 
 =head1 NAME

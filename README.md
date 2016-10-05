@@ -4,60 +4,13 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 # SYNOPSIS
 
-    ##### Typical workflow
+    # Help:
+    OrganizePhotos.pl -h
 
-    # Import via Lightroom
-    OrganizePhotos.pl checkup /deepest/common/ancestor/dir
-    # Arvhive /deepest/common/ancestor/dir (see below)
-
-    ##### Supported operations:
-
-    OrganizePhotos.pl add-md5
-    OrganizePhotos.pl check-md5 [glob_pattern]
-    OrganizePhotos.pl checkup
-    OrganizePhotos.pl collect-trash
-    OrganizePhotos.pl find-dupe-files [-a] [-d] [-n]
-    OrganizePhotos.pl metadata-diff <files>
-    OrganizePhotos.pl remove-empties
-    OrganizePhotos.pl verify-md5
-
-    ##### Complementary ExifTool commands:
-
-    # Append all keyword metadata from SOURCE to DESTINATION
-    exiftool -addTagsfromfile SOURCE -HierarchicalSubject -Subject DESTINATION
-
-    ##### Complementary Mac commands:
-
-    # Print trash directories
-    find . -type d -name .Trash
-
-    # Remove .DS_Store
-    find . -type f -name .DS_Store -print -delete
-
-    # Remove zero byte md5.txt files (omit "-delete" to only print)
-    find . -type f -name md5.txt -empty -print -delete
-
-    # Remove empty directories (omit "-delete" to only print)
-    find . -type d -empty -print -delete
-
-    # Remove the executable bit for media files
-    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2"
-        -or -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V"
-        -or -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG"
-        -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF"
-        -or -iname "md5.txt" \) -print -exec chmod -x {} \;
-
-    # Remove the downloaded-and-untrusted extended attribute for the current tree
-    xattr -d -r com.apple.quarantine .
-
-    # Mirror SOURCE to TARGET
-    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
-        SOURCE TARGET
-
-    ##### Complementary PC commands:
-
-    # Mirror SOURCE to TARGET
-    robocopy /MIR SOURCE TARGET
+    # Typical workflow:
+    # Import via Lightroom 
+    OrganizePhotos.pl checkup /photos/root/dir
+    # Archive /photos/root/dir (see help)
 
 # DESCRIPTION
 
@@ -79,9 +32,20 @@ The calling pattern for each command follows the pattern:
 
 The following verbs are available:
 
+- **add-md5**
+- **append-metadata** &lt;target file> &lt;source files...>
+- **check-md5** \[glob\_patterns...\]
+- **checkup** \[-a\]
+- **collect-trash**
+- **consolodate-metadata** &lt;dir>
+- **find-dupe-files** \[-a\] \[-d\] \[-n\]
+- **metadata-diff** &lt;files...>
+- **remove-empties**
+- **verify-md5**
+
 ## add-md5
 
-Alias: a5
+_Alias: a5_
 
 For each media file under the current directory that doesn't have a
 MD5 computed, generate the MD5 hash and add to md5.txt file.
@@ -91,7 +55,7 @@ to the md5.txt files.
 
 ## check-md5
 
-Alias: c5
+_Alias: c5_
 
 For each media file under the current directory, generate the MD5 hash
 and either add to md5.txt file if missing or verify hashes match if
@@ -117,7 +81,7 @@ the md5.txt files.
 
 ## checkup
 
-Alias: c
+_Alias: c_
 
 This command runs the following suggested suite of commands:
 
@@ -134,7 +98,7 @@ This command runs the following suggested suite of commands:
 
 ## collect-trash
 
-Alias: ct
+_Alias: ct_
 
 Looks recursively for .Trash subdirectories under the current directory
 and moves that content to the current directory's .Trash perserving
@@ -152,9 +116,13 @@ After collection we would have:
     ./.Trash/Foo/2.jpg
     ./.Trash/Bar/1.jpg
 
+## consolodate-metadata
+
+_Alias: cm_
+
 ## find-dupe-files
 
-Alias: fdf
+_Alias: fdf_
 
 Find files that have multiple copies under the current directory.
 
@@ -194,6 +162,46 @@ the current directory.
 This method is read-only, if you want to add/update MD5s, use check-md5.
 
 This method does not modify any file.
+
+# Related commands
+
+## Complementary ExifTool commands
+
+    # Append all keyword metadata from SOURCE to DESTINATION
+    exiftool -addTagsfromfile SOURCE -HierarchicalSubject -Subject DESTINATION
+
+## Complementary Mac commands
+
+    # Print trash directories
+    find . -type d -name .Trash
+
+    # Remove .DS_Store (omit "-delete" to only print)
+    find . -type f -name .DS_Store -print -delete
+
+    # Remove zero byte md5.txt files (omit "-delete" to only print)
+    find . -type f -name md5.txt -empty -print -delete
+
+    # Remove empty directories (omit "-delete" to only print)
+    find . -type d -empty -print -delete
+
+    # Remove the executable bit for media files
+    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2"
+        -or -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V"
+        -or -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG"
+        -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF"
+        -or -iname "md5.txt" \) -print -exec chmod -x {} \;
+
+    # Remove the downloaded-and-untrusted extended attribute for the current tree
+    xattr -d -r com.apple.quarantine .
+
+    # Mirror SOURCE to TARGET
+    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
+        SOURCE TARGET
+
+## Complementary PC commands
+
+    # Mirror SOURCE to TARGET
+    robocopy /MIR SOURCE TARGET
 
 # AUTHOR
 
