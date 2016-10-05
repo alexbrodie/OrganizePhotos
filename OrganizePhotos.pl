@@ -24,7 +24,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 Helps to manage a collection of photos and videos that are primarily
 managed by Adobe Lightroom. This helps with tasks not covered by
 Lightroom such as: backup/archive, integrity checks, consolidation,
-and other OCD metadataorganization.
+and other OCD metadata organization.
 
 MD5 hashes are stored in a md5.txt file in the file's one line per file
 with the pattern:
@@ -35,7 +35,7 @@ Metadata operations are powered by Image::ExifTool.
 
 The calling pattern for each command follows the pattern:
 
-    OrganizePhotos.pl <verb> <options>
+    OrganizePhotos.pl <verb> [options...]
 
 The following verbs are available:
 
@@ -144,9 +144,11 @@ After collection we would have:
     ./.Trash/Foo/2.jpg
     ./.Trash/Bar/1.jpg
 
-=head2 consolodate-metadata
+=head2 consolodate-metadata <dir>
 
 I<Alias: cm>
+
+Not yet implemented
 
 =head2 find-dupe-files
 
@@ -172,9 +174,9 @@ Search for items based on name rather than the default of MD5
 
 =back
 
-=head2 metadata-diff <files>
+=head2 metadata-diff <files...>
 
-Alias: md
+I<Alias: md>
 
 Do a diff of the specified media files (including their sidecar metadata).
 
@@ -182,11 +184,13 @@ This method does not modify any file.
 
 =head2 remove-empties
 
-Remove any subdirectories that are empty save an md5.txt file
+I<Alias: re>
+
+Remove any subdirectories that are empty save an md5.txt file.
 
 =head2 verify-md5
 
-Alias: v5
+I<Alias: v5>
 
 Verifies the MD5 hashes for all contents of all md5.txt files below
 the current directory.
