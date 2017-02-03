@@ -55,7 +55,7 @@ The following verbs are available:
 
 =item B<find-dupe-dirs>
 
-=item B<find-dupe-files> [-a] [-d] [-n]
+=item B<find-dupe-files> [-a] [-d] [-l] [-n]
 
 =item B<metadata-diff> <files...>
 
@@ -175,6 +175,10 @@ Always continue
 =item B<-d, --auto-diff>
 
 Automatically do the 'd' diff command for every new group of files
+
+=item B<-l, --default-last-action>
+
+Enter repeats last command
 
 =item B<-n, --by-name>
 
@@ -360,12 +364,13 @@ sub main {
             @ARGV and die "Unexpected parameters: @ARGV";
             doFindDupeDirs();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
-            my ($all, $autoDiff, $byName);
+            my ($all, $autoDiff, $byName, $defaultLastAction);
             GetOptions('always-continue|a' => \$all,
                        'auto-diff|d' => \$autoDiff,
-                       'by-name|n' => \$byName);
+                       'by-name|n' => \$byName,
+                       'default-last-action|l' => \$defaultLastAction);
             @ARGV and die "Unexpected parameters: @ARGV";
-            doFindDupeFiles($all, $byName, $autoDiff);
+            doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             GetOptions();
             doMetadataDiff(@ARGV);
@@ -485,7 +490,7 @@ sub doFindDupeDirs {
 #===============================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
-    my ($all, $byName, $autoDiff) = @_;
+    my ($all, $byName, $autoDiff, $defaultLastAction) = @_;
 
     my %keyToPaths = ();
     if ($byName) {
@@ -566,6 +571,8 @@ sub doFindDupeFiles {
 
     # Sort groups by first element
     @dupes = sort { $a->[0] cmp $b->[0] } @dupes;
+    
+    my $lastCommand = '';
 
     DUPES: for (my $dupeIndex = 0; $dupeIndex < @dupes; $dupeIndex++) {
         my $group = $dupes[$dupeIndex];
@@ -605,6 +612,7 @@ sub doFindDupeFiles {
             push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#$group);
         }
         push @prompt, ")? ";
+        push @prompt, "[$lastCommand] " if $defaultLastAction and $lastCommand;
 
         metadataDiff(@$group) if $autoDiff;
         
@@ -614,6 +622,8 @@ sub doFindDupeFiles {
         PROMPT: while (1) {
             print "\n", @prompt;
             chomp(my $command = lc <STDIN>);
+            $command = $lastCommand if $defaultLastAction and $command eq '';
+            $lastCommand = $command;
 
             for (split /;/, $command) {
                 if ($_ eq 'd') {
@@ -653,8 +663,8 @@ sub doFindDupeFiles {
             
             # Unless someone did a last PROMPT (i.e. "next group please"), restart this group
             redo DUPES;
-        }
-    }
+        } # PROMPT
+    } # DUPES
 }
 
 #===============================================================================

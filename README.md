@@ -38,7 +38,8 @@ The following verbs are available:
 - **checkup** \[-a\]
 - **collect-trash**
 - **consolodate-metadata** &lt;dir>
-- **find-dupe-files** \[-a\] \[-d\] \[-n\]
+- **find-dupe-dirs**
+- **find-dupe-files** \[-a\] \[-d\] \[-l\] \[-n\]
 - **metadata-diff** &lt;files...>
 - **remove-empties**
 - **verify-md5**
@@ -122,6 +123,12 @@ _Alias: cm_
 
 Not yet implemented
 
+## find-dupe-dirs
+
+_Alias: fdd_
+
+Find directories that represent the same date.
+
 ## find-dupe-files
 
 _Alias: fdf_
@@ -137,6 +144,10 @@ Find files that have multiple copies under the current directory.
 - **-d, --auto-diff**
 
     Automatically do the 'd' diff command for every new group of files
+
+- **-l, --default-last-action**
+
+    Enter repeats last command
 
 - **-n, --by-name**
 
