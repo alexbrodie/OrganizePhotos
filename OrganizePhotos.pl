@@ -53,6 +53,8 @@ The following verbs are available:
 
 =item B<consolodate-metadata> <dir>
 
+=item B<find-dupe-dirs>
+
 =item B<find-dupe-files> [-a] [-d] [-n]
 
 =item B<metadata-diff> <files...>
@@ -149,6 +151,12 @@ After collection we would have:
 I<Alias: cm>
 
 Not yet implemented
+
+=head2 find-dupe-dirs
+
+I<Alias: fdd>
+
+Find directories that represent the same date.
 
 =head2 find-dupe-files
 
@@ -347,6 +355,10 @@ sub main {
         } elsif ($verb eq 'consolodate-metadata' or $verb eq 'cm') {
             GetOptions();
             doConsolodateMetadata(@ARGV);
+        } elsif ($verb eq 'find-dupe-dirs' or $verb eq 'fdd') {
+            GetOptions();
+            @ARGV and die "Unexpected parameters: @ARGV";
+            doFindDupeDirs();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
             my ($all, $autoDiff, $byName);
             GetOptions('always-continue|a' => \$all,
@@ -440,6 +452,34 @@ sub doConsolodateMetadata {
             }
         }
     }, $dir);
+}
+
+#===============================================================================
+# Execute find-dupe-dirs verb
+sub doFindDupeDirs {
+
+    my %keyToPaths = ();
+    find({
+        preprocess => \&preprocessSkipTrash,
+        wanted => sub {
+            if (-d and (/^(\d\d\d\d)-(\d\d)-(\d\d)\b/
+                or /^(\d\d)-(\d\d)-(\d\d)\b/
+                or /^(\d\d)(\d\d)(\d\d)\b/)) {
+                    
+                my $y = $1 < 20 ? $1 + 2000 : $1 < 100 ? $1 + 1900 : $1;                
+                push @{$keyToPaths{lc "$y-$2-$3"}}, rel2abs($_);
+            }
+        }
+    }, '.');
+    
+    #while (my ($key, $paths) = each %keyToPaths) {
+    for my $key (sort keys %keyToPaths) {
+        my $paths = $keyToPaths{$key};
+        if (@$paths > 1) {
+            print "$key:\n";
+            print "\t$_\n" for @$paths;
+        }
+    }
 }
 
 #===============================================================================
