@@ -317,7 +317,12 @@ use Term::ANSIColor;
 my $md5pattern = qr/[0-9a-f]{32}/;
 
 # Media file extensions
-my $mediaType = qr/\.(?i)(?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|raf)$/;
+my $mediaType = qr/
+    # Media extension
+    (?: \. (?i) (?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|raf) $)
+    | # Backup file
+    (?: [._] (?i) bak\d* $)
+    /x;
 
 my $verbose = 0;
 
@@ -842,7 +847,7 @@ sub verifyOrGenerateMd5 {
                 return;
             } elsif (defined $fh) {
                 # Mismatch and we can update MD5, needs resolving...
-                warn "MISMATCH OF MD5 for $path";
+                warn colored("MISMATCH OF MD5 for $path", 'red');
 
                 while (1) {
                     print "Ignore, Overwrite, Quit (i/o/q)? ";
@@ -961,10 +966,15 @@ sub getMd5 {
         #print "Date modified: $modified\n";
 
         # TODO: Should we do this for TIFF, DNG as well?
+        
+        # If the file is a backup (has some "bak" suffix), 
+        # we want to consider the real extension
+        my $origPath = $path;
+        $origPath =~ s/[._]bak\d*$//i;
 
         # If JPEG, skip metadata which may change and only hash pixel data
         # and hash from Start of Scan [SOS] to end
-        if ($path =~ /\.(?:jpeg|jpg)$/i) {
+        if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
             # Read Start of Image [SOI]
             read($fh, my $soiData, 2)
                 or confess "Failed to read SOI from $path: $!";
