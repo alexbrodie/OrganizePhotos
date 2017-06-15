@@ -753,11 +753,14 @@ sub doVerifyMd5 {
 #      callback($absolutePath, $md5AsString)
 sub findMd5s {
     my ($callback, $dir) = @_;
+    
+    print colored("Looking for md5.txt in '$dir'\n", 'yellow'); 
 
     find({
         preprocess => \&preprocessSkipTrash,
         wanted => sub {
             if (-f and lc eq 'md5.txt') {
+                print colored("Found $File::Find::name\n", 'yellow');
                 open(my $fh, '<:crlf', $_)
                     or confess "Couldn't open $File::Find::name: $!";
                 my $md5s = readMd5FileFromHandle($fh);
@@ -1263,9 +1266,14 @@ sub trashMedia {
     my ($path) = @_;
     #print "trashMedia('$path');\n";
 
-    # Note that this assumes a proper extension
-    (my $query = $path) =~ s/[^.]*$/*/;
-    trashPath($_) for glob qq("$query");
+    if ($path =~ /[._]bak\d*$/i) {
+        # For backups, only remove the backup, not associated files
+        trashPath($path);
+    } else {
+        # Note that this assumes a proper extension
+        (my $query = $path) =~ s/[^.]*$/*/;
+        trashPath($_) for glob qq("$query");
+    }
 }
 
 #-------------------------------------------------------------------------------
