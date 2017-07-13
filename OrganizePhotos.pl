@@ -41,7 +41,7 @@ The following verbs are available:
 
 =over 5
 
-=item B<add-md5>
+=item B<add-md5> [glob_patterns...]
 
 =item B<append-metadata> <target file> <source files...>
 
@@ -65,7 +65,7 @@ The following verbs are available:
 
 =back
 
-=head2 add-md5
+=head2 add-md5 [glob_patterns...]
 
 I<Alias: a5>
 
@@ -75,7 +75,18 @@ MD5 computed, generate the MD5 hash and add to md5.txt file.
 This does not modify media files or their sidecars, it only adds entries
 to the md5.txt files.
 
-=head2 check-md5
+=head3 Options
+
+=over 24
+
+=item B<glob_patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
+
+=back
+
+=head2 check-md5 [glob_patterns...]
 
 I<Alias: c5>
 
@@ -93,7 +104,7 @@ the md5.txt files.
 
 =over 24
 
-=item B<glob_pattern>
+=item B<glob_patterns>
 
 Rather than operate on files under the current directory, operate on
 the specified glob pattern.
@@ -158,7 +169,7 @@ I<Alias: fdd>
 
 Find directories that represent the same date.
 
-=head2 find-dupe-files
+=head2 find-dupe-files [dirs...]
 
 I<Alias: fdf>
 
@@ -341,8 +352,7 @@ sub main {
         my $verb = lc $rawVerb;
         if ($verb eq 'add-md5' or $verb eq 'a5') {
             GetOptions();
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doAddMd5();
+            doAddMd5(@ARGV);
         } elsif ($verb eq 'append-metadata' or $verb eq 'am') {
             GetOptions();
             doAppendMetadata(@ARGV);
@@ -374,8 +384,8 @@ sub main {
                        'auto-diff|d' => \$autoDiff,
                        'by-name|n' => \$byName,
                        'default-last-action|l' => \$defaultLastAction);
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction);
+            -d or die "Argument not a directory: '$_'" for @ARGV;
+            doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction, @ARGV);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             GetOptions();
             doMetadataDiff(@ARGV);
@@ -398,7 +408,7 @@ sub main {
 #===============================================================================
 # Execute add-md5 verb
 sub doAddMd5 {
-    verifyOrGenerateMd5Recursively(1, 1);
+    verifyOrGenerateMd5ForGlob(1, 1, @_);
 }
 
 #===============================================================================
@@ -410,14 +420,7 @@ sub doAppendMetadata {
 #===============================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
-    if (@_) {
-        # Glob(s) provided - check or add MD5s for all files that match
-        verifyOrGenerateMd5($_) for sort map { glob } @_;
-    } else {
-        # No args - check or add MD5s for all the media files
-        # below the current dir
-        verifyOrGenerateMd5Recursively();
-    }
+    verifyOrGenerateMd5ForGlob(0, 0, @_);
 }
 
 #===============================================================================
@@ -495,7 +498,9 @@ sub doFindDupeDirs {
 #===============================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
-    my ($all, $byName, $autoDiff, $defaultLastAction) = @_;
+    my ($all, $byName, $autoDiff, $defaultLastAction, @dirs) = @_;
+    
+    @dirs = ('.') unless @dirs;
 
     my %keyToPaths = ();
     if ($byName) {
@@ -514,13 +519,13 @@ sub doFindDupeFiles {
                     }
                 }
             }
-        }, '.');
+        }, @dirs);
     } else {
         # Make hash from MD5 to files with that MD5
         findMd5s(sub {
             my ($path, $md5) = @_;
             push @{$keyToPaths{$md5}}, $path;
-        }, '.');
+        }, @dirs);
     }
 
     # Put everthing that has dupes in an array for sorting
@@ -626,10 +631,23 @@ sub doFindDupeFiles {
         # Get input until something sticks...
         PROMPT: while (1) {
             print "\n", @prompt;
-            chomp(my $command = lc <STDIN>);
-            $command = $lastCommand if $defaultLastAction and $command eq '';
-            $lastCommand = $command;
-
+            
+            my $command;
+            
+            # This allows for some automated processing if there are
+            # temporary patterns of thousands of items that need the
+            # same processing
+            #if ($group->[0] =~ /\/2017-2\//) {
+            #    $command = "t0"
+            #}
+            
+            # Prompt for action
+            unless ($command) {
+                chomp($command = lc <STDIN>);
+                $command = $lastCommand if $defaultLastAction and $command eq '';
+                $lastCommand = $command;
+            }
+            
             for (split /;/, $command) {
                 if ($_ eq 'd') {
                     # Diff
@@ -752,9 +770,9 @@ sub doVerifyMd5 {
 # passing it full path and MD5 hash as arguments like
 #      callback($absolutePath, $md5AsString)
 sub findMd5s {
-    my ($callback, $dir) = @_;
+    my ($callback, @dirs) = @_;
     
-    print colored("Looking for md5.txt in '$dir'\n", 'yellow'); 
+    print colored(join("\n\t", "Looking for md5.txt in", @dirs), 'yellow'), "\n"; 
 
     find({
         preprocess => \&preprocessSkipTrash,
@@ -771,26 +789,24 @@ sub findMd5s {
                 }
             }
         }
-    }, $dir);
+    }, @dirs);
 }
 
 #-------------------------------------------------------------------------------
-# Call verifyOrGenerateMd5 for each media file under the current directory
-sub verifyOrGenerateMd5Recursively {
-    my ($addOnly, $omitSkipMessage) = @_;
+# Call verifyOrGenerateMd5 for each media file
+sub verifyOrGenerateMd5ForGlob {
+    my ($addOnly, $omitSkipMessage, @globPatterns) = @_;
 
-    find(sub {
-        if (-f) {
-            if (/$mediaType/) {
-                verifyOrGenerateMd5($_, $addOnly, $omitSkipMessage);
-            } elsif ($_ ne 'md5.txt') {
-                # TODO: Also skip Thumbs.db, .Ds_Store, etc?
-                unless ($omitSkipMessage) {
-                    print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
-                }
+    traverseGlobPatterns(sub {
+        if (/$mediaType/) {
+            verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
+        } elsif ($_ ne 'md5.txt') {
+            # TODO: Also skip Thumbs.db, .Ds_Store, etc?
+            unless ($omitSkipMessage) {
+                print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
             }
         }
-    }, '.');
+    }, @globPatterns);
 }
 
 #-------------------------------------------------------------------------------
@@ -799,8 +815,8 @@ sub verifyOrGenerateMd5Recursively {
 #
 # If the file's md5.txt file doesn't have a MD5 for the specified [path],
 # this adds the [path]'s current MD5 to it.
-sub verifyOrGenerateMd5 {
-    my ($path, $addOnly, $omitSkipMessage) = @_;
+sub verifyOrGenerateMd5ForFile {
+    my ($addOnly, $omitSkipMessage, $path) = @_;
 
     # The path to file that contains the MD5 info
     $path = rel2abs($path);
@@ -1363,6 +1379,23 @@ sub moveFile {
         or confess "Failed to move $oldPath to $newPath: $!";
 
     print "Moved $oldPath\n   to $newPath\n";
+}
+
+#-------------------------------------------------------------------------------
+sub traverseGlobPatterns {
+    my ($callback, @globPatterns) = @_;
+
+    if (@globPatterns) {
+        for (sort map { glob } @globPatterns) {
+            if (-d) {
+                find(sub { $callback->($_) if -f }, $_);
+            } else {
+                $callback->($_);
+            }
+        }
+    } else {
+        find(sub { $callback->($_) if -f }, '.');
+    }
 }
 
 #-------------------------------------------------------------------------------
