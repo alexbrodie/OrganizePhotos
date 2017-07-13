@@ -738,10 +738,16 @@ sub doRemoveEmpties {
         my $path = rel2abs($_);
         my ($volume, $dir, $name) = splitpath($path);
         my $vd = catpath($volume, $dir, undef);
+        s/[\\\/]*$// for ($path, $vd);
         push @{$dirContentsMap{$vd}}, $name;
         push @{$dirContentsMap{$path}}, '.' if -d;
     }, @globPatterns);
 
+    #for (sort keys %dirContentsMap) {
+    #    my ($k, $v) = ($_, $dirContentsMap{$_});
+    #    print join(';', $k, @$v), "\n";
+    #}
+    
     while (my ($dir, $contents) = each %dirContentsMap) {
         unless (grep { $_ ne '.' and lc ne 'md5.txt' } @$contents) {
             print "Trashing $dir\n";
