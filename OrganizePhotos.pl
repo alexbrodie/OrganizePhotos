@@ -61,7 +61,7 @@ The following verbs are available:
 
 =item B<remove-empties>
 
-=item B<verify-md5>
+=item B<verify-md5> [glob patterns...]
 
 =back
 
@@ -211,7 +211,7 @@ I<Alias: re>
 
 Remove any subdirectories that are empty save an md5.txt file.
 
-=head2 verify-md5
+=head2 verify-md5 [glob patterns...]
 
 I<Alias: v5>
 
@@ -221,6 +221,17 @@ the current directory.
 This method is read-only, if you want to add/update MD5s, use check-md5.
 
 This method does not modify any file.
+
+=head3 Options
+
+=over 24
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
+
+=back
 
 =begin comment
 
@@ -399,8 +410,7 @@ sub main {
             doTest();
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
             GetOptions();
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doVerifyMd5();
+            doVerifyMd5(@ARGV);
         } else {
             die "Unknown verb: $rawVerb\n";
         }
@@ -732,8 +742,10 @@ sub doTest {
 #===============================================================================
 # Execute verify-md5 verb
 sub doVerifyMd5 {
+    my (@globPatterns) = @_;
+    
     our $all = 0;
-    local *callback = sub {
+    findMd5s(sub {
         my ($path, $expectedMd5) = @_;
         my $actualMd5 = getMd5($path);
         if ($actualMd5 eq $expectedMd5) {
@@ -758,8 +770,7 @@ sub doVerifyMd5 {
                 }
             }
         }
-    };
-    findMd5s(\&callback, '.');
+    }, @globPatterns);
 }
 
 #-------------------------------------------------------------------------------
