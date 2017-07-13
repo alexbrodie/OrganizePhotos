@@ -49,7 +49,7 @@ The following verbs are available:
 
 =item B<checkup> [-a]
 
-=item B<collect-trash>
+=item B<collect-trash> [glob patterns...]
 
 =item B<consolodate-metadata> <dir>
 
@@ -59,7 +59,7 @@ The following verbs are available:
 
 =item B<metadata-diff> <files...>
 
-=item B<remove-empties>
+=item B<remove-empties> [glob patterns...]
 
 =item B<verify-md5> [glob patterns...]
 
@@ -118,14 +118,14 @@ the specified glob pattern.
 
 =head2 checkup
 
-I<Alias: c>
+I<Alias: c> [glob patterns...]
 
 This command runs the following suggested suite of commands:
 
-    check-md5
-    find-dupe-files [-a | --always-continue]
-    collect-trash
-    remove-empties
+    check-md5 [glob patterns...]
+    find-dupe-files [-a | --always-continue] [glob patterns...]
+    remove-empties [glob patterns...]
+    collect-trash [glob patterns...]
 
 =head3 Options
 
@@ -135,9 +135,14 @@ This command runs the following suggested suite of commands:
 
 Always continue
 
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
+
 =back
 
-=head2 collect-trash
+=head2 collect-trash [glob patterns...]
 
 I<Alias: ct>
 
@@ -156,6 +161,17 @@ After collection we would have:
     ./.Trash/Foo/1.jpg
     ./.Trash/Foo/2.jpg
     ./.Trash/Bar/1.jpg
+
+=head3 Options
+
+=over 24
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
+
+=back
 
 =head2 consolodate-metadata <dir>
 
@@ -205,11 +221,22 @@ Do a diff of the specified media files (including their sidecar metadata).
 
 This method does not modify any file.
 
-=head2 remove-empties
+=head2 remove-empties [glob patterns...]
 
 I<Alias: re>
 
 Remove any subdirectories that are empty save an md5.txt file.
+
+=head3 Options
+
+=over 24
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
+
+=back
 
 =head2 verify-md5 [glob patterns...]
 
@@ -374,17 +401,15 @@ sub main {
             GetOptions();
             doCheckMd5(@ARGV);
         } elsif ($verb eq 'checkup' or $verb eq 'c') {
-            my $all;
+            my ($all, $autoDiff, $byName, $defaultLastAction);
             GetOptions('always-continue|a' => \$all);
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doCheckMd5();
-            doFindDupeFiles($all);
-            doCollectTrash();
-            doRemoveEmpties();
+            doCheckMd5(@ARGV);
+            doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction, @ARGV);
+            doRemoveEmpties(@ARGV);
+            doCollectTrash(@ARGV);
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
             GetOptions();
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doCollectTrash();
+            doCollectTrash(@ARGV);
         } elsif ($verb eq 'consolodate-metadata' or $verb eq 'cm') {
             GetOptions();
             doConsolodateMetadata(@ARGV);
@@ -404,8 +429,7 @@ sub main {
             doMetadataDiff(@ARGV);
         } elsif ($verb eq 'remove-empties' or $verb eq 're') {
             GetOptions();
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doRemoveEmpties();
+            doRemoveEmpties(@ARGV);
         } elsif ($verb eq 'test') {
             doTest();
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
@@ -438,26 +462,27 @@ sub doCheckMd5 {
 #===============================================================================
 # Execute collect-trash verb
 sub doCollectTrash {
-    my $here = rel2abs(curdir());
-
-    find(sub {
+    my (@globPatterns) = @_;
+    
+    traverseGlobPatterns(sub {
+        my ($_, $root) = @_;
+        
         if (-d and lc eq '.trash') {
-            # Convert $here/bunch/of/dirs/.Trash to $here/.Trash/bunch/of/dirs
+            # Convert $root/bunch/of/dirs/.Trash to $root/.Trash/bunch/of/dirs
             my $oldFullPath = rel2abs($_);
-            my $oldRelPath = abs2rel($oldFullPath, $here);
+            my $oldRelPath = abs2rel($oldFullPath, $root);
             my @dirs = splitdir($oldRelPath);
             @dirs = ('.Trash', (grep { lc ne '.trash' } @dirs));
             my $newRelPath = catdir(@dirs);
-            my $newFullPath = rel2abs($newRelPath, $here);
+            my $newFullPath = rel2abs($newRelPath, $root);
 
             if ($oldFullPath ne $newFullPath) {
-                print "$oldRelPath -> $newRelPath\n";
                 moveDir($oldFullPath, $newFullPath);
             } else {
                 #print "Noop for path $oldRelPath\n";
             }
         }
-    }, $here);
+    }, @globPatterns);
 }
 #===============================================================================
 # Execute consolodate-metadata verb
@@ -516,7 +541,7 @@ sub doFindDupeFiles {
     if ($byName) {
         # Make hash from base filename to files that have that base name
         traverseGlobPatterns(sub {
-            if (/$mediaType/) {
+            if (-f and /$mediaType/) {
                 # Different basename formats
                 if (/^([a-zA-Z0-9_]{4}\d{4}|\d{4}[-_]\d{2}[-_]\d{2}[-_ ]\d{2}[-_]\d{2}[-_]\d{2})\b(\.[^.]+)$/ or
                     /^([^-(]*\S)\b\s*(?:-\d+|\(\d+\))?(\.[^.]+)$/) {
@@ -706,14 +731,16 @@ sub doMetadataDiff {
 #===============================================================================
 # Execute metadata-diff verb
 sub doRemoveEmpties {
+    my (@globPatterns) = @_;
+    
     my %dirContentsMap = ();
-    find({
-        preprocess => \&preprocessSkipTrash,
-        wanted => sub {
-            push @{$dirContentsMap{$File::Find::dir}}, $_;
-            push @{$dirContentsMap{$File::Find::name}}, '.' if -d;
-        }
-    }, '.');
+    traverseGlobPatterns(sub {
+        my $path = rel2abs($_);
+        my ($volume, $dir, $name) = splitpath($path);
+        my $vd = catpath($volume, $dir, undef);
+        push @{$dirContentsMap{$vd}}, $name;
+        push @{$dirContentsMap{$path}}, '.' if -d;
+    }, @globPatterns);
 
     while (my ($dir, $contents) = each %dirContentsMap) {
         unless (grep { $_ ne '.' and lc ne 'md5.txt' } @$contents) {
@@ -805,12 +832,14 @@ sub verifyOrGenerateMd5ForGlob {
     my ($addOnly, $omitSkipMessage, @globPatterns) = @_;
 
     traverseGlobPatterns(sub {
-        if (/$mediaType/) {
-            verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
-        } elsif ($_ ne 'md5.txt') {
-            # TODO: Also skip Thumbs.db, .Ds_Store, etc?
-            unless ($omitSkipMessage) {
-                print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
+        if (-f) {
+            if (/$mediaType/) {
+                verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
+            } elsif ($_ ne 'md5.txt') {
+                # TODO: Also skip Thumbs.db, .Ds_Store, etc?
+                unless ($omitSkipMessage) {
+                    print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
+                }
             }
         }
     }, @globPatterns);
@@ -1360,6 +1389,9 @@ sub deepSplitPath {
 }
 
 #-------------------------------------------------------------------------------
+# Unrolls globs and traverses directories recursively calling
+#   $callback->($fileName, $rootDirOfSearch);
+# with current directory set to $fileName's dir before calling
 sub traverseGlobPatterns {
     my ($callback, @globPatterns) = @_;
 
@@ -1368,7 +1400,7 @@ sub traverseGlobPatterns {
             if (-d) {
                 traverseGlobPatternsHelper($callback, $_);
             } else {
-                $callback->($_);
+                $callback->($_, undef);
             }
         }
     } else {
@@ -1379,10 +1411,13 @@ sub traverseGlobPatterns {
 #-------------------------------------------------------------------------------
 sub traverseGlobPatternsHelper {
     my ($callback, $dir) = @_;
-
+    
+    $dir = rel2abs($dir);
     find({
         preprocess => \&preprocessSkipTrash,
-        wanted => $callback
+        wanted => sub {
+            $callback->($_, $dir);
+        }
     }, $dir);
 }
 
