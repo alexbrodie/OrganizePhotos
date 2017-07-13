@@ -41,11 +41,11 @@ The following verbs are available:
 
 =over 5
 
-=item B<add-md5> [glob_patterns...]
+=item B<add-md5> [glob patterns...]
 
 =item B<append-metadata> <target file> <source files...>
 
-=item B<check-md5> [glob_patterns...]
+=item B<check-md5> [glob patterns...]
 
 =item B<checkup> [-a]
 
@@ -55,7 +55,7 @@ The following verbs are available:
 
 =item B<find-dupe-dirs>
 
-=item B<find-dupe-files> [-a] [-d] [-l] [-n]
+=item B<find-dupe-files> [-a] [-d] [-l] [-n] [glob patterns...]
 
 =item B<metadata-diff> <files...>
 
@@ -65,7 +65,7 @@ The following verbs are available:
 
 =back
 
-=head2 add-md5 [glob_patterns...]
+=head2 add-md5 [glob patterns...]
 
 I<Alias: a5>
 
@@ -79,14 +79,14 @@ to the md5.txt files.
 
 =over 24
 
-=item B<glob_patterns>
+=item B<glob patterns>
 
 Rather than operate on files under the current directory, operate on
 the specified glob pattern.
 
 =back
 
-=head2 check-md5 [glob_patterns...]
+=head2 check-md5 [glob patterns...]
 
 I<Alias: c5>
 
@@ -104,7 +104,7 @@ the md5.txt files.
 
 =over 24
 
-=item B<glob_patterns>
+=item B<glob patterns>
 
 Rather than operate on files under the current directory, operate on
 the specified glob pattern.
@@ -169,7 +169,7 @@ I<Alias: fdd>
 
 Find directories that represent the same date.
 
-=head2 find-dupe-files [dirs...]
+=head2 find-dupe-files [glob patterns...]
 
 I<Alias: fdf>
 
@@ -306,6 +306,9 @@ L<Image::ExifTool>
 
 =cut
 
+# TODO: Use traverseGlobPatterns instead of find directly everywhere for
+# TODO: consistency
+
 use strict;
 use warnings;
 
@@ -384,7 +387,6 @@ sub main {
                        'auto-diff|d' => \$autoDiff,
                        'by-name|n' => \$byName,
                        'default-last-action|l' => \$defaultLastAction);
-            -d or die "Argument not a directory: '$_'" for @ARGV;
             doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction, @ARGV);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             GetOptions();
@@ -498,34 +500,29 @@ sub doFindDupeDirs {
 #===============================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
-    my ($all, $byName, $autoDiff, $defaultLastAction, @dirs) = @_;
+    my ($all, $byName, $autoDiff, $defaultLastAction, @globPatterns) = @_;
     
-    @dirs = ('.') unless @dirs;
-
     my %keyToPaths = ();
     if ($byName) {
         # Make hash from base filename to files that have that base name
-        find({
-            preprocess => \&preprocessSkipTrash,
-            wanted => sub {
-                if (-f and /$mediaType/) {
-                    # Different basename formats
-                    if (/^([a-zA-Z0-9_]{4}\d{4}|\d{4}[-_]\d{2}[-_]\d{2}[-_ ]\d{2}[-_]\d{2}[-_]\d{2})\b(\.[^.]+)$/ or
-                        /^([^-(]*\S)\b\s*(?:-\d+|\(\d+\))?(\.[^.]+)$/) {
-                        #print "$1$2\n";
-                        push @{$keyToPaths{lc "$1$2"}}, rel2abs($_);
-                    } else {
-                        warn "Skipping unknown filename format: $_";
-                    }
+        traverseGlobPatterns(sub {
+            if (/$mediaType/) {
+                # Different basename formats
+                if (/^([a-zA-Z0-9_]{4}\d{4}|\d{4}[-_]\d{2}[-_]\d{2}[-_ ]\d{2}[-_]\d{2}[-_]\d{2})\b(\.[^.]+)$/ or
+                    /^([^-(]*\S)\b\s*(?:-\d+|\(\d+\))?(\.[^.]+)$/) {
+                    #print "$1$2\n";
+                    push @{$keyToPaths{lc "$1$2"}}, rel2abs($_);
+                } else {
+                    warn "Skipping unknown filename format: $_";
                 }
             }
-        }, @dirs);
+        }, @globPatterns);
     } else {
         # Make hash from MD5 to files with that MD5
         findMd5s(sub {
             my ($path, $md5) = @_;
             push @{$keyToPaths{$md5}}, $path;
-        }, @dirs);
+        }, @globPatterns);
     }
 
     # Put everthing that has dupes in an array for sorting
@@ -770,26 +767,25 @@ sub doVerifyMd5 {
 # passing it full path and MD5 hash as arguments like
 #      callback($absolutePath, $md5AsString)
 sub findMd5s {
-    my ($callback, @dirs) = @_;
+    my ($callback, @globPatterns) = @_;
     
-    print colored(join("\n\t", "Looking for md5.txt in", @dirs), 'yellow'), "\n"; 
+    print colored(join("\n\t", "Looking for md5.txt in", @globPatterns), 'yellow'), "\n"; 
 
-    find({
-        preprocess => \&preprocessSkipTrash,
-        wanted => sub {
-            if (-f and lc eq 'md5.txt') {
-                print colored("Found $File::Find::name\n", 'yellow');
-                open(my $fh, '<:crlf', $_)
-                    or confess "Couldn't open $File::Find::name: $!";
-                my $md5s = readMd5FileFromHandle($fh);
-                my $dir = $File::Find::dir;
-                for (sort keys %$md5s) {
-                    # REVIEW: should catpath be catfile on the next line?
-                    $callback->(rel2abs(catpath($dir, $_)), $md5s->{$_});
-                }
+    traverseGlobPatterns(sub {
+        if (-f and lc eq 'md5.txt') {
+            my $path = rel2abs($_);
+            print colored("Found $path\n", 'yellow');
+            open(my $fh, '<:crlf', $path)
+                or confess "Couldn't open $path: $!";
+        
+            my $md5s = readMd5FileFromHandle($fh);
+            
+            my ($volume, $dir, undef) = splitpath($path);
+            for (sort keys %$md5s) {
+                $callback->(catpath($volume, $dir, $_), $md5s->{$_});
             }
         }
-    }, @dirs);
+    }, @globPatterns);
 }
 
 #-------------------------------------------------------------------------------
@@ -1353,6 +1349,33 @@ sub deepSplitPath {
 }
 
 #-------------------------------------------------------------------------------
+sub traverseGlobPatterns {
+    my ($callback, @globPatterns) = @_;
+
+    if (@globPatterns) {
+        for (sort map { glob } @globPatterns) {
+            if (-d) {
+                traverseGlobPatternsHelper($callback, $_);
+            } else {
+                $callback->($_);
+            }
+        }
+    } else {
+        traverseGlobPatternsHelper($callback, '.');
+    }
+}
+
+#-------------------------------------------------------------------------------
+sub traverseGlobPatternsHelper {
+    my ($callback, $dir) = @_;
+
+    find({
+        preprocess => \&preprocessSkipTrash,
+        wanted => $callback
+    }, $dir);
+}
+
+#-------------------------------------------------------------------------------
 # 'preprocess' callback for find of File::Find which skips .Trash dirs
 sub preprocessSkipTrash  {
     return grep { !-d or lc ne '.trash' } @_;
@@ -1379,23 +1402,6 @@ sub moveFile {
         or confess "Failed to move $oldPath to $newPath: $!";
 
     print "Moved $oldPath\n   to $newPath\n";
-}
-
-#-------------------------------------------------------------------------------
-sub traverseGlobPatterns {
-    my ($callback, @globPatterns) = @_;
-
-    if (@globPatterns) {
-        for (sort map { glob } @globPatterns) {
-            if (-d) {
-                find(sub { $callback->($_) if -f }, $_);
-            } else {
-                $callback->($_);
-            }
-        }
-    } else {
-        find(sub { $callback->($_) if -f }, '.');
-    }
 }
 
 #-------------------------------------------------------------------------------
