@@ -300,8 +300,11 @@ the provided timestamp or timestamp at last MD5 check
 
 =head2 Complementary Mac commands
 
-    # Print trash directories
-    find . -type d -name .Trash
+    # Print .Trash directories
+    find . -type d -iname '.Trash'
+
+    # Move .Trash directories to the trash
+    find . -type d -iname '.Trash' -exec trash {} \;
 
     # Remove .DS_Store (omit "-delete" to only print)
     find . -type f -name .DS_Store -print -delete
@@ -325,6 +328,12 @@ the provided timestamp or timestamp at last MD5 check
     # Mirror SOURCE to TARGET
     rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
         SOURCE TARGET
+
+    # Find large-ish files
+    find . -size +100MB
+
+    # Display disk usage stats sorted by size decreasing
+    du *|sort -rn
 
 =head2 Complementary PC commands
 
@@ -371,7 +380,7 @@ my $md5pattern = qr/[0-9a-f]{32}/;
 # Media file extensions
 my $mediaType = qr/
     # Media extension
-    (?: \. (?i) (?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|raf) $)
+    (?: \. (?i) (?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|psb|psd|raf|tif|tiff) $)
     | # Backup file
     (?: [._] (?i) bak\d* $)
     /x;
@@ -679,6 +688,8 @@ sub doFindDupeFiles {
                 $command = $lastCommand if $defaultLastAction and $command eq '';
                 $lastCommand = $command;
             }
+            
+            # something like if -l turn on $defaultLastAction and next PROMPT
             
             for (split /;/, $command) {
                 if ($_ eq 'd') {
