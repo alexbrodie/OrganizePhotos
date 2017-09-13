@@ -362,6 +362,7 @@ use warnings;
 use Carp qw(confess);
 use Data::Compare;
 use Data::Dumper;
+use DateTime::Format::HTTP;
 use Digest::MD5;
 use File::Compare;
 use File::Copy;
@@ -371,6 +372,7 @@ use File::Path qw(make_path);
 use File::Spec::Functions qw(:ALL);
 use Getopt::Long;
 use Image::ExifTool;
+use JSON;
 use Pod::Usage;
 use Term::ANSIColor;
 
@@ -385,7 +387,7 @@ my $mediaType = qr/
     (?: [._] (?i) bak\d* $)
     /x;
 
-my $verbose = 0;
+my $verbose = 1;
 
 main();
 exit 0;
@@ -474,11 +476,11 @@ sub doCollectTrash {
     my (@globPatterns) = @_;
     
     traverseGlobPatterns(sub {
-        my ($_, $root) = @_;
+        my ($fileName, $root) = @_;
         
-        if (-d and lc eq '.trash') {
+        if (-d $fileName and lc $fileName eq '.trash') {
             # Convert $root/bunch/of/dirs/.Trash to $root/.Trash/bunch/of/dirs
-            my $oldFullPath = rel2abs($_);
+            my $oldFullPath = rel2abs($fileName);
             my $oldRelPath = abs2rel($oldFullPath, $root);
             my @dirs = splitdir($oldRelPath);
             @dirs = ('.Trash', (grep { lc ne '.trash' } @dirs));
@@ -760,7 +762,7 @@ sub doRemoveEmpties {
     #}
     
     while (my ($dir, $contents) = each %dirContentsMap) {
-        unless (grep { $_ ne '.' and lc ne 'md5.txt' } @$contents) {
+        unless (grep { $_ ne '.' and lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' } @$contents) {
             print "Trashing $dir\n";
             trashPath($dir);
         }
@@ -770,16 +772,78 @@ sub doRemoveEmpties {
 #===============================================================================
 # Execute test verb
 sub doTest {
-    print Dumper(@ARGV);
-    for my $filename (@ARGV) {
-        my @properties = qw(XPKeywords Rating Subject HierarchicalSubject LastKeywordXMP Keywords);
+    my $filename = $ARGV[0];
+    -s $filename or confess "$filename doesn't exist";
     
-        # Extract current metadata in target
+    # Look for a QR code
+    my @results = `qrscan '$filename'`;
+    print "qrscan: ", Dumper(@results) if $verbose;
+
+    # Parse QR codes
+    my $messageDate;
+    for (@results) {
+        /^Message:\s*(\{.*\})/
+            or confess "Unexpected qrscan output: $_";
+        
+        my $message = decode_json($1);
+        print "message: ", Dumper($message) if $verbose;
+    
+        if (exists $message->{date}) {
+            my $date = $message->{date};
+            !$messageDate or $messageDate eq $date
+                or confess "Two different dates detected: $messageDate, $date";
+            $messageDate = $date
+        }
+    }
+
+    if ($messageDate) {
+        # Get file metadata
         my $et = new Image::ExifTool;
+        $et->Options(DateFormat => '%FT%TZ');
         $et->ExtractInfo($filename)
             or confess "Couldn't ExtractInfo for $filename";
-        my $info = $et->GetInfo(@properties);
-        print "$filename: ", Dumper($info);
+        my $info = $et->GetInfo(qw(
+            DateTimeOriginal TimeZone TimeZoneCity DaylightSavings 
+            Make Model SerialNumber));
+        print "$filename: ", Dumper($info) if $verbose;
+    
+        my $metadataDate = $info->{DateTimeOriginal};
+        print "$messageDate vs $metadataDate\n" if $verbose;
+    
+        # The metadata date is an absolute time (the local time where
+        # it was taken without any time zone information). The message
+        # date is the date specified in the QR code of the image which
+        # (when using the iOS app) is the full date/time of the device
+        # (local time with time zone). So if we want to compare them
+        # we have to just use the local time portion (and ignore the
+        # time zone), assuming that the camera and the iOS device were
+        # in the same time zone at the time of capture. So, remove the
+        # time zone.
+        $messageDate =~ s/([+-][\d:]*)$/Z/;
+        my $messageTimeZone = $1;
+        print "$messageDate vs $metadataDate\n" if $verbose;
+    
+        $messageDate = DateTime::Format::HTTP->parse_datetime($messageDate);
+        $metadataDate = DateTime::Format::HTTP->parse_datetime($metadataDate);
+    
+        my $diff = $messageDate->subtract_datetime($metadataDate);
+    
+        print "$messageDate - $messageDate = ", Dumper($diff), "\n" if $verbose;
+    
+        my $days = ($diff->is_negative ? -1 : 1) * 
+            ($diff->days + ($diff->hours + ($diff->minutes + $diff->seconds / 60) / 60) / 24);
+
+        print <<EOM
+Make            : $info->{Make}
+Model           : $info->{Model}
+SerialNumber    : $info->{SerialNumber}
+FileDateTaken   : $metadataDate
+FileTimeZone    : $info->{TimeZone}
+QRDateTaken     : $messageDate
+QRTimeZone      : $messageTimeZone
+QR-FileDays     : $days
+QR-FileHours    : @{[$days * 24]}
+EOM
     }
 }
 
@@ -1031,6 +1095,8 @@ sub getMd5 {
     my $md5 = new Digest::MD5;
 
     for my $path (@_) {
+        next unless 0 < -s $path;
+        
         open(my $fh, '<:raw', $path)
             or confess "Couldn't open $path: $!";
 
@@ -1161,9 +1227,7 @@ sub appendMetadata {
     $etTarget->ExtractInfo($target)
         or confess "Couldn't ExtractInfo for $target";
     my $infoTarget = $etTarget->GetInfo(@properties);
-    if ($verbose) {
-        print "$target: ", Dumper($infoTarget);
-    }
+    print "$target: ", Dumper($infoTarget) if $verbose;
     
     my $rating = $infoTarget->{Rating};
     my $oldRating = $rating;
@@ -1183,9 +1247,7 @@ sub appendMetadata {
         $etSource->ExtractInfo($source)
             or confess "Couldn't ExtractInfo for $source";            
         my $infoSource = $etSource->GetInfo(@properties);
-        if ($verbose) {
-            print "$source: ", Dumper($infoSource);
-        }
+        print "$source: ", Dumper($infoSource) if $verbose;
         
         # Add rating if we don't already have one
         unless (defined $rating) {
@@ -1209,7 +1271,7 @@ sub appendMetadata {
             defined $oldRating ? $oldRating : "(null)", 
             " -> $rating\n";
         $etTarget->SetNewValue('Rating', $rating)
-            or die "Couldn't set Rating";
+            or confess "Couldn't set Rating";
         $dirty = 1;
     }
         
@@ -1221,7 +1283,7 @@ sub appendMetadata {
                 defined $old ? "\"$old\"" : "(null)",
                 " -> \"$new\"\n";            
             $etTarget->SetNewValue($name, $new)
-                or die "Couldn't set $name";
+                or confess "Couldn't set $name";
             $dirty = 1;
         }
     }
@@ -1409,6 +1471,7 @@ sub deepSplitPath {
 # Unrolls globs and traverses directories recursively calling
 #   $callback->($fileName, $rootDirOfSearch);
 # with current directory set to $fileName's dir before calling
+# and $_ set to $fileName.
 sub traverseGlobPatterns {
     my ($callback, @globPatterns) = @_;
 
