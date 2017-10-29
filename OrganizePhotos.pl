@@ -355,6 +355,8 @@ L<Image::ExifTool>
 
 # TODO: Use traverseGlobPatterns instead of find directly everywhere for
 # TODO: consistency
+#
+# TODO: group raw+jpg in find dupe files groupings
 
 use strict;
 use warnings;
