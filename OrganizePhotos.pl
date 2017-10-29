@@ -568,7 +568,7 @@ sub doFindDupeFiles {
         findMd5s(sub {
             my ($path, $md5) = @_;
             push @{$keyToPaths{$md5}}, $path;
-        }, 1, @globPatterns);
+        }, @globPatterns);
     }
 
     # Put everthing that has dupes in an array for sorting
