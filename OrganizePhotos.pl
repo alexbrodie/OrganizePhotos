@@ -493,7 +493,7 @@ sub doCollectTrash {
                 #print "Noop for path $oldRelPath\n";
             }
         }
-    }, @globPatterns);
+    }, 0, @globPatterns);
 }
 #===============================================================================
 # Execute consolodate-metadata verb
@@ -562,13 +562,13 @@ sub doFindDupeFiles {
                     warn "Skipping unknown filename format: $_";
                 }
             }
-        }, @globPatterns);
+        }, 1, @globPatterns);
     } else {
         # Make hash from MD5 to files with that MD5
         findMd5s(sub {
             my ($path, $md5) = @_;
             push @{$keyToPaths{$md5}}, $path;
-        }, @globPatterns);
+        }, 1, @globPatterns);
     }
 
     # Put everthing that has dupes in an array for sorting
@@ -754,7 +754,7 @@ sub doRemoveEmpties {
         s/[\\\/]*$// for ($path, $vd);
         push @{$dirContentsMap{$vd}}, $name;
         push @{$dirContentsMap{$path}}, '.' if -d;
-    }, @globPatterns);
+    }, 1, @globPatterns);
 
     #for (sort keys %dirContentsMap) {
     #    my ($k, $v) = ($_, $dirContentsMap{$_});
@@ -904,7 +904,7 @@ sub findMd5s {
                 $callback->(catpath($volume, $dir, $_), $md5s->{$_});
             }
         }
-    }, @globPatterns);
+    }, 1, @globPatterns);
 }
 
 #-------------------------------------------------------------------------------
@@ -923,7 +923,7 @@ sub verifyOrGenerateMd5ForGlob {
                 }
             }
         }
-    }, @globPatterns);
+    }, 1, @globPatterns);
 }
 
 #-------------------------------------------------------------------------------
@@ -1473,28 +1473,28 @@ sub deepSplitPath {
 # with current directory set to $fileName's dir before calling
 # and $_ set to $fileName.
 sub traverseGlobPatterns {
-    my ($callback, @globPatterns) = @_;
+    my ($callback, $skipTrash, @globPatterns) = @_;
 
     if (@globPatterns) {
         for (sort map { glob } @globPatterns) {
             if (-d) {
-                traverseGlobPatternsHelper($callback, $_);
+                traverseGlobPatternsHelper($callback, $skipTrash, $_);
             } else {
                 $callback->($_, undef);
             }
         }
     } else {
-        traverseGlobPatternsHelper($callback, '.');
+        traverseGlobPatternsHelper($callback, $skipTrash, '.');
     }
 }
 
 #-------------------------------------------------------------------------------
 sub traverseGlobPatternsHelper {
-    my ($callback, $dir) = @_;
+    my ($callback, $skipTrash, $dir) = @_;
     
     $dir = rel2abs($dir);
     find({
-        preprocess => \&preprocessSkipTrash,
+        preprocess => $skipTrash ? \&preprocessSkipTrash : undef,
         wanted => sub {
             $callback->($_, $dir);
         }
