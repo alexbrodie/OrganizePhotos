@@ -41,31 +41,31 @@ The following verbs are available:
 
 =over 5
 
-=item B<add-md5>
+=item B<add-md5> [glob patterns...]
 
 =item B<append-metadata> <target file> <source files...>
 
-=item B<check-md5> [glob_patterns...]
+=item B<check-md5> [glob patterns...]
 
 =item B<checkup> [-a]
 
-=item B<collect-trash>
+=item B<collect-trash> [glob patterns...]
 
 =item B<consolodate-metadata> <dir>
 
 =item B<find-dupe-dirs>
 
-=item B<find-dupe-files> [-a] [-d] [-l] [-n]
+=item B<find-dupe-files> [-a] [-d] [-l] [-n] [glob patterns...]
 
 =item B<metadata-diff> <files...>
 
-=item B<remove-empties>
+=item B<remove-empties> [glob patterns...]
 
-=item B<verify-md5>
+=item B<verify-md5> [glob patterns...]
 
 =back
 
-=head2 add-md5
+=head2 add-md5 [glob patterns...]
 
 I<Alias: a5>
 
@@ -75,7 +75,18 @@ MD5 computed, generate the MD5 hash and add to md5.txt file.
 This does not modify media files or their sidecars, it only adds entries
 to the md5.txt files.
 
-=head2 check-md5
+=head3 Options
+
+=over 24
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
+
+=back
+
+=head2 check-md5 [glob patterns...]
 
 I<Alias: c5>
 
@@ -93,7 +104,7 @@ the md5.txt files.
 
 =over 24
 
-=item B<glob_pattern>
+=item B<glob patterns>
 
 Rather than operate on files under the current directory, operate on
 the specified glob pattern.
@@ -107,14 +118,14 @@ the specified glob pattern.
 
 =head2 checkup
 
-I<Alias: c>
+I<Alias: c> [glob patterns...]
 
 This command runs the following suggested suite of commands:
 
-    check-md5
-    find-dupe-files [-a | --always-continue]
-    collect-trash
-    remove-empties
+    check-md5 [glob patterns...]
+    find-dupe-files [-a | --always-continue] [glob patterns...]
+    remove-empties [glob patterns...]
+    collect-trash [glob patterns...]
 
 =head3 Options
 
@@ -124,9 +135,14 @@ This command runs the following suggested suite of commands:
 
 Always continue
 
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
+
 =back
 
-=head2 collect-trash
+=head2 collect-trash [glob patterns...]
 
 I<Alias: ct>
 
@@ -146,6 +162,17 @@ After collection we would have:
     ./.Trash/Foo/2.jpg
     ./.Trash/Bar/1.jpg
 
+=head3 Options
+
+=over 24
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
+
+=back
+
 =head2 consolodate-metadata <dir>
 
 I<Alias: cm>
@@ -158,7 +185,7 @@ I<Alias: fdd>
 
 Find directories that represent the same date.
 
-=head2 find-dupe-files
+=head2 find-dupe-files [glob patterns...]
 
 I<Alias: fdf>
 
@@ -194,13 +221,24 @@ Do a diff of the specified media files (including their sidecar metadata).
 
 This method does not modify any file.
 
-=head2 remove-empties
+=head2 remove-empties [glob patterns...]
 
 I<Alias: re>
 
 Remove any subdirectories that are empty save an md5.txt file.
 
-=head2 verify-md5
+=head3 Options
+
+=over 24
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
+
+=back
+
+=head2 verify-md5 [glob patterns...]
 
 I<Alias: v5>
 
@@ -210,6 +248,17 @@ the current directory.
 This method is read-only, if you want to add/update MD5s, use check-md5.
 
 This method does not modify any file.
+
+=head3 Options
+
+=over 24
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
+
+=back
 
 =begin comment
 
@@ -251,8 +300,11 @@ the provided timestamp or timestamp at last MD5 check
 
 =head2 Complementary Mac commands
 
-    # Print trash directories
-    find . -type d -name .Trash
+    # Print .Trash directories
+    find . -type d -iname '.Trash'
+
+    # Move .Trash directories to the trash
+    find . -type d -iname '.Trash' -exec trash {} \;
 
     # Remove .DS_Store (omit "-delete" to only print)
     find . -type f -name .DS_Store -print -delete
@@ -277,6 +329,12 @@ the provided timestamp or timestamp at last MD5 check
     rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
         SOURCE TARGET
 
+    # Find large-ish files
+    find . -size +100MB
+
+    # Display disk usage stats sorted by size decreasing
+    du *|sort -rn
+
 =head2 Complementary PC commands
 
     # Mirror SOURCE to TARGET
@@ -295,12 +353,16 @@ L<Image::ExifTool>
 
 =cut
 
+# TODO: Use traverseGlobPatterns instead of find directly everywhere for
+# TODO: consistency
+
 use strict;
 use warnings;
 
 use Carp qw(confess);
 use Data::Compare;
 use Data::Dumper;
+use DateTime::Format::HTTP;
 use Digest::MD5;
 use File::Compare;
 use File::Copy;
@@ -310,6 +372,7 @@ use File::Path qw(make_path);
 use File::Spec::Functions qw(:ALL);
 use Getopt::Long;
 use Image::ExifTool;
+use JSON;
 use Pod::Usage;
 use Term::ANSIColor;
 
@@ -319,12 +382,12 @@ my $md5pattern = qr/[0-9a-f]{32}/;
 # Media file extensions
 my $mediaType = qr/
     # Media extension
-    (?: \. (?i) (?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|raf) $)
+    (?: \. (?i) (?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|psb|psd|raf|tif|tiff) $)
     | # Backup file
     (?: [._] (?i) bak\d* $)
     /x;
 
-my $verbose = 0;
+my $verbose = 1;
 
 main();
 exit 0;
@@ -341,8 +404,7 @@ sub main {
         my $verb = lc $rawVerb;
         if ($verb eq 'add-md5' or $verb eq 'a5') {
             GetOptions();
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doAddMd5();
+            doAddMd5(@ARGV);
         } elsif ($verb eq 'append-metadata' or $verb eq 'am') {
             GetOptions();
             doAppendMetadata(@ARGV);
@@ -350,17 +412,15 @@ sub main {
             GetOptions();
             doCheckMd5(@ARGV);
         } elsif ($verb eq 'checkup' or $verb eq 'c') {
-            my $all;
+            my ($all, $autoDiff, $byName, $defaultLastAction);
             GetOptions('always-continue|a' => \$all);
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doCheckMd5();
-            doFindDupeFiles($all);
-            doCollectTrash();
-            doRemoveEmpties();
+            doCheckMd5(@ARGV);
+            doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction, @ARGV);
+            doRemoveEmpties(@ARGV);
+            doCollectTrash(@ARGV);
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
             GetOptions();
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doCollectTrash();
+            doCollectTrash(@ARGV);
         } elsif ($verb eq 'consolodate-metadata' or $verb eq 'cm') {
             GetOptions();
             doConsolodateMetadata(@ARGV);
@@ -374,21 +434,18 @@ sub main {
                        'auto-diff|d' => \$autoDiff,
                        'by-name|n' => \$byName,
                        'default-last-action|l' => \$defaultLastAction);
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction);
+            doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction, @ARGV);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             GetOptions();
             doMetadataDiff(@ARGV);
         } elsif ($verb eq 'remove-empties' or $verb eq 're') {
             GetOptions();
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doRemoveEmpties();
+            doRemoveEmpties(@ARGV);
         } elsif ($verb eq 'test') {
             doTest();
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
             GetOptions();
-            @ARGV and die "Unexpected parameters: @ARGV";
-            doVerifyMd5();
+            doVerifyMd5(@ARGV);
         } else {
             die "Unknown verb: $rawVerb\n";
         }
@@ -398,7 +455,7 @@ sub main {
 #===============================================================================
 # Execute add-md5 verb
 sub doAddMd5 {
-    verifyOrGenerateMd5Recursively(1, 1);
+    verifyOrGenerateMd5ForGlob(1, 1, @_);
 }
 
 #===============================================================================
@@ -410,39 +467,33 @@ sub doAppendMetadata {
 #===============================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
-    if (@_) {
-        # Glob(s) provided - check or add MD5s for all files that match
-        verifyOrGenerateMd5($_) for sort map { glob } @_;
-    } else {
-        # No args - check or add MD5s for all the media files
-        # below the current dir
-        verifyOrGenerateMd5Recursively();
-    }
+    verifyOrGenerateMd5ForGlob(0, 0, @_);
 }
 
 #===============================================================================
 # Execute collect-trash verb
 sub doCollectTrash {
-    my $here = rel2abs(curdir());
-
-    find(sub {
-        if (-d and lc eq '.trash') {
-            # Convert $here/bunch/of/dirs/.Trash to $here/.Trash/bunch/of/dirs
-            my $oldFullPath = rel2abs($_);
-            my $oldRelPath = abs2rel($oldFullPath, $here);
+    my (@globPatterns) = @_;
+    
+    traverseGlobPatterns(sub {
+        my ($fileName, $root) = @_;
+        
+        if (-d $fileName and lc $fileName eq '.trash') {
+            # Convert $root/bunch/of/dirs/.Trash to $root/.Trash/bunch/of/dirs
+            my $oldFullPath = rel2abs($fileName);
+            my $oldRelPath = abs2rel($oldFullPath, $root);
             my @dirs = splitdir($oldRelPath);
             @dirs = ('.Trash', (grep { lc ne '.trash' } @dirs));
             my $newRelPath = catdir(@dirs);
-            my $newFullPath = rel2abs($newRelPath, $here);
+            my $newFullPath = rel2abs($newRelPath, $root);
 
             if ($oldFullPath ne $newFullPath) {
-                print "$oldRelPath -> $newRelPath\n";
                 moveDir($oldFullPath, $newFullPath);
             } else {
                 #print "Noop for path $oldRelPath\n";
             }
         }
-    }, $here);
+    }, 0, @globPatterns);
 }
 #===============================================================================
 # Execute consolodate-metadata verb
@@ -495,32 +546,29 @@ sub doFindDupeDirs {
 #===============================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
-    my ($all, $byName, $autoDiff, $defaultLastAction) = @_;
-
+    my ($all, $byName, $autoDiff, $defaultLastAction, @globPatterns) = @_;
+    
     my %keyToPaths = ();
     if ($byName) {
         # Make hash from base filename to files that have that base name
-        find({
-            preprocess => \&preprocessSkipTrash,
-            wanted => sub {
-                if (-f and /$mediaType/) {
-                    # Different basename formats
-                    if (/^([a-zA-Z0-9_]{4}\d{4}|\d{4}[-_]\d{2}[-_]\d{2}[-_ ]\d{2}[-_]\d{2}[-_]\d{2})\b(\.[^.]+)$/ or
-                        /^([^-(]*\S)\b\s*(?:-\d+|\(\d+\))?(\.[^.]+)$/) {
-                        #print "$1$2\n";
-                        push @{$keyToPaths{lc "$1$2"}}, rel2abs($_);
-                    } else {
-                        warn "Skipping unknown filename format: $_";
-                    }
+        traverseGlobPatterns(sub {
+            if (-f and /$mediaType/) {
+                # Different basename formats
+                if (/^([a-zA-Z0-9_]{4}\d{4}|\d{4}[-_]\d{2}[-_]\d{2}[-_ ]\d{2}[-_]\d{2}[-_]\d{2})\b(\.[^.]+)$/ or
+                    /^([^-(]*\S)\b\s*(?:-\d+|\(\d+\))?(\.[^.]+)$/) {
+                    #print "$1$2\n";
+                    push @{$keyToPaths{lc "$1$2"}}, rel2abs($_);
+                } else {
+                    warn "Skipping unknown filename format: $_";
                 }
             }
-        }, '.');
+        }, 1, @globPatterns);
     } else {
         # Make hash from MD5 to files with that MD5
         findMd5s(sub {
             my ($path, $md5) = @_;
             push @{$keyToPaths{$md5}}, $path;
-        }, '.');
+        }, 1, @globPatterns);
     }
 
     # Put everthing that has dupes in an array for sorting
@@ -626,10 +674,25 @@ sub doFindDupeFiles {
         # Get input until something sticks...
         PROMPT: while (1) {
             print "\n", @prompt;
-            chomp(my $command = lc <STDIN>);
-            $command = $lastCommand if $defaultLastAction and $command eq '';
-            $lastCommand = $command;
-
+            
+            my $command;
+            
+            # This allows for some automated processing if there are
+            # temporary patterns of thousands of items that need the
+            # same processing
+            #if ($group->[0] =~ /\/2017-2\//) {
+            #    $command = "t0"
+            #}
+            
+            # Prompt for action
+            unless ($command) {
+                chomp($command = lc <STDIN>);
+                $command = $lastCommand if $defaultLastAction and $command eq '';
+                $lastCommand = $command;
+            }
+            
+            # something like if -l turn on $defaultLastAction and next PROMPT
+            
             for (split /;/, $command) {
                 if ($_ eq 'd') {
                     # Diff
@@ -681,17 +744,25 @@ sub doMetadataDiff {
 #===============================================================================
 # Execute metadata-diff verb
 sub doRemoveEmpties {
+    my (@globPatterns) = @_;
+    
     my %dirContentsMap = ();
-    find({
-        preprocess => \&preprocessSkipTrash,
-        wanted => sub {
-            push @{$dirContentsMap{$File::Find::dir}}, $_;
-            push @{$dirContentsMap{$File::Find::name}}, '.' if -d;
-        }
-    }, '.');
+    traverseGlobPatterns(sub {
+        my $path = rel2abs($_);
+        my ($volume, $dir, $name) = splitpath($path);
+        my $vd = catpath($volume, $dir, undef);
+        s/[\\\/]*$// for ($path, $vd);
+        push @{$dirContentsMap{$vd}}, $name;
+        push @{$dirContentsMap{$path}}, '.' if -d;
+    }, 1, @globPatterns);
 
+    #for (sort keys %dirContentsMap) {
+    #    my ($k, $v) = ($_, $dirContentsMap{$_});
+    #    print join(';', $k, @$v), "\n";
+    #}
+    
     while (my ($dir, $contents) = each %dirContentsMap) {
-        unless (grep { $_ ne '.' and lc ne 'md5.txt' } @$contents) {
+        unless (grep { $_ ne '.' and lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' } @$contents) {
             print "Trashing $dir\n";
             trashPath($dir);
         }
@@ -701,24 +772,88 @@ sub doRemoveEmpties {
 #===============================================================================
 # Execute test verb
 sub doTest {
-    print Dumper(@ARGV);
-    for my $filename (@ARGV) {
-        my @properties = qw(XPKeywords Rating Subject HierarchicalSubject LastKeywordXMP Keywords);
+    my $filename = $ARGV[0];
+    -s $filename or confess "$filename doesn't exist";
     
-        # Extract current metadata in target
+    # Look for a QR code
+    my @results = `qrscan '$filename'`;
+    print "qrscan: ", Dumper(@results) if $verbose;
+
+    # Parse QR codes
+    my $messageDate;
+    for (@results) {
+        /^Message:\s*(\{.*\})/
+            or confess "Unexpected qrscan output: $_";
+        
+        my $message = decode_json($1);
+        print "message: ", Dumper($message) if $verbose;
+    
+        if (exists $message->{date}) {
+            my $date = $message->{date};
+            !$messageDate or $messageDate eq $date
+                or confess "Two different dates detected: $messageDate, $date";
+            $messageDate = $date
+        }
+    }
+
+    if ($messageDate) {
+        # Get file metadata
         my $et = new Image::ExifTool;
+        $et->Options(DateFormat => '%FT%TZ');
         $et->ExtractInfo($filename)
             or confess "Couldn't ExtractInfo for $filename";
-        my $info = $et->GetInfo(@properties);
-        print "$filename: ", Dumper($info);
+        my $info = $et->GetInfo(qw(
+            DateTimeOriginal TimeZone TimeZoneCity DaylightSavings 
+            Make Model SerialNumber));
+        print "$filename: ", Dumper($info) if $verbose;
+    
+        my $metadataDate = $info->{DateTimeOriginal};
+        print "$messageDate vs $metadataDate\n" if $verbose;
+    
+        # The metadata date is an absolute time (the local time where
+        # it was taken without any time zone information). The message
+        # date is the date specified in the QR code of the image which
+        # (when using the iOS app) is the full date/time of the device
+        # (local time with time zone). So if we want to compare them
+        # we have to just use the local time portion (and ignore the
+        # time zone), assuming that the camera and the iOS device were
+        # in the same time zone at the time of capture. So, remove the
+        # time zone.
+        $messageDate =~ s/([+-][\d:]*)$/Z/;
+        my $messageTimeZone = $1;
+        print "$messageDate vs $metadataDate\n" if $verbose;
+    
+        $messageDate = DateTime::Format::HTTP->parse_datetime($messageDate);
+        $metadataDate = DateTime::Format::HTTP->parse_datetime($metadataDate);
+    
+        my $diff = $messageDate->subtract_datetime($metadataDate);
+    
+        print "$messageDate - $messageDate = ", Dumper($diff), "\n" if $verbose;
+    
+        my $days = ($diff->is_negative ? -1 : 1) * 
+            ($diff->days + ($diff->hours + ($diff->minutes + $diff->seconds / 60) / 60) / 24);
+
+        print <<EOM
+Make            : $info->{Make}
+Model           : $info->{Model}
+SerialNumber    : $info->{SerialNumber}
+FileDateTaken   : $metadataDate
+FileTimeZone    : $info->{TimeZone}
+QRDateTaken     : $messageDate
+QRTimeZone      : $messageTimeZone
+QR-FileDays     : $days
+QR-FileHours    : @{[$days * 24]}
+EOM
     }
 }
 
 #===============================================================================
 # Execute verify-md5 verb
 sub doVerifyMd5 {
+    my (@globPatterns) = @_;
+    
     our $all = 0;
-    local *callback = sub {
+    findMd5s(sub {
         my ($path, $expectedMd5) = @_;
         my $actualMd5 = getMd5($path);
         if ($actualMd5 eq $expectedMd5) {
@@ -743,8 +878,7 @@ sub doVerifyMd5 {
                 }
             }
         }
-    };
-    findMd5s(\&callback, '.');
+    }, @globPatterns);
 }
 
 #-------------------------------------------------------------------------------
@@ -752,34 +886,36 @@ sub doVerifyMd5 {
 # passing it full path and MD5 hash as arguments like
 #      callback($absolutePath, $md5AsString)
 sub findMd5s {
-    my ($callback, $dir) = @_;
+    my ($callback, @globPatterns) = @_;
+    
+    print colored(join("\n\t", "Looking for md5.txt in", @globPatterns), 'yellow'), "\n"; 
 
-    find({
-        preprocess => \&preprocessSkipTrash,
-        wanted => sub {
-            if (-f and lc eq 'md5.txt') {
-                open(my $fh, '<:crlf', $_)
-                    or confess "Couldn't open $File::Find::name: $!";
-                my $md5s = readMd5FileFromHandle($fh);
-                my $dir = $File::Find::dir;
-                for (sort keys %$md5s) {
-                    # REVIEW: should catpath be catfile on the next line?
-                    $callback->(rel2abs(catpath($dir, $_)), $md5s->{$_});
-                }
+    traverseGlobPatterns(sub {
+        if (-f and lc eq 'md5.txt') {
+            my $path = rel2abs($_);
+            print colored("Found $path\n", 'yellow');
+            open(my $fh, '<:crlf', $path)
+                or confess "Couldn't open $path: $!";
+        
+            my $md5s = readMd5FileFromHandle($fh);
+            
+            my ($volume, $dir, undef) = splitpath($path);
+            for (sort keys %$md5s) {
+                $callback->(catpath($volume, $dir, $_), $md5s->{$_});
             }
         }
-    }, $dir);
+    }, 1, @globPatterns);
 }
 
 #-------------------------------------------------------------------------------
-# Call verifyOrGenerateMd5 for each media file under the current directory
-sub verifyOrGenerateMd5Recursively {
-    my ($addOnly, $omitSkipMessage) = @_;
+# Call verifyOrGenerateMd5 for each media file
+sub verifyOrGenerateMd5ForGlob {
+    my ($addOnly, $omitSkipMessage, @globPatterns) = @_;
 
-    find(sub {
+    traverseGlobPatterns(sub {
         if (-f) {
             if (/$mediaType/) {
-                verifyOrGenerateMd5($_, $addOnly, $omitSkipMessage);
+                verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
             } elsif ($_ ne 'md5.txt') {
                 # TODO: Also skip Thumbs.db, .Ds_Store, etc?
                 unless ($omitSkipMessage) {
@@ -787,7 +923,7 @@ sub verifyOrGenerateMd5Recursively {
                 }
             }
         }
-    }, '.');
+    }, 1, @globPatterns);
 }
 
 #-------------------------------------------------------------------------------
@@ -796,8 +932,8 @@ sub verifyOrGenerateMd5Recursively {
 #
 # If the file's md5.txt file doesn't have a MD5 for the specified [path],
 # this adds the [path]'s current MD5 to it.
-sub verifyOrGenerateMd5 {
-    my ($path, $addOnly, $omitSkipMessage) = @_;
+sub verifyOrGenerateMd5ForFile {
+    my ($addOnly, $omitSkipMessage, $path) = @_;
 
     # The path to file that contains the MD5 info
     $path = rel2abs($path);
@@ -959,6 +1095,8 @@ sub getMd5 {
     my $md5 = new Digest::MD5;
 
     for my $path (@_) {
+        next unless 0 < -s $path;
+        
         open(my $fh, '<:raw', $path)
             or confess "Couldn't open $path: $!";
 
@@ -1089,9 +1227,7 @@ sub appendMetadata {
     $etTarget->ExtractInfo($target)
         or confess "Couldn't ExtractInfo for $target";
     my $infoTarget = $etTarget->GetInfo(@properties);
-    if ($verbose) {
-        print "$target: ", Dumper($infoTarget);
-    }
+    print "$target: ", Dumper($infoTarget) if $verbose;
     
     my $rating = $infoTarget->{Rating};
     my $oldRating = $rating;
@@ -1111,9 +1247,7 @@ sub appendMetadata {
         $etSource->ExtractInfo($source)
             or confess "Couldn't ExtractInfo for $source";            
         my $infoSource = $etSource->GetInfo(@properties);
-        if ($verbose) {
-            print "$source: ", Dumper($infoSource);
-        }
+        print "$source: ", Dumper($infoSource) if $verbose;
         
         # Add rating if we don't already have one
         unless (defined $rating) {
@@ -1137,7 +1271,7 @@ sub appendMetadata {
             defined $oldRating ? $oldRating : "(null)", 
             " -> $rating\n";
         $etTarget->SetNewValue('Rating', $rating)
-            or die "Couldn't set Rating";
+            or confess "Couldn't set Rating";
         $dirty = 1;
     }
         
@@ -1149,7 +1283,7 @@ sub appendMetadata {
                 defined $old ? "\"$old\"" : "(null)",
                 " -> \"$new\"\n";            
             $etTarget->SetNewValue($name, $new)
-                or die "Couldn't set $name";
+                or confess "Couldn't set $name";
             $dirty = 1;
         }
     }
@@ -1263,9 +1397,14 @@ sub trashMedia {
     my ($path) = @_;
     #print "trashMedia('$path');\n";
 
-    # Note that this assumes a proper extension
-    (my $query = $path) =~ s/[^.]*$/*/;
-    trashPath($_) for glob qq("$query");
+    if ($path =~ /[._]bak\d*$/i) {
+        # For backups, only remove the backup, not associated files
+        trashPath($path);
+    } else {
+        # Note that this assumes a proper extension
+        (my $query = $path) =~ s/[^.]*$/*/;
+        trashPath($_) for glob qq("$query");
+    }
 }
 
 #-------------------------------------------------------------------------------
@@ -1326,6 +1465,40 @@ sub deepSplitPath {
     my @dirs = splitdir($dir);
 
     return ($volume, @dirs, $name);
+}
+
+#-------------------------------------------------------------------------------
+# Unrolls globs and traverses directories recursively calling
+#   $callback->($fileName, $rootDirOfSearch);
+# with current directory set to $fileName's dir before calling
+# and $_ set to $fileName.
+sub traverseGlobPatterns {
+    my ($callback, $skipTrash, @globPatterns) = @_;
+
+    if (@globPatterns) {
+        for (sort map { glob } @globPatterns) {
+            if (-d) {
+                traverseGlobPatternsHelper($callback, $skipTrash, $_);
+            } else {
+                $callback->($_, undef);
+            }
+        }
+    } else {
+        traverseGlobPatternsHelper($callback, $skipTrash, '.');
+    }
+}
+
+#-------------------------------------------------------------------------------
+sub traverseGlobPatternsHelper {
+    my ($callback, $skipTrash, $dir) = @_;
+    
+    $dir = rel2abs($dir);
+    find({
+        preprocess => $skipTrash ? \&preprocessSkipTrash : undef,
+        wanted => sub {
+            $callback->($_, $dir);
+        }
+    }, $dir);
 }
 
 #-------------------------------------------------------------------------------
