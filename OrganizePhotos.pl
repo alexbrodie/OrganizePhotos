@@ -371,6 +371,7 @@ use File::Find;
 use File::Glob qw(:globally :nocase);
 use File::Path qw(make_path);
 use File::Spec::Functions qw(:ALL);
+use File::stat;
 use Getopt::Long;
 use Image::ExifTool;
 use JSON;
@@ -858,7 +859,7 @@ sub doVerifyMd5 {
     our $all = 0;
     findMd5s(sub {
         my ($path, $expectedMd5) = @_;
-        my $actualMd5 = getMd5($path);
+        my $actualMd5 = getMd5($path)->{md5};
         if ($actualMd5 eq $expectedMd5) {
             # Hash match
             print "Verified MD5 for $path\n";
@@ -974,7 +975,7 @@ sub verifyOrGenerateMd5ForFile {
         # Compute the MD5 if we haven't already and need it
         if (!defined $actualMd5 and (defined $expectedMd5 or defined $fh)) {
             # Get the actual MD5 by reading the whole file
-            $actualMd5 = eval { getMd5($path); };
+            $actualMd5 = eval { getMd5($path)->{md5}; };
             if ($@) {
                 # Can't get the MD5
                 # TODO: for now, skip but we'll want something better in the future
@@ -1112,7 +1113,6 @@ sub readMd5FileFromHandle {
 sub getMd5 {
     my ($path) = $_;
     
-
     open(my $fh, '<:raw', $path)
         or confess "Couldn't open $path: $!";
         
@@ -1155,10 +1155,18 @@ sub getMd5 {
                 or confess "Failed to seek $path to $address: $!";
         }
 
-        my $partialMd5Hash = getMd5Digest($fh);
+        $partialMd5Hash = getMd5Digest($fh);
     }
-
-    return $partialMd5Hash;
+    
+    my $stats = stat($fh) 
+        or die "Couldn't stat $path: $!";
+    
+    return {
+        md5 => $partialMd5Hash,
+        full_md5 => $fullMd5Hash,
+        size => $stats->size,
+        mtime => $stats->mtime,
+    };
 }
 
 #-------------------------------------------------------------------------------
