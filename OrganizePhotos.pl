@@ -355,6 +355,7 @@ L<Image::ExifTool>
 
 # TODO: Use traverseGlobPatterns instead of find directly everywhere for
 # TODO: consistency
+# TODO: TIFF should skip any non-pixel data for MD5s
 
 use strict;
 use warnings;
@@ -568,7 +569,7 @@ sub doFindDupeFiles {
         findMd5s(sub {
             my ($path, $md5) = @_;
             push @{$keyToPaths{$md5}}, $path;
-        }, 1, @globPatterns);
+        }, @globPatterns);
     }
 
     # Put everthing that has dupes in an array for sorting
