@@ -1079,6 +1079,22 @@ sub removeMd5ForPath {
 # Deserialize a md5.txt file handle into a OM
 sub readMd5FileFromHandle {
     my ($fh) = @_;
+    
+    # If the first char is a open curly brace, treat as JSON,
+    # otherwise do the older simple name: md5 format parsing
+    my $useJson = 0;
+    while (<$fh>) {
+        if (/^\s([^\s])/) {
+            $useJson = 1 if $1 eq '{';
+            last;
+        }
+    }
+    
+    seek($fh, 0, 0)
+        or confess "Couldn't reset seek on file: $!";
+
+    
+    print "useJson = $useJson\n";
 
     my %md5s = ();
     for (<$fh>) {
@@ -1089,7 +1105,7 @@ sub readMd5FileFromHandle {
 
         $md5s{lc $1} = { md5 => $2 };
     }
-
+    
     return \%md5s;
 }
 
@@ -1110,6 +1126,8 @@ sub writeMd5FileToHandle {
         # TODO: switch to JSON?
         print $fh lc $_, ': ', $md5s->{$_}->{md5}, "\n";
     }
+    
+    print JSON->new->allow_nonref->pretty->encode($md5s), "\n";
 }
 
 #-------------------------------------------------------------------------------
