@@ -905,7 +905,7 @@ sub findMd5s {
             
             my ($volume, $dir, undef) = splitpath($path);
             for (sort keys %$md5s) {
-                $callback->(catpath($volume, $dir, $_), $md5s->{$_});
+                $callback->(catpath($volume, $dir, $_), $md5s->{$_}->{md5});
             }
         }
     }, 1, @globPatterns);
@@ -986,13 +986,13 @@ sub verifyOrGenerateMd5ForFile {
 
         if (defined $expectedMd5) {
             # It's there; verify the existing hash
-            if ($expectedMd5 eq $actualMd5->{md5}) {
+            if ($expectedMd5->{md5} eq $actualMd5->{md5}) {
                 # Matches last recorded hash, nothing to do
                 print colored("Verified    MD5 for $path", 'green'), "\n";
                 return;
             } elsif (defined $fh) {
                 # Mismatch and we can update MD5, needs resolving...
-                warn colored("MISMATCH OF MD5 for $path", 'red');
+                warn colored("MISMATCH OF MD5 for $path [$expectedMd5->{md5} vs $actualMd5->{md5}]", 'red');
 
                 while (1) {
                     print "Ignore, Overwrite, Quit (i/o/q)? ";
@@ -1042,21 +1042,13 @@ sub verifyOrGenerateMd5ForFile {
 
     # Add/update MD5
     $md5s->{$key} = $actualMd5->{md5};
+    
+    # Update MD5 file
+    writeMd5FileToHandle($fh, $md5s);
 
     # Cache info
     $lastMd5Path = $md5Path;
     $lastMd5s = $md5s;
-    
-    # Clear MD5 file
-    seek($fh, 0, 0);
-    truncate($fh, 0);
-
-    # Update MD5 file
-    for (sort keys %$md5s) {
-        # TODO: add other fields barefile MD5, date modified, file size
-        # TODO: switch to JSON?
-        print $fh lc $_, ': ', $md5s->{$_}, "\n";
-    }
 }
 
 #-------------------------------------------------------------------------------
@@ -1069,13 +1061,14 @@ sub removeMd5ForPath {
     my $md5Path = catpath($volume, $dir, 'md5.txt');
 
     if (open(my $fh, '+<:crlf', $md5Path)) {
-        my @old = <$fh>;
-        my @new = grep { !/^\Q$name\E:/i } @old;
-
-        if (@old != @new) {
-            seek($fh, 0, 0);
-            truncate($fh, 0);
-            print $fh @new;
+        my $md5s = readMd5FileFromHandle($fh);
+        
+        if (exists $md5s->{$name}) {
+            delete $md5s->{$name};
+            
+            writeMd5FileToHandle($fh, $md5s);
+            
+            # TODO: update the cashe from the validate func?
 
             print "Removed $name from $md5Path\n";
         }
@@ -1083,7 +1076,7 @@ sub removeMd5ForPath {
 }
 
 #-------------------------------------------------------------------------------
-# Deserialize a md5.txt file handle into a filename => MD5 hash
+# Deserialize a md5.txt file handle into a OM
 sub readMd5FileFromHandle {
     my ($fh) = @_;
 
@@ -1094,10 +1087,29 @@ sub readMd5FileFromHandle {
         /^([^:]+):\s*($md5pattern)$/ or
             warn "unexpected line in MD5: $_";
 
-        $md5s{lc $1} = $2;
+        $md5s{lc $1} = { md5 => $2 };
     }
 
     return \%md5s;
+}
+
+#-------------------------------------------------------------------------------
+# Serialize OM into a md5.txt file handle
+sub writeMd5FileToHandle {
+    my ($fh, $md5s) = @_;
+    
+    # Clear MD5 file
+    seek($fh, 0, 0)
+        or confess "Couldn't reset seek on file: $!";
+    truncate($fh, 0)
+        or confess "Couldn't truncate file: $!";
+
+    # Update MD5 file
+    for (sort keys %$md5s) {
+        # TODO: add other fields barefile MD5, date modified, file size
+        # TODO: switch to JSON?
+        print $fh lc $_, ': ', $md5s->{$_}, "\n";
+    }
 }
 
 #-------------------------------------------------------------------------------
