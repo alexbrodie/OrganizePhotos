@@ -1041,7 +1041,7 @@ sub verifyOrGenerateMd5ForFile {
     }
 
     # Add/update MD5
-    $md5s->{$key} = $actualMd5->{md5};
+    $md5s->{$key} = $actualMd5;
     
     # Update MD5 file
     writeMd5FileToHandle($fh, $md5s);
@@ -1108,7 +1108,7 @@ sub writeMd5FileToHandle {
     for (sort keys %$md5s) {
         # TODO: add other fields barefile MD5, date modified, file size
         # TODO: switch to JSON?
-        print $fh lc $_, ': ', $md5s->{$_}, "\n";
+        print $fh lc $_, ': ', $md5s->{$_}->{md5}, "\n";
     }
 }
 
