@@ -975,7 +975,7 @@ sub verifyOrGenerateMd5ForFile {
         # Compute the MD5 if we haven't already and need it
         if (!defined $actualMd5 and (defined $expectedMd5 or defined $fh)) {
             # Get the actual MD5 by reading the whole file
-            $actualMd5 = eval { getMd5($path)->{md5}; };
+            $actualMd5 = eval { getMd5($path); };
             if ($@) {
                 # Can't get the MD5
                 # TODO: for now, skip but we'll want something better in the future
@@ -986,7 +986,7 @@ sub verifyOrGenerateMd5ForFile {
 
         if (defined $expectedMd5) {
             # It's there; verify the existing hash
-            if ($expectedMd5 eq $actualMd5) {
+            if ($expectedMd5 eq $actualMd5->{md5}) {
                 # Matches last recorded hash, nothing to do
                 print colored("Verified    MD5 for $path", 'green'), "\n";
                 return;
@@ -1041,7 +1041,7 @@ sub verifyOrGenerateMd5ForFile {
     }
 
     # Add/update MD5
-    $md5s->{$key} = $actualMd5;
+    $md5s->{$key} = $actualMd5->{md5};
 
     # Cache info
     $lastMd5Path = $md5Path;
