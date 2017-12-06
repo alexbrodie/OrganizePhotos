@@ -642,6 +642,8 @@ sub doFindDupeFiles {
 
             push @prompt, "  $i. ";
 
+            # TODO: Figure out how the handle the below issue with upcoming
+            # TODO: pair of pixel-md5 and whole-file-md5
             # If MD5 isn't a whole file MD5, put compute the wholefile MD5 and add to output
             #if ($path =~ /\.(?:jpeg|jpg)$/i) {
             #    push @prompt, '[', getBareFileMd5($path), '] ';
@@ -949,6 +951,8 @@ sub verifyOrGenerateMd5ForFile {
     # unnecessary rereads)
     our ($lastMd5Path, $lastMd5s);
     if ($lastMd5Path and $md5Path eq $lastMd5Path) {
+        # TODO: switch to object rather than just hash (include
+        # TODO: date-modified and file-size)
         $expectedMd5 = $lastMd5s->{$key};
     }
 
@@ -964,6 +968,9 @@ sub verifyOrGenerateMd5ForFile {
             return;
         }
 
+        # TODO: skip files whose date modified and file size haven't changed
+        # TODO: unless force override is specified
+        
         # Compute the MD5 if we haven't already and need it
         if (!defined $actualMd5 and (defined $expectedMd5 or defined $fh)) {
             # Get the actual MD5 by reading the whole file
@@ -1017,15 +1024,15 @@ sub verifyOrGenerateMd5ForFile {
             if (open($fh, '+<:crlf', $md5Path)) {
                 # Read existing contents
                 $md5s = readMd5FileFromHandle($fh);
+
+                # Cache info
+                $lastMd5Path = $md5Path;
+                $lastMd5s = $md5s;
             } else {
                 # File doesn't exist, open for write
                 open($fh, '>', $md5Path)
                     or confess "Couldn't open $md5Path: $!";
             }
-
-            # Cache info
-            $lastMd5Path = $md5Path;
-            $lastMd5s = $md5s;
 
             # Try lookup into MD5 file contents
             $expectedMd5 = $md5s->{$key};
@@ -1035,12 +1042,18 @@ sub verifyOrGenerateMd5ForFile {
     # Add/update MD5
     $md5s->{$key} = $actualMd5;
 
+    # Cache info
+    $lastMd5Path = $md5Path;
+    $lastMd5s = $md5s;
+    
     # Clear MD5 file
     seek($fh, 0, 0);
     truncate($fh, 0);
 
     # Update MD5 file
     for (sort keys %$md5s) {
+        # TODO: add other fields barefile MD5, date modified, file size
+        # TODO: switch to JSON?
         print $fh lc $_, ': ', $md5s->{$_}, "\n";
     }
 }
@@ -1089,81 +1102,73 @@ sub readMd5FileFromHandle {
 #-------------------------------------------------------------------------------
 # Calculates and returns the MD5 digest of a (set of) file(s). For JPEG
 # files, this skips the metadata portion of the files and only computes
-# the hash for the pixel data.
+# the hash for the pixel data. The returned hash should have the following 
+# properties:
+#   md5: primary MD5 comparison (excludes volitile data from calculation)
+#   full_md5: full MD5 calculation for exact match
+#   size: file size in bytes
+#   mtime: file modified time in seconds since epoch units (like stat's
+#          mtime property)
 sub getMd5 {
-    use Digest::MD5;
-
-    my $md5 = new Digest::MD5;
-
-    for my $path (@_) {
-        next unless 0 < -s $path;
-        
-        open(my $fh, '<:raw', $path)
-            or confess "Couldn't open $path: $!";
-
-        #my $modified = formatDate((stat($fh))[9]);
-        #print "Date modified: $modified\n";
-
-        # TODO: Should we do this for TIFF, DNG as well?
-        
-        # If the file is a backup (has some "bak" suffix), 
-        # we want to consider the real extension
-        my $origPath = $path;
-        $origPath =~ s/[._]bak\d*$//i;
-
-        # If JPEG, skip metadata which may change and only hash pixel data
-        # and hash from Start of Scan [SOS] to end
-        if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
-            # Read Start of Image [SOI]
-            read($fh, my $soiData, 2)
-                or confess "Failed to read SOI from $path: $!";
-            my ($soi) = unpack('n', $soiData);
-            $soi == 0xffd8
-                or confess "File didn't start with SOI marker: $path";
-
-            # Read blobs until SOS
-            my $tags = '';
-            while (1) {
-                read($fh, my $data, 4)
-                    or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
-
-                my ($tag, $size) = unpack('nn', $data);
-                last if $tag == 0xffda;
-
-                $tags .= sprintf("%04x,%04x;", $tag, $size);
-                #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
-
-                my $address = tell($fh) + $size - 2;
-                seek($fh, $address, 0)
-                    or confess "Failed to seek $path to $address: $!";
-            }
-        }
-
-        $md5->addfile($fh);
-    }
-
-    return getMd5Digest($md5);
-}
-
-#-------------------------------------------------------------------------------
-# Computes the MD5 for a full file
-sub getBareFileMd5 {
-    my ($path) = @_;
+    my ($path) = $_;
+    
 
     open(my $fh, '<:raw', $path)
         or confess "Couldn't open $path: $!";
+        
+    my $fullMd5Hash = getMd5Digest($fh);
 
-    my $md5 = new Digest::MD5;
-    $md5->addfile($fh);
+    # If the file is a backup (has some "bak" suffix), 
+    # we want to consider the real extension
+    my $origPath = $path;
+    $origPath =~ s/[._]bak\d*$//i;
 
-    return getMd5Digest($md5);
+    # TODO: Should we do this for TIFF, DNG as well?
+
+    # If JPEG, skip metadata which may change and only hash pixel data
+    # and hash from Start of Scan [SOS] to end
+    my $partialMd5Hash = $fullMd5Hash;
+    if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
+        # Read Start of Image [SOI]
+        seek($fh, 0, 0)
+            or confess "Failed to reset seek for $path: $!";
+        read($fh, my $soiData, 2)
+            or confess "Failed to read SOI from $path: $!";
+        my ($soi) = unpack('n', $soiData);
+        $soi == 0xffd8
+            or confess "File didn't start with SOI marker: $path";
+
+        # Read blobs until SOS
+        my $tags = '';
+        while (1) {
+            read($fh, my $data, 4)
+                or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
+
+            my ($tag, $size) = unpack('nn', $data);
+            last if $tag == 0xffda;
+
+            $tags .= sprintf("%04x,%04x;", $tag, $size);
+            #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
+
+            my $address = tell($fh) + $size - 2;
+            seek($fh, $address, 0)
+                or confess "Failed to seek $path to $address: $!";
+        }
+
+        my $partialMd5Hash = getMd5Digest($fh);
+    }
+
+    return $partialMd5Hash;
 }
 
 #-------------------------------------------------------------------------------
-# Get/verify/canonicalize hash from a Digest::MD5 object
+# Get/verify/canonicalize hash from a FILEHANDLE object
 sub getMd5Digest {
-    my ($md5) = @_;
+    my ($fh) = @_;
 
+    my $md5 = new Digest::MD5;
+    $md5->addfile($fh);
+    
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$md5pattern/
         or confess "unexpected MD5: $hexdigest";
@@ -1218,6 +1223,7 @@ sub metadataDiff {
 }
 
 #-------------------------------------------------------------------------------
+# Work in progress...
 sub appendMetadata {
     my ($target, @sources) = @_;
     
