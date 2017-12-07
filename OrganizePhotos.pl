@@ -984,6 +984,7 @@ sub verifyOrGenerateMd5ForFile {
                 return;
             } 
 
+            # Add stats metadata to be persisted to md5.txt
             $actualMd5 = {
                 size => $stats->size,
                 mtime => $stats->mtime,
@@ -991,10 +992,7 @@ sub verifyOrGenerateMd5ForFile {
 
             # We can't skip this, so compute MD5 now
             eval {
-                # Get the actual MD5 by reading the whole file
-                my $generatedMd5 = getMd5($path);
-                $actualMd5 = { %$actualMd5, %$generatedMd5 };
-                print Dumper($actualMd5), "\n";
+                $actualMd5 = { %$actualMd5, %{getMd5($path)} };
             };
             if ($@) {
                 # Can't get the MD5
@@ -1002,6 +1000,8 @@ sub verifyOrGenerateMd5ForFile {
                 warn colored("UNAVAILABLE MD5 for $path with error:", 'red'), "\n\t$@";
                 return;
             }
+            
+            # actualMd5 should now be fully populated
         }
 
         if (defined $expectedMd5) {
@@ -1009,7 +1009,7 @@ sub verifyOrGenerateMd5ForFile {
             if ($expectedMd5->{md5} eq $actualMd5->{md5}) {
                 # Matches last recorded hash, nothing to do
                 print colored("Verified    MD5 for $path", 'green'), "\n";
-                # TODO: determine if we should "last' to write out md5.txt with extra information if we read in the simple version and have more data now 
+                # TODO: determine if we should "last' to write out md5.txt with extra information if we read in the simple version and have more data now. maybe if deep compare of expectedMd5 and actualMd5 differ.
                 return;
             } elsif (defined $fh) {
                 # Mismatch and we can update MD5, needs resolving...
@@ -1101,6 +1101,8 @@ sub removeMd5ForPath {
 sub readMd5FileFromHandle {
     my ($fh) = @_;
     
+    print "Reading     MD5.txt\n" if $verbose;
+    
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple name: md5 format parsing
     my $useJson = 0;
@@ -1137,6 +1139,8 @@ sub readMd5FileFromHandle {
 # Serialize OM into a md5.txt file handle
 sub writeMd5FileToHandle {
     my ($fh, $md5s) = @_;
+    
+    print "Writing     MD5.txt\n" if $verbose;
     
     # Clear MD5 file
     seek($fh, 0, 0)
