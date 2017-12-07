@@ -923,7 +923,7 @@ sub verifyOrGenerateMd5ForGlob {
             } elsif ($_ ne 'md5.txt') {
                 # TODO: Also skip Thumbs.db, .Ds_Store, etc?
                 unless ($omitSkipMessage) {
-                    print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
+                    print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), " (unknown file)\n";
                 }
             }
         }
@@ -964,16 +964,29 @@ sub verifyOrGenerateMd5ForFile {
         # is already in the md5.txt
         if ($addOnly and defined $expectedMd5) {
             unless ($omitSkipMessage) {
-                print colored("Skipping    MD5 for $path", 'yellow'), "\n";
+                print colored("Skipping    MD5 for $path", 'yellow'), "(add-only)\n";
             }
             return;
         }
 
-        # TODO: skip files whose date modified and file size haven't changed
-        # TODO: unless force override is specified
-        
         # Compute the MD5 if we haven't already and need it
         if (!defined $actualMd5 and (defined $expectedMd5 or defined $fh)) {
+            # TODO: skip files whose date modified and file size haven't changed
+            # TODO: unless force override is specified
+            print "Expected MD5: ", Dumper($expectedMd5), "\n";        
+            my $stats = stat($path) 
+                or die "Couldn't stat $path: $!";
+                
+            print $stats->size, " vs $expectedMd5->{size}; $stats->mtime vs $expectedMd5->{mtime}";
+            
+            if ($stats->size == $expectedMd5->{size} and
+                $stats->mtime ==$expectedMd5->{mtime}) {
+                unless ($omitSkipMessage) {
+                    print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
+                }
+                return;
+            } 
+
             # Get the actual MD5 by reading the whole file
             $actualMd5 = eval { getMd5($path); };
             if ($@) {
@@ -1093,24 +1106,23 @@ sub readMd5FileFromHandle {
     seek($fh, 0, 0)
         or confess "Couldn't reset seek on file: $!";
 
-    print "useJson = $useJson\n" if $verbose;
-
-    my %md5s = ();
-    
     if ($useJson) {
-        
+        # Parse as JSON
+        return decode_json(join '', <$fh>);
+        # TODO: validate response - do a lc on filename/md5s/whatever, 
+        # TODO: and verify vs $md5pattern???
     } else {
+        # Parse as simple "name: md5" text
+        my %md5s = ();    
         for (<$fh>) {
-            chomp;
-            $_ = lc $_;
             /^([^:]+):\s*($md5pattern)$/ or
                 warn "unexpected line in MD5: $_";
 
-            $md5s{lc $1} = { md5 => $2 };
+            $md5s{lc $1} = { md5 => lc $2 };
         }        
+
+        return \%md5s;
     }
-    
-    return \%md5s;
 }
 
 #-------------------------------------------------------------------------------
@@ -1130,7 +1142,7 @@ sub writeMd5FileToHandle {
         # JSON output
         print $fh JSON->new->allow_nonref->pretty->encode($md5s);
     } else {
-        # Simple text output
+        # Simple "name: md5" text output
         for (sort keys %$md5s) {
             # TODO: add other fields barefile MD5, date modified, file size
             # TODO: switch to JSON?
