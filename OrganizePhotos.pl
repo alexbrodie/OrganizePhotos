@@ -969,15 +969,18 @@ sub verifyOrGenerateMd5ForFile {
             return;
         }
 
-        # Compute the MD5 if we haven't already and need it
+        # Compute actualMd5 if we haven't already and need it
         if (!defined $actualMd5 and (defined $expectedMd5 or defined $fh)) {
             # TODO: consolodate file handle openings here (stat and md5)
+
             # Skip files whose date modified and file size haven't changed
-            # unless force override is specified
+            # TODO: unless force override is specified
             my $stats = stat($path) 
                 or die "Couldn't stat $path: $!";
-            if (defined $expectedMd5->{size} and $stats->size == $expectedMd5->{size} and
-                defined $expectedMd5->{mtime} and $stats->mtime == $expectedMd5->{mtime}) {
+            if (defined $expectedMd5->{size} and 
+                $stats->size == $expectedMd5->{size} and
+                defined $expectedMd5->{mtime} and 
+                $stats->mtime == $expectedMd5->{mtime}) {
                 unless ($omitSkipMessage) {
                     print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
                 }
@@ -1009,7 +1012,9 @@ sub verifyOrGenerateMd5ForFile {
             if ($expectedMd5->{md5} eq $actualMd5->{md5}) {
                 # Matches last recorded hash, nothing to do
                 print colored("Verified    MD5 for $path", 'green'), "\n";
-                # TODO: determine if we should "last' to write out md5.txt with extra information if we read in the simple version and have more data now. maybe if deep compare of expectedMd5 and actualMd5 differ.
+                # If we want to add missing metadata, fall through to write
+                # TODO: should this instead be conditionalized on if deep compare of expectedMd5 and actualMd5 differ.
+                last unless Compare($expectedMd5, $actualMd5);
                 return;
             } elsif (defined $fh) {
                 # Mismatch and we can update MD5, needs resolving...
