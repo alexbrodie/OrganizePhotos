@@ -1084,7 +1084,7 @@ sub readMd5FileFromHandle {
     # otherwise do the older simple name: md5 format parsing
     my $useJson = 0;
     while (<$fh>) {
-        if (/^\s([^\s])/) {
+        if (/^\s*([^\s])/) {
             $useJson = 1 if $1 eq '{';
             last;
         }
@@ -1093,17 +1093,21 @@ sub readMd5FileFromHandle {
     seek($fh, 0, 0)
         or confess "Couldn't reset seek on file: $!";
 
-    
-    print "useJson = $useJson\n";
+    print "useJson = $useJson\n" if $verbose;
 
     my %md5s = ();
-    for (<$fh>) {
-        chomp;
-        $_ = lc $_;
-        /^([^:]+):\s*($md5pattern)$/ or
-            warn "unexpected line in MD5: $_";
+    
+    if ($useJson) {
+        
+    } else {
+        for (<$fh>) {
+            chomp;
+            $_ = lc $_;
+            /^([^:]+):\s*($md5pattern)$/ or
+                warn "unexpected line in MD5: $_";
 
-        $md5s{lc $1} = { md5 => $2 };
+            $md5s{lc $1} = { md5 => $2 };
+        }        
     }
     
     return \%md5s;
@@ -1121,13 +1125,18 @@ sub writeMd5FileToHandle {
         or confess "Couldn't truncate file: $!";
 
     # Update MD5 file
-    for (sort keys %$md5s) {
-        # TODO: add other fields barefile MD5, date modified, file size
-        # TODO: switch to JSON?
-        print $fh lc $_, ': ', $md5s->{$_}->{md5}, "\n";
+    my $useJson = 1;
+    if ($useJson) {
+        # JSON output
+        print $fh JSON->new->allow_nonref->pretty->encode($md5s);
+    } else {
+        # Simple text output
+        for (sort keys %$md5s) {
+            # TODO: add other fields barefile MD5, date modified, file size
+            # TODO: switch to JSON?
+            print $fh lc $_, ': ', $md5s->{$_}->{md5}, "\n";
+        }
     }
-    
-    print JSON->new->allow_nonref->pretty->encode($md5s), "\n";
 }
 
 #-------------------------------------------------------------------------------
@@ -1141,7 +1150,7 @@ sub writeMd5FileToHandle {
 #   mtime: file modified time in seconds since epoch units (like stat's
 #          mtime property)
 sub getMd5 {
-    my ($path) = $_;
+    my ($path) = @_;
     
     open(my $fh, '<:raw', $path)
         or confess "Couldn't open $path: $!";
