@@ -971,24 +971,31 @@ sub verifyOrGenerateMd5ForFile {
 
         # Compute the MD5 if we haven't already and need it
         if (!defined $actualMd5 and (defined $expectedMd5 or defined $fh)) {
-            # TODO: skip files whose date modified and file size haven't changed
-            # TODO: unless force override is specified
-            print "Expected MD5: ", Dumper($expectedMd5), "\n";        
+            # TODO: consolodate file handle openings here (stat and md5)
+            # Skip files whose date modified and file size haven't changed
+            # unless force override is specified
             my $stats = stat($path) 
                 or die "Couldn't stat $path: $!";
-                
-            print $stats->size, " vs $expectedMd5->{size}; $stats->mtime vs $expectedMd5->{mtime}";
-            
-            if ($stats->size == $expectedMd5->{size} and
-                $stats->mtime ==$expectedMd5->{mtime}) {
+            if (defined $expectedMd5->{size} and $stats->size == $expectedMd5->{size} and
+                defined $expectedMd5->{mtime} and $stats->mtime == $expectedMd5->{mtime}) {
                 unless ($omitSkipMessage) {
                     print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
                 }
                 return;
             } 
 
-            # Get the actual MD5 by reading the whole file
-            $actualMd5 = eval { getMd5($path); };
+            $actualMd5 = {
+                size => $stats->size,
+                mtime => $stats->mtime,
+            };
+
+            # We can't skip this, so compute MD5 now
+            eval {
+                # Get the actual MD5 by reading the whole file
+                my $generatedMd5 = getMd5($path);
+                $actualMd5 = { %$actualMd5, %$generatedMd5 };
+                print Dumper($actualMd5), "\n";
+            };
             if ($@) {
                 # Can't get the MD5
                 # TODO: for now, skip but we'll want something better in the future
@@ -1002,6 +1009,7 @@ sub verifyOrGenerateMd5ForFile {
             if ($expectedMd5->{md5} eq $actualMd5->{md5}) {
                 # Matches last recorded hash, nothing to do
                 print colored("Verified    MD5 for $path", 'green'), "\n";
+                # TODO: determine if we should "last' to write out md5.txt with extra information if we read in the simple version and have more data now 
                 return;
             } elsif (defined $fh) {
                 # Mismatch and we can update MD5, needs resolving...
@@ -1158,9 +1166,6 @@ sub writeMd5FileToHandle {
 # properties:
 #   md5: primary MD5 comparison (excludes volitile data from calculation)
 #   full_md5: full MD5 calculation for exact match
-#   size: file size in bytes
-#   mtime: file modified time in seconds since epoch units (like stat's
-#          mtime property)
 sub getMd5 {
     my ($path) = @_;
     
@@ -1209,14 +1214,9 @@ sub getMd5 {
         $partialMd5Hash = getMd5Digest($fh);
     }
     
-    my $stats = stat($fh) 
-        or die "Couldn't stat $path: $!";
-    
     return {
         md5 => $partialMd5Hash,
         full_md5 => $fullMd5Hash,
-        size => $stats->size,
-        mtime => $stats->mtime,
     };
 }
 
