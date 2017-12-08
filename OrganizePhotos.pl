@@ -981,30 +981,16 @@ sub verifyOrGenerateMd5ForFile {
         mtime => $stats->mtime,
     };
     
-    # If we have a record for this file from md5.txt
-    my $missingMeta = 1;
-    if (defined $expectedMd5) {
-        # Look for missing metadata the would make us want to rewrite
-        # the MD5.txt regardless of a match (usually we only write on
-        # on mismatch).
-        $missingMeta = 0;
-        for (qw(size mtime)) {
-            if (!defined $expectedMd5->{$_}) {
-                print "Rewriting MD5.txt due to missing metadata: $_\n" if $verbose > 4;
-                $missingMeta = 1;
-                last;
-            }
+    # If we have a record for this file from md5.txt, 
+    # Skip files whose date modified and file size haven't changed
+    # TODO: unless force override is specified
+    if (defined $expectedMd5 and
+        defined $expectedMd5->{size}  and $actualMd5->{size}  == $expectedMd5->{size} and
+        defined $expectedMd5->{mtime} and $actualMd5->{mtime} == $expectedMd5->{mtime}) {
+        unless ($omitSkipMessage) {
+            print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
         }
-
-        # Skip files whose date modified and file size haven't changed
-        # TODO: unless force override is specified
-        if (defined $expectedMd5->{size}  and $actualMd5->{size}  == $expectedMd5->{size} and
-            defined $expectedMd5->{mtime} and $actualMd5->{mtime} == $expectedMd5->{mtime}) {
-            unless ($omitSkipMessage) {
-                print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
-            }
-            return; # TODO: write metadata?
-        } 
+        return; # TODO: write metadata?
     }
 
     # We can't skip this, so compute MD5 now
