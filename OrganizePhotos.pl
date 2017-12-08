@@ -944,137 +944,127 @@ sub verifyOrGenerateMd5ForFile {
     my ($volume, $dir, $name) = splitpath($path);
     my $md5Path = catpath($volume, $dir, 'md5.txt');
 
+    # Index into the md5.txt file essentially
     my $key = lc $name;
-    my ($expectedMd5, $actualMd5);
-
-    # Check cache from last call (this can often be called
-    # repeatedly with files in same folder, so this prevents
-    # unnecessary rereads)
-    our ($lastMd5Path, $lastMd5s);
-    if ($lastMd5Path and $md5Path eq $lastMd5Path) {
-        # TODO: switch to object rather than just hash (include
-        # TODO: date-modified and file-size)
-        $expectedMd5 = $lastMd5s->{$key};
+        
+    # Read MD5.txt file to consult
+    # TODO: replace caching for perf
+    my ($fh, $expectedMd5Set);
+    if (open($fh, '+<:crlf', $md5Path)) {
+        # Read existing contents
+        $expectedMd5Set = readMd5FileFromHandle($fh);
+    } else {
+        # File doesn't exist, open for write
+        open($fh, '>', $md5Path)
+            or confess "Couldn't open $md5Path: $!";
+        $expectedMd5Set = {};
     }
 
-    # Loop twice, once for cached info and one for file info
-    my ($fh, $md5s);
-    while (1) {
-        # In add-only mode, don't compute the hash of a file that
-        # is already in the md5.txt
-        if ($addOnly and defined $expectedMd5) {
-            unless ($omitSkipMessage) {
-                print colored("Skipping    MD5 for $path", 'yellow'), "(add-only)\n";
-            }
-            return;
+    # In add-only mode, don't compute the hash of a file that
+    # is already in the md5.txt
+    my $expectedMd5 = $expectedMd5Set->{$key};
+    if ($addOnly and defined $expectedMd5) {
+        unless ($omitSkipMessage) {
+            print colored("Skipping    MD5 for $path", 'yellow'), "(add-only)\n";
         }
+        return;
+    }
+    
+    # Get file stats for the file we're evaluating to reference and/or
+    # update MD5.txt
+    my $stats = stat($path) 
+        or die "Couldn't stat $path: $!";
 
-        # Compute actualMd5 if we haven't already and need it
-        if (!defined $actualMd5 and (defined $expectedMd5 or defined $fh)) {
-            # TODO: consolodate file handle openings here (stat and md5)
-
-            # Skip files whose date modified and file size haven't changed
-            # TODO: unless force override is specified
-            my $stats = stat($path) 
-                or die "Couldn't stat $path: $!";
-            if (defined $expectedMd5->{size} and 
-                $stats->size == $expectedMd5->{size} and
-                defined $expectedMd5->{mtime} and 
-                $stats->mtime == $expectedMd5->{mtime}) {
-                unless ($omitSkipMessage) {
-                    print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
-                }
-                return;
-            } 
-
-            # Add stats metadata to be persisted to md5.txt
-            $actualMd5 = {
-                size => $stats->size,
-                mtime => $stats->mtime,
-            };
-
-            # We can't skip this, so compute MD5 now
-            eval {
-                $actualMd5 = { %$actualMd5, %{getMd5($path)} };
-            };
-            if ($@) {
-                # Can't get the MD5
-                # TODO: for now, skip but we'll want something better in the future
-                warn colored("UNAVAILABLE MD5 for $path with error:", 'red'), "\n\t$@";
-                return;
-            }
-            
-            # actualMd5 should now be fully populated
-        }
-
-        if (defined $expectedMd5) {
-            # It's there; verify the existing hash
-            if ($expectedMd5->{md5} eq $actualMd5->{md5}) {
-                # Matches last recorded hash, nothing to do
-                print colored("Verified    MD5 for $path", 'green'), "\n";
-                # If we want to add missing metadata, fall through to write
-                # TODO: should this instead be conditionalized on if deep compare of expectedMd5 and actualMd5 differ.
-                last unless Compare($expectedMd5, $actualMd5);
-                return;
-            } elsif (defined $fh) {
-                # Mismatch and we can update MD5, needs resolving...
-                warn colored("MISMATCH OF MD5 for $path [$expectedMd5->{md5} vs $actualMd5->{md5}]", 'red');
-
-                while (1) {
-                    print "Ignore, Overwrite, Quit (i/o/q)? ";
-                    chomp(my $in = lc <STDIN>);
-
-                    if ($in eq 'i') {
-                        # Ignore the error and return
-                        return;
-                    } elsif ($in eq 'o') {
-                        # Exit loop to fall through to save actualMd5
-                        last;
-                    } elsif ($in eq 'q') {
-                        # User requested to terminate
-                        confess "MD5 mismatch for $path";
-                    }
-                }
-
-                # Write MD5
-                print colored("UPDATING    MD5 for $path", 'magenta'), "\n";
+    # Add stats metadata to be persisted to md5.txt
+    my $actualMd5 = {
+        size => $stats->size,
+        mtime => $stats->mtime,
+    };
+    
+    # If we have a record for this file from md5.txt
+    my $missingMeta = 1;
+    if (defined $expectedMd5) {
+        # Look for missing metadata the would make us want to rewrite
+        # the MD5.txt regardless of a match (usually we only write on
+        # on mismatch).
+        $missingMeta = 0;
+        for (qw(size mtime)) {
+            if (!defined $expectedMd5->{$_}) {
+                print "Rewriting MD5.txt due to missing metadata: $_\n" if $verbose > 4;
+                $missingMeta = 1;
                 last;
             }
-        } elsif (defined $fh) {
-            # It wasn't there, it's a new file, we'll add that
-            print colored("ADDING      MD5 for $path", 'blue'), "\n";
-            last;
         }
 
-        # Open MD5 file if we haven't already done so
-        if (!defined $fh) {
-            if (open($fh, '+<:crlf', $md5Path)) {
-                # Read existing contents
-                $md5s = readMd5FileFromHandle($fh);
-
-                # Cache info
-                $lastMd5Path = $md5Path;
-                $lastMd5s = $md5s;
-            } else {
-                # File doesn't exist, open for write
-                open($fh, '>', $md5Path)
-                    or confess "Couldn't open $md5Path: $!";
+        # Skip files whose date modified and file size haven't changed
+        # TODO: unless force override is specified
+        if (defined $expectedMd5->{size}  and $actualMd5->{size}  == $expectedMd5->{size} and
+            defined $expectedMd5->{mtime} and $actualMd5->{mtime} == $expectedMd5->{mtime}) {
+            unless ($omitSkipMessage) {
+                print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
             }
+            return; # TODO: write metadata?
+        } 
+    }
 
-            # Try lookup into MD5 file contents
-            $expectedMd5 = $md5s->{$key};
+    # We can't skip this, so compute MD5 now
+    eval {
+        $actualMd5 = { %$actualMd5, %{getMd5($path)} };
+    };
+    if ($@) {
+        # Can't get the MD5
+        # TODO: for now, skip but we'll want something better in the future
+        warn colored("UNAVAILABLE MD5 for $path with error:", 'red'), "\n\t$@";
+        return;
+    }
+    
+    # actualMd5 and expectedMd5 should now be fully populated and 
+    # ready for comparison
+    if (defined $expectedMd5) {
+        if ($expectedMd5->{md5} eq $actualMd5->{md5}) {
+            # Matches last recorded hash, nothing to do
+            print colored("Verified    MD5 for $path", 'green'), "\n";
+
+            # If the MD5 data is a full match, then we don't have anything
+            # else to do. If not (probably missing or updated metadata 
+            # fields), then continue on where we'll re-write md5.txt.
+            return if Compare($expectedMd5, $actualMd5);
+        } else {
+            # Mismatch and we can update MD5, needs resolving...
+            print "Expected: ", Dumper($expectedMd5), "\n",
+                  "Actual:   ", Dumper($actualMd5), "\n"
+                  if $verbose;
+            warn colored("MISMATCH OF MD5 for $path [$expectedMd5->{md5} vs $actualMd5->{md5}]", 'red');
+
+            while (1) {
+                print "Ignore, Overwrite, Quit (i/o/q)? ";
+                chomp(my $in = lc <STDIN>);
+
+                if ($in eq 'i') {
+                    # Ignore the error and return
+                    return;
+                } elsif ($in eq 'o') {
+                    # Exit loop to fall through to save actualMd5
+                    last;
+                } elsif ($in eq 'q') {
+                    # User requested to terminate
+                    die "MD5 mismatch for $path";
+                }
+            }
         }
+        
+        # Write MD5
+        print colored("UPDATING    MD5 for $path", 'magenta'), "\n";
+    } else {
+        # It wasn't there, it's a new file, we'll add that
+        print colored("ADDING      MD5 for $path", 'blue'), "\n";
     }
 
     # Add/update MD5
-    $md5s->{$key} = $actualMd5;
-    
-    # Update MD5 file
-    writeMd5FileToHandle($fh, $md5s);
+    $expectedMd5Set->{$key} = $actualMd5;
 
-    # Cache info
-    $lastMd5Path = $md5Path;
-    $lastMd5s = $md5s;
+    # Update MD5 file
+    writeMd5FileToHandle($fh, $expectedMd5Set);
 }
 
 #-------------------------------------------------------------------------------
@@ -1106,7 +1096,9 @@ sub removeMd5ForPath {
 sub readMd5FileFromHandle {
     my ($fh) = @_;
     
-    print "Reading     MD5.txt\n" if $verbose;
+    # TODO return cached value as appropriate
+    
+    print "Reading     MD5.txt\n" if $verbose > 4;
     
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple name: md5 format parsing
@@ -1145,7 +1137,9 @@ sub readMd5FileFromHandle {
 sub writeMd5FileToHandle {
     my ($fh, $md5s) = @_;
     
-    print "Writing     MD5.txt\n" if $verbose;
+    # TODO save cached value as appropriate
+    
+    print "Writing     MD5.txt\n" if $verbose > 4;
     
     # Clear MD5 file
     seek($fh, 0, 0)
