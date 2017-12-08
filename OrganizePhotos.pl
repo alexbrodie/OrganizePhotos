@@ -389,7 +389,7 @@ my $mediaType = qr/
     (?: [._] (?i) bak\d* $)
     /x;
 
-my $verbose = 1;
+my $verbose = 0;
 
 main();
 exit 0;
@@ -920,7 +920,7 @@ sub verifyOrGenerateMd5ForGlob {
         if (-f) {
             if (/$mediaType/) {
                 verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
-            } elsif ($_ ne 'md5.txt') {
+            } elsif (lc ne 'md5.txt' and lc ne '.ds_store' and !/\.xmp$/i) {
                 # TODO: Also skip Thumbs.db, .Ds_Store, etc?
                 unless ($omitSkipMessage) {
                     print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), " (unknown file)\n";
@@ -969,6 +969,8 @@ sub verifyOrGenerateMd5ForFile {
         }
         return;
     }
+    
+    # TODO: consolidate opening file multiple times from stat and getMd5
     
     # Get file stats for the file we're evaluating to reference and/or
     # update MD5.txt
@@ -1020,7 +1022,7 @@ sub verifyOrGenerateMd5ForFile {
             print "Expected: ", Dumper($expectedMd5), "\n",
                   "Actual:   ", Dumper($actualMd5), "\n"
                   if $verbose;
-            warn colored("MISMATCH OF MD5 for $path [$expectedMd5->{md5} vs $actualMd5->{md5}]", 'red');
+            warn colored("MISMATCH OF MD5 for $path [$expectedMd5->{md5} vs $actualMd5->{md5}]", 'red'), "\n";
 
             while (1) {
                 print "Ignore, Overwrite, Quit (i/o/q)? ";
