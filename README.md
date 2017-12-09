@@ -32,19 +32,19 @@ The calling pattern for each command follows the pattern:
 
 The following verbs are available:
 
-- **add-md5**
+- **add-md5** \[glob patterns...\]
 - **append-metadata** &lt;target file> &lt;source files...>
-- **check-md5** \[glob\_patterns...\]
+- **check-md5** \[glob patterns...\]
 - **checkup** \[-a\]
-- **collect-trash**
+- **collect-trash** \[glob patterns...\]
 - **consolodate-metadata** &lt;dir>
 - **find-dupe-dirs**
-- **find-dupe-files** \[-a\] \[-d\] \[-l\] \[-n\]
+- **find-dupe-files** \[-a\] \[-d\] \[-l\] \[-n\] \[glob patterns...\]
 - **metadata-diff** &lt;files...>
-- **remove-empties**
-- **verify-md5**
+- **remove-empties** \[glob patterns...\]
+- **verify-md5** \[glob patterns...\]
 
-## add-md5
+## add-md5 \[glob patterns...\]
 
 _Alias: a5_
 
@@ -54,7 +54,14 @@ MD5 computed, generate the MD5 hash and add to md5.txt file.
 This does not modify media files or their sidecars, it only adds entries
 to the md5.txt files.
 
-## check-md5
+### Options
+
+- **glob patterns**
+
+    Rather than operate on files under the current directory, operate on
+    the specified glob pattern.
+
+## check-md5 \[glob patterns...\]
 
 _Alias: c5_
 
@@ -70,7 +77,7 @@ the md5.txt files.
 
 ### Options
 
-- **glob\_pattern**
+- **glob patterns**
 
     Rather than operate on files under the current directory, operate on
     the specified glob pattern.
@@ -82,14 +89,14 @@ the md5.txt files.
 
 ## checkup
 
-_Alias: c_
+_Alias: c_ \[glob patterns...\]
 
 This command runs the following suggested suite of commands:
 
-    check-md5
-    find-dupe-files [-a | --always-continue]
-    collect-trash
-    remove-empties
+    check-md5 [glob patterns...]
+    find-dupe-files [-a | --always-continue] [glob patterns...]
+    remove-empties [glob patterns...]
+    collect-trash [glob patterns...]
 
 ### Options
 
@@ -97,7 +104,12 @@ This command runs the following suggested suite of commands:
 
     Always continue
 
-## collect-trash
+- **glob patterns**
+
+    Rather than operate on files under the current directory, operate on
+    the specified glob pattern.
+
+## collect-trash \[glob patterns...\]
 
 _Alias: ct_
 
@@ -117,6 +129,13 @@ After collection we would have:
     ./.Trash/Foo/2.jpg
     ./.Trash/Bar/1.jpg
 
+### Options
+
+- **glob patterns**
+
+    Rather than operate on files under the current directory, operate on
+    the specified glob pattern.
+
 ## consolodate-metadata &lt;dir>
 
 _Alias: cm_
@@ -129,7 +148,7 @@ _Alias: fdd_
 
 Find directories that represent the same date.
 
-## find-dupe-files
+## find-dupe-files \[glob patterns...\]
 
 _Alias: fdf_
 
@@ -161,13 +180,20 @@ Do a diff of the specified media files (including their sidecar metadata).
 
 This method does not modify any file.
 
-## remove-empties
+## remove-empties \[glob patterns...\]
 
 _Alias: re_
 
 Remove any subdirectories that are empty save an md5.txt file.
 
-## verify-md5
+### Options
+
+- **glob patterns**
+
+    Rather than operate on files under the current directory, operate on
+    the specified glob pattern.
+
+## verify-md5 \[glob patterns...\]
 
 _Alias: v5_
 
@@ -178,6 +204,13 @@ This method is read-only, if you want to add/update MD5s, use check-md5.
 
 This method does not modify any file.
 
+### Options
+
+- **glob patterns**
+
+    Rather than operate on files under the current directory, operate on
+    the specified glob pattern.
+
 # Related commands
 
 ## Complementary ExifTool commands
@@ -187,8 +220,11 @@ This method does not modify any file.
 
 ## Complementary Mac commands
 
-    # Print trash directories
-    find . -type d -name .Trash
+    # Print .Trash directories
+    find . -type d -iname '.Trash'
+
+    # Move .Trash directories to the trash
+    find . -type d -iname '.Trash' -exec trash {} \;
 
     # Remove .DS_Store (omit "-delete" to only print)
     find . -type f -name .DS_Store -print -delete
@@ -212,6 +248,12 @@ This method does not modify any file.
     # Mirror SOURCE to TARGET
     rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
         SOURCE TARGET
+
+    # Find large-ish files
+    find . -size +100MB
+
+    # Display disk usage stats sorted by size decreasing
+    du *|sort -rn
 
 ## Complementary PC commands
 

@@ -355,8 +355,12 @@ L<Image::ExifTool>
 
 # TODO: Use traverseGlobPatterns instead of find directly everywhere for
 # TODO: consistency
+<<<<<<< HEAD
 #
 # TODO: group raw+jpg in find dupe files groupings
+=======
+# TODO: TIFF should skip any non-pixel data for MD5s
+>>>>>>> master
 
 use strict;
 use warnings;
