@@ -384,11 +384,11 @@ my $md5pattern = qr/[0-9a-f]{32}/;
 # Media file extensions
 my $mediaType = qr/
     # Media extension
-    (?: \. (?i) (?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|psb|psd|raf|tif|tiff) $)
+    (?: \. (?i) (?:avi|crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|psb|psd|raf|tif|tiff) $)
     | # Backup file
     (?: [._] (?i) bak\d* $)
     /x;
-
+    
 my $verbose = 0;
 
 main();
@@ -920,8 +920,7 @@ sub verifyOrGenerateMd5ForGlob {
         if (-f) {
             if (/$mediaType/) {
                 verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
-            } elsif (lc ne 'md5.txt' and lc ne '.ds_store' and !/\.xmp$/i) {
-                # TODO: Also skip Thumbs.db, .Ds_Store, etc?
+            } elsif (lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' and !/\.(?:thm|xmp)$/i) {
                 unless ($omitSkipMessage) {
                     print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), " (unknown file)\n";
                 }
