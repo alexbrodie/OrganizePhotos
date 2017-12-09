@@ -300,17 +300,18 @@ the provided timestamp or timestamp at last MD5 check
 
 =head2 Complementary Mac commands
 
-    # Print .Trash directories
-    find . -type d -iname '.Trash'
+    # Mirror SOURCE to TARGET
+    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
+        SOURCE TARGET
 
-    # Move .Trash directories to the trash
+    # Move .Trash directories recursively to the trash
     find . -type d -iname '.Trash' -exec trash {} \;
 
-    # Remove .DS_Store (omit "-delete" to only print)
+    # Delete .DS_Store recursively (omit "-delete" to only print)
     find . -type f -name .DS_Store -print -delete
 
-    # Remove zero byte md5.txt files (omit "-delete" to only print)
-    find . -type f -name md5.txt -empty -print -delete
+    # Delete zero byte md5.txt files (omit "-delete" to only print)
+    find . -type f -iname md5.txt -empty -print -delete
 
     # Remove empty directories (omit "-delete" to only print)
     find . -type d -empty -print -delete
@@ -325,10 +326,6 @@ the provided timestamp or timestamp at last MD5 check
     # Remove the downloaded-and-untrusted extended attribute for the current tree
     xattr -d -r com.apple.quarantine .
 
-    # Mirror SOURCE to TARGET
-    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
-        SOURCE TARGET
-
     # Find large-ish files
     find . -size +100MB
 
@@ -342,7 +339,7 @@ the provided timestamp or timestamp at last MD5 check
 
 =head1 AUTHOR
 
-Copyright 2016, Alex Brodie
+Copyright 2017, Alex Brodie
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
@@ -355,12 +352,7 @@ L<Image::ExifTool>
 
 # TODO: Use traverseGlobPatterns instead of find directly everywhere for
 # TODO: consistency
-<<<<<<< HEAD
-#
-# TODO: group raw+jpg in find dupe files groupings
-=======
 # TODO: TIFF should skip any non-pixel data for MD5s
->>>>>>> master
 
 use strict;
 use warnings;
@@ -376,6 +368,7 @@ use File::Find;
 use File::Glob qw(:globally :nocase);
 use File::Path qw(make_path);
 use File::Spec::Functions qw(:ALL);
+use File::stat;
 use Getopt::Long;
 use Image::ExifTool;
 use JSON;
@@ -388,12 +381,12 @@ my $md5pattern = qr/[0-9a-f]{32}/;
 # Media file extensions
 my $mediaType = qr/
     # Media extension
-    (?: \. (?i) (?:crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|psb|psd|raf|tif|tiff) $)
+    (?: \. (?i) (?:avi|crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|psb|psd|raf|tif|tiff) $)
     | # Backup file
     (?: [._] (?i) bak\d* $)
     /x;
-
-my $verbose = 1;
+    
+my $verbose = 0;
 
 main();
 exit 0;
@@ -647,6 +640,8 @@ sub doFindDupeFiles {
 
             push @prompt, "  $i. ";
 
+            # TODO: Figure out how the handle the below issue with upcoming
+            # TODO: pair of pixel-md5 and whole-file-md5
             # If MD5 isn't a whole file MD5, put compute the wholefile MD5 and add to output
             #if ($path =~ /\.(?:jpeg|jpg)$/i) {
             #    push @prompt, '[', getBareFileMd5($path), '] ';
@@ -861,7 +856,7 @@ sub doVerifyMd5 {
     our $all = 0;
     findMd5s(sub {
         my ($path, $expectedMd5) = @_;
-        my $actualMd5 = getMd5($path);
+        my $actualMd5 = getMd5($path)->{md5};
         if ($actualMd5 eq $expectedMd5) {
             # Hash match
             print "Verified MD5 for $path\n";
@@ -907,7 +902,7 @@ sub findMd5s {
             
             my ($volume, $dir, undef) = splitpath($path);
             for (sort keys %$md5s) {
-                $callback->(catpath($volume, $dir, $_), $md5s->{$_});
+                $callback->(catpath($volume, $dir, $_), $md5s->{$_}->{md5});
             }
         }
     }, 1, @globPatterns);
@@ -922,10 +917,9 @@ sub verifyOrGenerateMd5ForGlob {
         if (-f) {
             if (/$mediaType/) {
                 verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
-            } elsif ($_ ne 'md5.txt') {
-                # TODO: Also skip Thumbs.db, .Ds_Store, etc?
+            } elsif (lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' and !/\.(?:thm|xmp)$/i) {
                 unless ($omitSkipMessage) {
-                    print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), "\n";
+                    print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), " (unknown file)\n";
                 }
             }
         }
@@ -946,108 +940,143 @@ sub verifyOrGenerateMd5ForFile {
     my ($volume, $dir, $name) = splitpath($path);
     my $md5Path = catpath($volume, $dir, 'md5.txt');
 
+    # Index into the md5.txt file essentially
     my $key = lc $name;
-    my ($expectedMd5, $actualMd5);
+    
+    # Get file stats for the file we're evaluating to reference and/or
+    # update MD5.txt
+    my $stats = stat($path) 
+        or die "Couldn't stat $path: $!";
 
+    # Add stats metadata to be persisted to md5.txt
+    my $actualMd5 = {
+        size => $stats->size,
+        mtime => $stats->mtime,
+    };
+    
+    # Target hash and metadata from cache and/or md5.txt
+    my $expectedMd5;
+    
     # Check cache from last call (this can often be called
     # repeatedly with files in same folder, so this prevents
     # unnecessary rereads)
-    our ($lastMd5Path, $lastMd5s);
+    our ($lastMd5Path, $lastMd5Set);
     if ($lastMd5Path and $md5Path eq $lastMd5Path) {
-        $expectedMd5 = $lastMd5s->{$key};
+        # Skip files whose date modified and file size haven't changed
+        # TODO: unless force override is specified
+        return if canMakeMd5MetadataShortcut($addOnly, $omitSkipMessage, $path, $lastMd5Set->{$key}, $actualMd5);
+    }
+        
+    # Read MD5.txt file to consult
+    my ($fh, $expectedMd5Set);
+    if (open($fh, '+<:crlf', $md5Path)) {
+        # Read existing contents
+        $expectedMd5Set = readMd5FileFromHandle($fh);
+    } else {
+        # File doesn't exist, open for write
+        open($fh, '>', $md5Path)
+            or confess "Couldn't open $md5Path: $!";
+        $expectedMd5Set = {};
     }
 
-    # Loop twice, once for cached info and one for file info
-    my ($fh, $md5s);
-    while (1) {
-        # In add-only mode, don't compute the hash of a file that
-        # is already in the md5.txt
-        if ($addOnly and defined $expectedMd5) {
-            unless ($omitSkipMessage) {
-                print colored("Skipping    MD5 for $path", 'yellow'), "\n";
-            }
-            return;
-        }
+    # Update cache
+    $lastMd5Path = $md5Path;
+    $lastMd5Set = $expectedMd5Set;
+        
+    # Skip files whose date modified and file size haven't changed
+    # TODO: unless force override is specified
+    my $expectedMd5 = $expectedMd5Set->{$key};
+    return if canMakeMd5MetadataShortcut($addOnly, $omitSkipMessage, $path, $expectedMd5, $actualMd5);
 
-        # Compute the MD5 if we haven't already and need it
-        if (!defined $actualMd5 and (defined $expectedMd5 or defined $fh)) {
-            # Get the actual MD5 by reading the whole file
-            $actualMd5 = eval { getMd5($path); };
-            if ($@) {
-                # Can't get the MD5
-                # TODO: for now, skip but we'll want something better in the future
-                warn colored("UNAVAILABLE MD5 for $path with error:", 'red'), "\n\t$@";
-                return;
-            }
-        }
+    # We can't skip this, so compute MD5 now
+    eval {
+        # TODO: consolidate opening file multiple times from stat and getMd5
+        $actualMd5 = { %$actualMd5, %{getMd5($path)} };
+    };
+    if ($@) {
+        # Can't get the MD5
+        # TODO: for now, skip but we'll want something better in the future
+        warn colored("UNAVAILABLE MD5 for $path with error:", 'red'), "\n\t$@";
+        return;
+    }
+    
+    # actualMd5 and expectedMd5 should now be fully populated and 
+    # ready for comparison
+    if (defined $expectedMd5) {
+        if ($expectedMd5->{md5} eq $actualMd5->{md5}) {
+            # Matches last recorded hash, nothing to do
+            print colored("Verified    MD5 for $path", 'green'), "\n";
 
-        if (defined $expectedMd5) {
-            # It's there; verify the existing hash
-            if ($expectedMd5 eq $actualMd5) {
-                # Matches last recorded hash, nothing to do
-                print colored("Verified    MD5 for $path", 'green'), "\n";
-                return;
-            } elsif (defined $fh) {
-                # Mismatch and we can update MD5, needs resolving...
-                warn colored("MISMATCH OF MD5 for $path", 'red');
+            # If the MD5 data is a full match, then we don't have anything
+            # else to do. If not (probably missing or updated metadata 
+            # fields), then continue on where we'll re-write md5.txt.
+            return if Compare($expectedMd5, $actualMd5);
+        } else {
+            # Mismatch and we can update MD5, needs resolving...
+            warn colored("MISMATCH OF MD5 for $path", 'red'), 
+                 " [$expectedMd5->{md5} vs $actualMd5->{md5}]\n";
 
-                while (1) {
-                    print "Ignore, Overwrite, Quit (i/o/q)? ";
-                    chomp(my $in = lc <STDIN>);
+            # Do user action prompt
+            while (1) {
+                print "Ignore, Overwrite, Quit (i/o/q)? ";
+                chomp(my $in = lc <STDIN>);
 
-                    if ($in eq 'i') {
-                        # Ignore the error and return
-                        return;
-                    } elsif ($in eq 'o') {
-                        # Exit loop to fall through to save actualMd5
-                        last;
-                    } elsif ($in eq 'q') {
-                        # User requested to terminate
-                        confess "MD5 mismatch for $path";
-                    }
+                if ($in eq 'i') {
+                    # Ignore the error and return
+                    return;
+                } elsif ($in eq 'o') {
+                    # Exit loop to fall through to save actualMd5
+                    last;
+                } elsif ($in eq 'q') {
+                    # User requested to terminate
+                    die "MD5 mismatch for $path";
                 }
-
-                # Write MD5
-                print colored("UPDATING    MD5 for $path", 'magenta'), "\n";
-                last;
             }
-        } elsif (defined $fh) {
-            # It wasn't there, it's a new file, we'll add that
-            print colored("ADDING      MD5 for $path", 'blue'), "\n";
-            last;
         }
-
-        # Open MD5 file if we haven't already done so
-        if (!defined $fh) {
-            if (open($fh, '+<:crlf', $md5Path)) {
-                # Read existing contents
-                $md5s = readMd5FileFromHandle($fh);
-            } else {
-                # File doesn't exist, open for write
-                open($fh, '>', $md5Path)
-                    or confess "Couldn't open $md5Path: $!";
-            }
-
-            # Cache info
-            $lastMd5Path = $md5Path;
-            $lastMd5s = $md5s;
-
-            # Try lookup into MD5 file contents
-            $expectedMd5 = $md5s->{$key};
-        }
+        
+        # Write MD5
+        print colored("UPDATING    MD5 for $path", 'magenta'), "\n";
+    } else {
+        # It wasn't there, it's a new file, we'll add that
+        print colored("ADDING      MD5 for $path", 'blue'), "\n";
     }
 
     # Add/update MD5
-    $md5s->{$key} = $actualMd5;
+    $expectedMd5Set->{$key} = $actualMd5;
 
-    # Clear MD5 file
-    seek($fh, 0, 0);
-    truncate($fh, 0);
+    # Update cache
+    $lastMd5Path = $md5Path;
+    $lastMd5Set = $expectedMd5Set;
 
     # Update MD5 file
-    for (sort keys %$md5s) {
-        print $fh lc $_, ': ', $md5s->{$_}, "\n";
+    writeMd5FileToHandle($fh, $expectedMd5Set);   
+}
+
+#-------------------------------------------------------------------------------
+# Check if we can shortcut based on metadata without evaluating MD5s
+sub canMakeMd5MetadataShortcut {
+    my ($addOnly, $omitSkipMessage, $path, $expectedMd5, $actualMd5) = @_;
+    
+    if (defined $expectedMd5) {
+        if ($addOnly) {
+            unless ($omitSkipMessage) {
+                print colored("Skipping    MD5 for $path", 'yellow'), "(add-only)\n";
+            }
+            return 1;
+        }
+    
+        if (defined $expectedMd5->{size} and 
+            $actualMd5->{size}  == $expectedMd5->{size} and
+            defined $expectedMd5->{mtime} and 
+            $actualMd5->{mtime} == $expectedMd5->{mtime}) {
+            unless ($omitSkipMessage) {
+                print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
+            }
+            return 1;
+        }
     }
+    
+    return 0;
 }
 
 #-------------------------------------------------------------------------------
@@ -1060,13 +1089,14 @@ sub removeMd5ForPath {
     my $md5Path = catpath($volume, $dir, 'md5.txt');
 
     if (open(my $fh, '+<:crlf', $md5Path)) {
-        my @old = <$fh>;
-        my @new = grep { !/^\Q$name\E:/i } @old;
-
-        if (@old != @new) {
-            seek($fh, 0, 0);
-            truncate($fh, 0);
-            print $fh @new;
+        my $md5s = readMd5FileFromHandle($fh);
+        
+        if (exists $md5s->{$name}) {
+            delete $md5s->{$name};
+            
+            writeMd5FileToHandle($fh, $md5s);
+            
+            # TODO: update the cashe from the validate func?
 
             print "Removed $name from $md5Path\n";
         }
@@ -1074,101 +1104,145 @@ sub removeMd5ForPath {
 }
 
 #-------------------------------------------------------------------------------
-# Deserialize a md5.txt file handle into a filename => MD5 hash
+# Deserialize a md5.txt file handle into a OM
 sub readMd5FileFromHandle {
     my ($fh) = @_;
-
-    my %md5s = ();
-    for (<$fh>) {
-        chomp;
-        $_ = lc $_;
-        /^([^:]+):\s*($md5pattern)$/ or
-            warn "unexpected line in MD5: $_";
-
-        $md5s{lc $1} = $2;
+    
+    # TODO return cached value as appropriate
+    
+    print "Reading     MD5.txt\n" if $verbose > 4;
+    
+    # If the first char is a open curly brace, treat as JSON,
+    # otherwise do the older simple name: md5 format parsing
+    my $useJson = 0;
+    while (<$fh>) {
+        if (/^\s*([^\s])/) {
+            $useJson = 1 if $1 eq '{';
+            last;
+        }
     }
+    
+    seek($fh, 0, 0)
+        or confess "Couldn't reset seek on file: $!";
 
-    return \%md5s;
+    if ($useJson) {
+        # Parse as JSON
+        return decode_json(join '', <$fh>);
+        # TODO: validate response - do a lc on filename/md5s/whatever, 
+        # TODO: and verify vs $md5pattern???
+    } else {
+        # Parse as simple "name: md5" text
+        my %md5s = ();    
+        for (<$fh>) {
+            /^([^:]+):\s*($md5pattern)$/ or
+                warn "unexpected line in MD5: $_";
+
+            $md5s{lc $1} = { md5 => lc $2 };
+        }        
+
+        return \%md5s;
+    }
+}
+
+#-------------------------------------------------------------------------------
+# Serialize OM into a md5.txt file handle
+sub writeMd5FileToHandle {
+    my ($fh, $md5s) = @_;
+    
+    # TODO save cached value as appropriate
+    
+    print "Writing     MD5.txt\n" if $verbose > 4;
+    
+    # Clear MD5 file
+    seek($fh, 0, 0)
+        or confess "Couldn't reset seek on file: $!";
+    truncate($fh, 0)
+        or confess "Couldn't truncate file: $!";
+
+    # Update MD5 file
+    my $useJson = 1;
+    if ($useJson) {
+        # JSON output
+        print $fh JSON->new->allow_nonref->pretty->encode($md5s);
+    } else {
+        # Simple "name: md5" text output
+        for (sort keys %$md5s) {
+            # TODO: add other fields barefile MD5, date modified, file size
+            # TODO: switch to JSON?
+            print $fh lc $_, ': ', $md5s->{$_}->{md5}, "\n";
+        }
+    }
 }
 
 #-------------------------------------------------------------------------------
 # Calculates and returns the MD5 digest of a (set of) file(s). For JPEG
 # files, this skips the metadata portion of the files and only computes
-# the hash for the pixel data.
+# the hash for the pixel data. The returned hash should have the following 
+# properties:
+#   md5: primary MD5 comparison (excludes volitile data from calculation)
+#   full_md5: full MD5 calculation for exact match
 sub getMd5 {
-    use Digest::MD5;
-
-    my $md5 = new Digest::MD5;
-
-    for my $path (@_) {
-        next unless 0 < -s $path;
+    my ($path) = @_;
+    
+    open(my $fh, '<:raw', $path)
+        or confess "Couldn't open $path: $!";
         
-        open(my $fh, '<:raw', $path)
-            or confess "Couldn't open $path: $!";
+    my $fullMd5Hash = getMd5Digest($fh);
 
-        #my $modified = formatDate((stat($fh))[9]);
-        #print "Date modified: $modified\n";
+    # If the file is a backup (has some "bak" suffix), 
+    # we want to consider the real extension
+    my $origPath = $path;
+    $origPath =~ s/[._]bak\d*$//i;
 
-        # TODO: Should we do this for TIFF, DNG as well?
-        
-        # If the file is a backup (has some "bak" suffix), 
-        # we want to consider the real extension
-        my $origPath = $path;
-        $origPath =~ s/[._]bak\d*$//i;
+    # TODO: Should we do this for TIFF, DNG as well?
 
-        # If JPEG, skip metadata which may change and only hash pixel data
-        # and hash from Start of Scan [SOS] to end
-        if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
-            # Read Start of Image [SOI]
-            read($fh, my $soiData, 2)
-                or confess "Failed to read SOI from $path: $!";
-            my ($soi) = unpack('n', $soiData);
-            $soi == 0xffd8
-                or confess "File didn't start with SOI marker: $path";
+    # If JPEG, skip metadata which may change and only hash pixel data
+    # and hash from Start of Scan [SOS] to end
+    my $partialMd5Hash = $fullMd5Hash;
+    if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
+        # Read Start of Image [SOI]
+        seek($fh, 0, 0)
+            or confess "Failed to reset seek for $path: $!";
+        read($fh, my $soiData, 2)
+            or confess "Failed to read SOI from $path: $!";
+        my ($soi) = unpack('n', $soiData);
+        $soi == 0xffd8
+            or confess "File didn't start with SOI marker: $path";
 
-            # Read blobs until SOS
-            my $tags = '';
-            while (1) {
-                read($fh, my $data, 4)
-                    or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
+        # Read blobs until SOS
+        my $tags = '';
+        while (1) {
+            read($fh, my $data, 4)
+                or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
 
-                my ($tag, $size) = unpack('nn', $data);
-                last if $tag == 0xffda;
+            my ($tag, $size) = unpack('nn', $data);
+            last if $tag == 0xffda;
 
-                $tags .= sprintf("%04x,%04x;", $tag, $size);
-                #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
+            $tags .= sprintf("%04x,%04x;", $tag, $size);
+            #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
 
-                my $address = tell($fh) + $size - 2;
-                seek($fh, $address, 0)
-                    or confess "Failed to seek $path to $address: $!";
-            }
+            my $address = tell($fh) + $size - 2;
+            seek($fh, $address, 0)
+                or confess "Failed to seek $path to $address: $!";
         }
 
-        $md5->addfile($fh);
+        $partialMd5Hash = getMd5Digest($fh);
     }
-
-    return getMd5Digest($md5);
+    
+    return {
+        md5 => $partialMd5Hash,
+        full_md5 => $fullMd5Hash,
+    };
 }
 
 #-------------------------------------------------------------------------------
-# Computes the MD5 for a full file
-sub getBareFileMd5 {
-    my ($path) = @_;
-
-    open(my $fh, '<:raw', $path)
-        or confess "Couldn't open $path: $!";
+# Get/verify/canonicalize hash from a FILEHANDLE object
+sub getMd5Digest {
+    my ($fh) = @_;
 
     my $md5 = new Digest::MD5;
     $md5->addfile($fh);
-
-    return getMd5Digest($md5);
-}
-
-#-------------------------------------------------------------------------------
-# Get/verify/canonicalize hash from a Digest::MD5 object
-sub getMd5Digest {
-    my ($md5) = @_;
-
+    
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$md5pattern/
         or confess "unexpected MD5: $hexdigest";
@@ -1223,6 +1297,7 @@ sub metadataDiff {
 }
 
 #-------------------------------------------------------------------------------
+# Work in progress...
 sub appendMetadata {
     my ($target, @sources) = @_;
     
