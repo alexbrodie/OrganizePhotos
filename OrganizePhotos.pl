@@ -350,10 +350,6 @@ L<Image::ExifTool>
 
 =cut
 
-# TODO: Use traverseGlobPatterns instead of find directly everywhere for
-# TODO: consistency
-# TODO: TIFF should skip any non-pixel data for MD5s
-
 use strict;
 use warnings;
 
@@ -381,11 +377,12 @@ my $md5pattern = qr/[0-9a-f]{32}/;
 # Media file extensions
 my $mediaType = qr/
     # Media extension
-    (?: \. (?i) (?:avi|crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|psb|psd|raf|tif|tiff) $)
+    (?: \. (?i) (?:avi|crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|png|psb|psd|raf|tif|tiff) $)
     | # Backup file
     (?: [._] (?i) bak\d* $)
     /x;
     
+# For extra debug output
 my $verbose = 0;
 
 main();
@@ -497,21 +494,7 @@ sub doCollectTrash {
 #===============================================================================
 # Execute consolodate-metadata verb
 sub doConsolodateMetadata {
-    my ($dir) = @_;
-    
-    # Loop over non-trashed media files in $dir...
-    find({
-        preprocess => \&preprocessSkipTrash,
-        wanted => sub {
-            if (-f and /$mediaType/) {
-                # ...and look for sidecars and backups of the form
-                # basename_bak\d*.ext
-                # basename_bak\d*.xmp
-                # basename.ext_bak\d*
-                # basename.xmp_bak\d*
-            }
-        }
-    }, $dir);
+    my ($arg1, $arg2, $etc) = @_;
 }
 
 #===============================================================================
@@ -954,16 +937,13 @@ sub verifyOrGenerateMd5ForFile {
         mtime => $stats->mtime,
     };
     
-    # Target hash and metadata from cache and/or md5.txt
-    my $expectedMd5;
-    
     # Check cache from last call (this can often be called
     # repeatedly with files in same folder, so this prevents
     # unnecessary rereads)
     our ($lastMd5Path, $lastMd5Set);
     if ($lastMd5Path and $md5Path eq $lastMd5Path) {
         # Skip files whose date modified and file size haven't changed
-        # TODO: unless force override is specified
+        # TODO: unless force override if specified
         return if canMakeMd5MetadataShortcut($addOnly, $omitSkipMessage, $path, $lastMd5Set->{$key}, $actualMd5);
     }
         
@@ -982,10 +962,12 @@ sub verifyOrGenerateMd5ForFile {
     # Update cache
     $lastMd5Path = $md5Path;
     $lastMd5Set = $expectedMd5Set;
+
+    # Target hash and metadata from cache and/or md5.txt
+    my $expectedMd5 = $expectedMd5Set->{$key};
         
     # Skip files whose date modified and file size haven't changed
-    # TODO: unless force override is specified
-    my $expectedMd5 = $expectedMd5Set->{$key};
+    # TODO: unless force override if specified
     return if canMakeMd5MetadataShortcut($addOnly, $omitSkipMessage, $path, $expectedMd5, $actualMd5);
 
     # We can't skip this, so compute MD5 now
@@ -1108,8 +1090,6 @@ sub removeMd5ForPath {
 sub readMd5FileFromHandle {
     my ($fh) = @_;
     
-    # TODO return cached value as appropriate
-    
     print "Reading     MD5.txt\n" if $verbose > 4;
     
     # If the first char is a open curly brace, treat as JSON,
@@ -1128,8 +1108,8 @@ sub readMd5FileFromHandle {
     if ($useJson) {
         # Parse as JSON
         return decode_json(join '', <$fh>);
-        # TODO: validate response - do a lc on filename/md5s/whatever, 
-        # TODO: and verify vs $md5pattern???
+        # TODO: Consider validating response - do a lc on  
+        # TODO: filename/md5s/whatever, and verify vs $md5pattern???
     } else {
         # Parse as simple "name: md5" text
         my %md5s = ();    
@@ -1149,8 +1129,6 @@ sub readMd5FileFromHandle {
 sub writeMd5FileToHandle {
     my ($fh, $md5s) = @_;
     
-    # TODO save cached value as appropriate
-    
     print "Writing     MD5.txt\n" if $verbose > 4;
     
     # Clear MD5 file
@@ -1167,17 +1145,13 @@ sub writeMd5FileToHandle {
     } else {
         # Simple "name: md5" text output
         for (sort keys %$md5s) {
-            # TODO: add other fields barefile MD5, date modified, file size
-            # TODO: switch to JSON?
             print $fh lc $_, ': ', $md5s->{$_}->{md5}, "\n";
         }
     }
 }
 
 #-------------------------------------------------------------------------------
-# Calculates and returns the MD5 digest of a (set of) file(s). For JPEG
-# files, this skips the metadata portion of the files and only computes
-# the hash for the pixel data. The returned hash should have the following 
+# Calculates and returns the MD5 digest of a file.
 # properties:
 #   md5: primary MD5 comparison (excludes volitile data from calculation)
 #   full_md5: full MD5 calculation for exact match
@@ -1194,12 +1168,12 @@ sub getMd5 {
     my $origPath = $path;
     $origPath =~ s/[._]bak\d*$//i;
 
-    # TODO: Should we do this for TIFF, DNG as well?
-
-    # If JPEG, skip metadata which may change and only hash pixel data
-    # and hash from Start of Scan [SOS] to end
     my $partialMd5Hash = $fullMd5Hash;
+
     if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
+        # If JPEG, skip metadata which may change and only hash pixel data
+        # and hash from Start of Scan [SOS] to end...
+
         # Read Start of Image [SOI]
         seek($fh, 0, 0)
             or confess "Failed to reset seek for $path: $!";
@@ -1227,7 +1201,7 @@ sub getMd5 {
         }
 
         $partialMd5Hash = getMd5Digest($fh);
-    }
+    } #TODO: elsif ($origPath =~ /\.(tif|tiff)$/i) {
     
     return {
         md5 => $partialMd5Hash,
@@ -1508,7 +1482,7 @@ sub trashPath {
 # already exists
 sub moveDir {
     my ($oldPath, $newPath) = @_;
-    print "moveDir('$oldPath', '$newPath');\n";
+    print "moveDir('$oldPath', '$newPath');\n" if $verbose;
 
     if (-d $newPath) {
         # Dest dir already exists, need to move-merge
