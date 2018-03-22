@@ -116,9 +116,9 @@ the specified glob pattern.
     # Check or add MD5 for all CR2 files in the current directory
     $ OrganizePhotos.pl c5 *.CR2
 
-=head2 checkup
+=head2 checkup [glob patterns...]
 
-I<Alias: c> [glob patterns...]
+I<Alias: c>
 
 This command runs the following suggested suite of commands:
 
@@ -350,6 +350,12 @@ L<Image::ExifTool>
 
 =cut
 
+# ★★★★★
+# ★★★★☆
+# ★★★☆☆
+# ★★☆☆☆
+# ★☆☆☆☆
+
 use strict;
 use warnings;
 
@@ -382,8 +388,10 @@ my $mediaType = qr/
     (?: [._] (?i) bak\d* $)
     /x;
     
-# For extra debug output
-my $verbose = 0;
+# For extra output
+my $verbosity = 0;
+use constant VERBOSITY_2 => 2;
+use constant VERBOSITY_DEBUG => 999;
 
 main();
 exit 0;
@@ -615,9 +623,24 @@ sub doFindDupeFiles {
         # Filter out missing files
         @$group = grep { -e } @$group;
         next if @$group < 2;
+        
+        # Want to tell if the files are identical, so we need hashes
+        my @md5Info = map { getMd5($_) } @$group;
+        
+        my $reco = "Unknown match";
+        
+        # If all the primary MD5s are the same report IDENTICAL
+        for (my $i = 0; $i < @md5Info; $i++) {
+            print "\n",
+                "$i. MD5  ", $md5Info[$i]->{md5}, "\n",
+                "$i. FULL ", $md5Info[$i]->{full_md5}, "\n";
+        }
+        
+        #my $exactMd5 = getMd5($group->[0])->{full_md5};
+        #for (my $i = 0; $i < @$group; $i++) {
 
         # Build base of prompt - indexed paths
-        my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, "\n");
+        my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, " [$reco]\n");
         for (my $i = 0; $i < @$group; $i++) {
             my $path = $group->[$i];
 
@@ -761,7 +784,7 @@ sub doTest {
     
     # Look for a QR code
     my @results = `qrscan '$filename'`;
-    print "qrscan: ", Dumper(@results) if $verbose;
+    print "qrscan: ", Dumper(@results) if $verbosity >= VERBOSITY_DEBUG;
 
     # Parse QR codes
     my $messageDate;
@@ -770,7 +793,7 @@ sub doTest {
             or confess "Unexpected qrscan output: $_";
         
         my $message = decode_json($1);
-        print "message: ", Dumper($message) if $verbose;
+        print "message: ", Dumper($message) if $verbosity >= VERBOSITY_DEBUG;
     
         if (exists $message->{date}) {
             my $date = $message->{date};
@@ -789,10 +812,10 @@ sub doTest {
         my $info = $et->GetInfo(qw(
             DateTimeOriginal TimeZone TimeZoneCity DaylightSavings 
             Make Model SerialNumber));
-        print "$filename: ", Dumper($info) if $verbose;
+        print "$filename: ", Dumper($info) if $verbosity >= VERBOSITY_DEBUG;
     
         my $metadataDate = $info->{DateTimeOriginal};
-        print "$messageDate vs $metadataDate\n" if $verbose;
+        print "$messageDate vs $metadataDate\n" if $verbosity >= VERBOSITY_DEBUG;
     
         # The metadata date is an absolute time (the local time where
         # it was taken without any time zone information). The message
@@ -805,14 +828,14 @@ sub doTest {
         # time zone.
         $messageDate =~ s/([+-][\d:]*)$/Z/;
         my $messageTimeZone = $1;
-        print "$messageDate vs $metadataDate\n" if $verbose;
+        print "$messageDate vs $metadataDate\n" if $verbosity >= VERBOSITY_DEBUG;
     
         $messageDate = DateTime::Format::HTTP->parse_datetime($messageDate);
         $metadataDate = DateTime::Format::HTTP->parse_datetime($metadataDate);
     
         my $diff = $messageDate->subtract_datetime($metadataDate);
     
-        print "$messageDate - $messageDate = ", Dumper($diff), "\n" if $verbose;
+        print "$messageDate - $messageDate = ", Dumper($diff), "\n" if $verbosity >= VERBOSITY_DEBUG;
     
         my $days = ($diff->is_negative ? -1 : 1) * 
             ($diff->days + ($diff->hours + ($diff->minutes + $diff->seconds / 60) / 60) / 24);
@@ -872,12 +895,12 @@ sub doVerifyMd5 {
 sub findMd5s {
     my ($callback, @globPatterns) = @_;
     
-    print colored(join("\n\t", "Looking for md5.txt in", @globPatterns), 'yellow'), "\n"; 
+    print colored(join("\n\t", "Looking for md5.txt in", @globPatterns), 'yellow'), "\n" if $verbosity >= VERBOSITY_2; 
 
     traverseGlobPatterns(sub {
         if (-f and lc eq 'md5.txt') {
             my $path = rel2abs($_);
-            print colored("Found $path\n", 'yellow');
+            print colored("Found $path\n", 'yellow') if $verbosity >= VERBOSITY_2;
             open(my $fh, '<:crlf', $path)
                 or confess "Couldn't open $path: $!";
         
@@ -901,7 +924,7 @@ sub verifyOrGenerateMd5ForGlob {
             if (/$mediaType/) {
                 verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
             } elsif (lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' and !/\.(?:thm|xmp)$/i) {
-                unless ($omitSkipMessage) {
+                if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
                     print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), " (unknown file)\n";
                 }
             }
@@ -1041,7 +1064,7 @@ sub canMakeMd5MetadataShortcut {
     
     if (defined $expectedMd5) {
         if ($addOnly) {
-            unless ($omitSkipMessage) {
+            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
                 print colored("Skipping    MD5 for $path", 'yellow'), "(add-only)\n";
             }
             return 1;
@@ -1051,7 +1074,7 @@ sub canMakeMd5MetadataShortcut {
             $actualMd5->{size}  == $expectedMd5->{size} and
             defined $expectedMd5->{mtime} and 
             $actualMd5->{mtime} == $expectedMd5->{mtime}) {
-            unless ($omitSkipMessage) {
+            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
                 print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
             }
             return 1;
@@ -1059,6 +1082,22 @@ sub canMakeMd5MetadataShortcut {
     }
     
     return 0;
+}
+
+#-------------------------------------------------------------------------------
+sub getMetadataForPath {
+    my ($path) = @_;
+
+    # The path to file that contains the MD5 info
+    my ($volume, $dir, $name) = splitpath($path);
+    my $md5Path = catpath($volume, $dir, 'md5.txt');
+
+    if (open(my $fh, '<:crlf', $md5Path)) {
+        my $md5s = readMd5FileFromHandle($fh);
+        return $md5s->{$name};
+    } else {
+        return undef;
+    }
 }
 
 #-------------------------------------------------------------------------------
@@ -1090,7 +1129,7 @@ sub removeMd5ForPath {
 sub readMd5FileFromHandle {
     my ($fh) = @_;
     
-    print "Reading     MD5.txt\n" if $verbose > 4;
+    print "Reading     MD5.txt\n" if $verbosity >= VERBOSITY_DEBUG;
     
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple name: md5 format parsing
@@ -1129,7 +1168,7 @@ sub readMd5FileFromHandle {
 sub writeMd5FileToHandle {
     my ($fh, $md5s) = @_;
     
-    print "Writing     MD5.txt\n" if $verbose > 4;
+    print "Writing     MD5.txt\n" if $verbosity >= VERBOSITY_DEBUG;
     
     # Clear MD5 file
     seek($fh, 0, 0)
@@ -1282,7 +1321,7 @@ sub appendMetadata {
     $etTarget->ExtractInfo($target)
         or confess "Couldn't ExtractInfo for $target";
     my $infoTarget = $etTarget->GetInfo(@properties);
-    print "$target: ", Dumper($infoTarget) if $verbose;
+    print "$target: ", Dumper($infoTarget) if $verbosity >= VERBOSITY_DEBUG;
     
     my $rating = $infoTarget->{Rating};
     my $oldRating = $rating;
@@ -1302,7 +1341,7 @@ sub appendMetadata {
         $etSource->ExtractInfo($source)
             or confess "Couldn't ExtractInfo for $source";            
         my $infoSource = $etSource->GetInfo(@properties);
-        print "$source: ", Dumper($infoSource) if $verbose;
+        print "$source: ", Dumper($infoSource) if $verbosity >= VERBOSITY_DEBUG;
         
         # Add rating if we don't already have one
         unless (defined $rating) {
@@ -1482,7 +1521,7 @@ sub trashPath {
 # already exists
 sub moveDir {
     my ($oldPath, $newPath) = @_;
-    print "moveDir('$oldPath', '$newPath');\n" if $verbose;
+    print "moveDir('$oldPath', '$newPath');\n" if $verbosity >= VERBOSITY_DEBUG;
 
     if (-d $newPath) {
         # Dest dir already exists, need to move-merge
