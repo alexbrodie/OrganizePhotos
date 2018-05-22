@@ -47,7 +47,7 @@ The following verbs are available:
 
 =item B<check-md5> [glob patterns...]
 
-=item B<checkup> [-a]
+=item B<checkup> [-a] [-d] [-l] [-n] [glob patterns...]
 
 =item B<collect-trash> [glob patterns...]
 
@@ -135,6 +135,18 @@ This command runs the following suggested suite of commands:
 
 Always continue
 
+=item B<-d, --auto-diff>
+
+Automatically do the 'd' diff command for every new group of files
+
+=item B<-l, --default-last-action>
+
+Enter repeats last command
+
+=item B<-n, --by-name>
+
+Search for items based on name rather than the default of MD5
+
 =item B<glob patterns>
 
 Rather than operate on files under the current directory, operate on
@@ -210,6 +222,11 @@ Enter repeats last command
 =item B<-n, --by-name>
 
 Search for items based on name rather than the default of MD5
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern.
 
 =back
 
@@ -417,7 +434,10 @@ sub main {
             doCheckMd5(@ARGV);
         } elsif ($verb eq 'checkup' or $verb eq 'c') {
             my ($all, $autoDiff, $byName, $defaultLastAction);
-            GetOptions('always-continue|a' => \$all);
+            GetOptions('always-continue|a' => \$all,
+                       'auto-diff|d' => \$autoDiff,
+                       'by-name|n' => \$byName,
+                       'default-last-action|l' => \$defaultLastAction);
             doCheckMd5(@ARGV);
             doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction, @ARGV);
             doRemoveEmpties(@ARGV);
@@ -627,14 +647,19 @@ sub doFindDupeFiles {
         # Want to tell if the files are identical, so we need hashes
         my @md5Info = map { getMd5($_) } @$group;
         
-        my $reco = "Unknown match";
+        my $fullMd5Match = 1;
+        my $md5Match = 1;
         
         # If all the primary MD5s are the same report IDENTICAL
+        my $md5 = $md5Info[0]->{md5};
+        my $fullMd5 = $md5Info[0]->{full_md5};
         for (my $i = 0; $i < @md5Info; $i++) {
-            print "\n",
-                "$i. MD5  ", $md5Info[$i]->{md5}, "\n",
-                "$i. FULL ", $md5Info[$i]->{full_md5}, "\n";
+            #print "$i. MD5  ", $md5Info[$i]->{md5}, ",    FULL ", $md5Info[$i]->{full_md5}, "\n";
+            $fullMd5Match = 0 if $fullMd5 ne $md5Info[$i]->{full_md5};
+            $md5Match = 0 if $md5 ne $md5Info[$i]->{md5};
         }
+        
+        my $reco = $fullMd5Match ? colored("FULL", "bold blue on_white") : $md5Match ? "Content-Only" : "??Unknown??";
         
         #my $exactMd5 = getMd5($group->[0])->{full_md5};
         #for (my $i = 0; $i < @$group; $i++) {
