@@ -558,6 +558,8 @@ sub doFindDupeDirs {
 sub doFindDupeFiles {
     my ($all, $byName, $autoDiff, $defaultLastAction, @globPatterns) = @_;
     
+    my $fast = 1; # avoid slow operations, potentially with less precision?
+    
     my %keyToPaths = ();
     if ($byName) {
         # Make hash from base filename to files that have that base name
@@ -608,8 +610,8 @@ sub doFindDupeFiles {
                             }
 
                             # Try as filename and extension
-                            my ($an, $ae) = $aa =~ /(.*)\.([^.]*)$/;
-                            my ($bn, $be) = $bb =~ /(.*)\.([^.]*)$/;
+                            my ($an, $ae) = $aa =~ /^(.*)\.([^.]*)$/;
+                            my ($bn, $be) = $bb =~ /^(.*)\.([^.]*)$/;
                             if (defined $ae and defined $be and $ae eq $be) {
                                 if ($an =~ /^\Q$bn\E(.+)/) {
                                     # A's filename is a substring of B's, put A first
@@ -632,8 +634,17 @@ sub doFindDupeFiles {
         }
     }
 
-    # Sort groups by first element
-    @dupes = sort { $a->[0] cmp $b->[0] } @dupes;
+    # Sort groups by first element with JPG last, raw files first
+    my %extOrder = ( CRW => -1, CR2 => -1, NEF => -1, RAF => -1, CRW => -1, JPG => 1, JPEG => 1 );
+    @dupes = sort { 
+        my ($an, $ae) = $a->[0] =~ /^(.*)\.([^.]*)$/;
+        my ($bn, $be) = $b->[0] =~ /^(.*)\.([^.]*)$/;
+        my $cmp = $an cmp $bn;
+        return $cmp if $cmp;
+        my $aOrder = $extOrder{uc $ae} || 0;
+        my $bOrder = $extOrder{uc $be} || 0;
+        return $aOrder <=> $bOrder;
+    } @dupes;
     
     my $lastCommand = '';
 
@@ -645,7 +656,7 @@ sub doFindDupeFiles {
         next if @$group < 2;
         
         # Want to tell if the files are identical, so we need hashes
-        my @md5Info = map { getMd5($_) } @$group;
+        my @md5Info = map { getMd5($_, $fast) } @$group;
         
         my $fullMd5Match = 1;
         my $md5Match = 1;
@@ -661,9 +672,6 @@ sub doFindDupeFiles {
         
         my $reco = $fullMd5Match ? colored("FULL", "bold blue on_white") : $md5Match ? "Content-Only" : "??Unknown??";
         
-        #my $exactMd5 = getMd5($group->[0])->{full_md5};
-        #for (my $i = 0; $i < @$group; $i++) {
-
         # Build base of prompt - indexed paths
         my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, " [$reco]\n");
         for (my $i = 0; $i < @$group; $i++) {
@@ -681,7 +689,7 @@ sub doFindDupeFiles {
             push @prompt, coloredByIndex($path, $i);
 
             # Don't bother cracking the file to get metadata if we're in ignore all mode
-            push @prompt, getDirectoryError($path, $i) unless $all;
+            push @prompt, getDirectoryError($path, $i) unless $all or $fast;
 
             push @prompt, "\n";
             # TODO: collect all sidecars and tell user
@@ -1220,7 +1228,14 @@ sub writeMd5FileToHandle {
 #   md5: primary MD5 comparison (excludes volitile data from calculation)
 #   full_md5: full MD5 calculation for exact match
 sub getMd5 {
-    my ($path) = @_;
+    my ($path, $useCache) = @_;
+    
+    our %md5Cache;
+    my $cacheKey = rel2abs($path);
+    if ($useCache) {
+        my $cacheResult = $md5Cache{$cacheKey};
+        print "cache hit for $cacheKey!\n" and return $cacheResult if defined $cacheResult;
+    }
     
     open(my $fh, '<:raw', $path)
         or confess "Couldn't open $path: $!";
@@ -1267,10 +1282,14 @@ sub getMd5 {
         $partialMd5Hash = getMd5Digest($fh);
     } #TODO: elsif ($origPath =~ /\.(tif|tiff)$/i) {
     
-    return {
+    my $result = {
         md5 => $partialMd5Hash,
         full_md5 => $fullMd5Hash,
     };
+    
+    $md5Cache{$cacheKey} = $result;
+    
+    return $result;
 }
 
 #-------------------------------------------------------------------------------
