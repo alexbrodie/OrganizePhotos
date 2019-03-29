@@ -558,7 +558,7 @@ sub doFindDupeDirs {
 sub doFindDupeFiles {
     my ($all, $byName, $autoDiff, $defaultLastAction, @globPatterns) = @_;
     
-    my $fast = 1; # avoid slow operations, potentially with less precision?
+    my $fast = 0; # avoid slow operations, potentially with less precision?
     
     my %keyToPaths = ();
     if ($byName) {
@@ -654,26 +654,36 @@ sub doFindDupeFiles {
         # Filter out missing files
         @$group = grep { -e } @$group;
         next if @$group < 2;
+
+        # Except when trying to be fast, calculate the MD5 match
+        my $reco = '';
+        unless ($fast) {
+            # Want to tell if the files are identical, so we need hashes
+            my @md5Info = map { getMd5($_) } @$group;
         
-        # Want to tell if the files are identical, so we need hashes
-        my @md5Info = map { getMd5($_, $fast) } @$group;
+            my $fullMd5Match = 1;
+            my $md5Match = 1;
         
-        my $fullMd5Match = 1;
-        my $md5Match = 1;
+            # If all the primary MD5s are the same report IDENTICAL
+            my $md5 = $md5Info[0]->{md5};
+            my $fullMd5 = $md5Info[0]->{full_md5};
+            for (my $i = 0; $i < @md5Info; $i++) {
+                #print "$i. MD5  ", $md5Info[$i]->{md5}, ",    FULL ", $md5Info[$i]->{full_md5}, "\n";
+                $fullMd5Match = 0 if $fullMd5 ne $md5Info[$i]->{full_md5};
+                $md5Match = 0 if $md5 ne $md5Info[$i]->{md5};
+            }
         
-        # If all the primary MD5s are the same report IDENTICAL
-        my $md5 = $md5Info[0]->{md5};
-        my $fullMd5 = $md5Info[0]->{full_md5};
-        for (my $i = 0; $i < @md5Info; $i++) {
-            #print "$i. MD5  ", $md5Info[$i]->{md5}, ",    FULL ", $md5Info[$i]->{full_md5}, "\n";
-            $fullMd5Match = 0 if $fullMd5 ne $md5Info[$i]->{full_md5};
-            $md5Match = 0 if $md5 ne $md5Info[$i]->{md5};
+            if ($fullMd5Match) {
+                $reco = colored('[Match: FULL]', 'bold blue on_white');
+            } elsif ($md5Match) {
+                $reco = '[Match: Content]';
+            } else {
+                $reco = colored('[Match: UNKNOWN]', 'bold red on_white');
+            }
         }
         
-        my $reco = $fullMd5Match ? colored("FULL", "bold blue on_white") : $md5Match ? "Content-Only" : "??Unknown??";
-        
         # Build base of prompt - indexed paths
-        my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, " [$reco]\n");
+        my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, $reco, "\n");
         for (my $i = 0; $i < @$group; $i++) {
             my $path = $group->[$i];
 
@@ -1234,7 +1244,7 @@ sub getMd5 {
     my $cacheKey = rel2abs($path);
     if ($useCache) {
         my $cacheResult = $md5Cache{$cacheKey};
-        print "cache hit for $cacheKey!\n" and return $cacheResult if defined $cacheResult;
+        return $cacheResult if defined $cacheResult;
     }
     
     open(my $fh, '<:raw', $path)
