@@ -562,19 +562,34 @@ sub doFindDupeFiles {
     
     my %keyToPaths = ();
     if ($byName) {
-        # Make hash from base filename to files that have that base name
+        # Make hash from filename components to files that have that base name
         traverseGlobPatterns(sub {
             if (-f and /$mediaType/) {
-                # Different basename formats
+                push rel2abs($_);
+                
+                # Key component: different basename formats
+                my $key = '';
                 if (/^([a-zA-Z0-9_]{4}\d{4}|\d{4}[-_]\d{2}[-_]\d{2}[-_ ]\d{2}[-_]\d{2}[-_]\d{2})\b(\.[^.]+)$/ or
                     /^([^-(]*\S)\b\s*(?:-\d+|\(\d+\))?(\.[^.]+)$/) {
-                    #print "$1$2\n";
-                    push @{$keyToPaths{lc "$1$2"}}, rel2abs($_);
+                    $key .= lc "$1$2";
                 } else {
+                    # Unknown file format, just use filename?
                     warn "Skipping unknown filename format: $_";
+                    $key .= lc $_;
                 }
+                
+                $key .= ';';
+
+                my $strictDir = 1;
+                if ($strictDir) {
+                    # parent dir should be similar (based on date format)
+                }
+                
+
+                push @{$keyToPaths{$key}}, rel2abs($_);
             }
         }, 1, @globPatterns);
+        
     } else {
         # Make hash from MD5 to files with that MD5
         findMd5s(sub {
@@ -656,7 +671,30 @@ sub doFindDupeFiles {
         # references with some metadata in the same (desired) order
         my @group = map {
             { path => $_, exists => -e }
-        } @$dupes[$dupeIndex];
+        } @{$dupes[$dupeIndex]};
+        
+        my $autoRemoveMissingDuplicates = 0;
+        if ($autoRemoveMissingDuplicates) {
+            # If there's missing files but at least one not missing...
+            my $numMissing = grep { !$_->{exists} } @group;
+            if ($numMissing > 0 and $numMissing < @group) {
+                # Remove the metadata for all missing files, and
+                # keep track of what's still existing
+                my @newGroup = ();
+                for (@group) {
+                    if ($_->{exists}) {
+                        push @newGroup, $_;
+                    } else {
+                        removeMd5ForPath($_->{path});
+                    }
+                }
+            
+                # If there's still multiple in the group, continue
+                # with what was left over, else move to next group
+                next DUPES if @newGroup < 2;
+                @group = @newGroup;
+            }
+        }
 
         # Except when trying to be fast, calculate the MD5 match
         my $reco = '';
@@ -664,17 +702,18 @@ sub doFindDupeFiles {
             # Want to tell if the files are identical, so we need hashes
             #my @md5Info = map { getMd5($_) } @group;
             # TODO: if we're not doing this by name we can use the md5.txt file contents for  MD5 and other metadata
-            $_ = { %$_, %{getMd5{$_->{path}}} } for @group; # TODO: should there be if $_{exists}
+            $_->{exists} and $_ = { %$_, %{getMd5($_->{path})} } for @group;
         
             my $fullMd5Match = 1;
             my $md5Match = 1;
         
             # If all the primary MD5s are the same report IDENTICAL
-            my $md5 = $group[0]->{md5};
-            my $fullMd5 = $group[0]->{full_md5};
+            # If any are missing, should be complete mismatch
+            my $md5 = $group[0]->{md5} || 'x';
+            my $fullMd5 = $group[0]->{full_md5} || 'x';
             for (my $i = 1; $i < @group; $i++) {
-                $md5Match = 0 if $md5 ne $group[$i]->{md5};
-                $fullMd5Match = 0 if $fullMd5 ne $group[$i]->{full_md5};
+                $md5Match = 0 if $md5 ne ($group[$i]->{md5} || 'y');
+                $fullMd5Match = 0 if $fullMd5 ne ($group[$i]->{full_md5} || 'y');
             }
         
             if ($fullMd5Match) {
@@ -687,7 +726,7 @@ sub doFindDupeFiles {
         }
         
         # Build base of prompt - indexed paths
-        my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, $reco, "\n");
+        my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, ' ', $reco, "\n");
         for (my $i = 0; $i < @group; $i++) {
             my $elt = $group[$i];
 
@@ -699,7 +738,7 @@ sub doFindDupeFiles {
                 # Don't bother cracking the file to get metadata if we're in ignore all or fast mode
                 push @prompt, getDirectoryError($elt->{path}, $i) unless $all or $fast;                
             } else {
-                push @prompt, colored('MISSING', 'bold red on_white');
+                push @prompt, ' ', colored('[MISSING]', 'bold red on_white');
             }
             
             push @prompt, "\n";
@@ -719,8 +758,6 @@ sub doFindDupeFiles {
         push @prompt, "[$lastCommand] " if $defaultLastAction and $lastCommand;
 
         metadataDiff(map { $_->{path} } @group) if $autoDiff;
-        
-        my $itemCount = @group;
 
         # Get input until something sticks...
         PROMPT: while (1) {
@@ -744,6 +781,7 @@ sub doFindDupeFiles {
             
             # something like if -l turn on $defaultLastAction and next PROMPT
             
+            my $itemCount = @group;
             for (split /;/, $command) {
                 if ($_ eq 'd') {
                     # Diff
@@ -757,13 +795,18 @@ sub doFindDupeFiles {
                     last PROMPT;
                 } elsif (/^t(\d+)$/) {
                     # Trash Number
-                    if ($1 <= $#group) {
-                        # TODO: if ($group[$1]->{exists}) {
+                    if ($1 <= $#group && $group[$1]) {
+                        if ($group[$1]->{exists}) {
                             trashMedia($group[$1]->{path});
-                            $group[$1]->{exists} = undef;
-                            $itemCount--;
-                            last PROMPT if $itemCount < 2;
-                        # TODO: }
+                        } else {
+                            # File we're trying to trash doesn't exist, 
+                            # so just remove its metadata
+                            removeMd5ForPath($group[$1]->{path});
+                        }
+
+                        $group[$1] = undef;
+                        $itemCount--;
+                        last PROMPT if $itemCount < 2;
                     } else {
                         print "$1 is out of range [0,", $#group, "]";
                         last PROMPT;
@@ -1551,7 +1594,7 @@ sub getDirectoryError {
 # except for extension)
 sub trashMedia {
     my ($path) = @_;
-    #print "trashMedia('$path');\n";
+    print colored("trashMedia($path)\n", 'black on_white');
 
     if ($path =~ /[._]bak\d*$/i) {
         # For backups, only remove the backup, not associated files
