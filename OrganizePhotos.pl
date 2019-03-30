@@ -646,31 +646,35 @@ sub doFindDupeFiles {
         return $aOrder <=> $bOrder;
     } @dupes;
     
+    # TODO: merge sidecars
+    
+    # Process each group of dupliates
     my $lastCommand = '';
-
     DUPES: for (my $dupeIndex = 0; $dupeIndex < @dupes; $dupeIndex++) {
-        my $group = $dupes[$dupeIndex];
-
-        # Filter out missing files
-        @$group = grep { -e } @$group;
-        next if @$group < 2;
+        # Convert current element from an array of paths (strings) to
+        # an array (per file, in storted order) to array of hash
+        # references with some metadata in the same (desired) order
+        my @group = map {
+            { path => $_, exists => -e }
+        } @$dupes[$dupeIndex];
 
         # Except when trying to be fast, calculate the MD5 match
         my $reco = '';
         unless ($fast) {
             # Want to tell if the files are identical, so we need hashes
-            my @md5Info = map { getMd5($_) } @$group;
+            #my @md5Info = map { getMd5($_) } @group;
+            # TODO: if we're not doing this by name we can use the md5.txt file contents for  MD5 and other metadata
+            $_ = { %$_, %{getMd5{$_->{path}}} } for @group; # TODO: should there be if $_{exists}
         
             my $fullMd5Match = 1;
             my $md5Match = 1;
         
             # If all the primary MD5s are the same report IDENTICAL
-            my $md5 = $md5Info[0]->{md5};
-            my $fullMd5 = $md5Info[0]->{full_md5};
-            for (my $i = 0; $i < @md5Info; $i++) {
-                #print "$i. MD5  ", $md5Info[$i]->{md5}, ",    FULL ", $md5Info[$i]->{full_md5}, "\n";
-                $fullMd5Match = 0 if $fullMd5 ne $md5Info[$i]->{full_md5};
-                $md5Match = 0 if $md5 ne $md5Info[$i]->{md5};
+            my $md5 = $group[0]->{md5};
+            my $fullMd5 = $group[0]->{full_md5};
+            for (my $i = 1; $i < @group; $i++) {
+                $md5Match = 0 if $md5 ne $group[$i]->{md5};
+                $fullMd5Match = 0 if $fullMd5 ne $group[$i]->{full_md5};
             }
         
             if ($fullMd5Match) {
@@ -684,23 +688,20 @@ sub doFindDupeFiles {
         
         # Build base of prompt - indexed paths
         my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, $reco, "\n");
-        for (my $i = 0; $i < @$group; $i++) {
-            my $path = $group->[$i];
+        for (my $i = 0; $i < @group; $i++) {
+            my $elt = $group[$i];
 
             push @prompt, "  $i. ";
 
-            # TODO: Figure out how the handle the below issue with upcoming
-            # TODO: pair of pixel-md5 and whole-file-md5
-            # If MD5 isn't a whole file MD5, put compute the wholefile MD5 and add to output
-            #if ($path =~ /\.(?:jpeg|jpg)$/i) {
-            #    push @prompt, '[', getBareFileMd5($path), '] ';
-            #}
-
-            push @prompt, coloredByIndex($path, $i);
-
-            # Don't bother cracking the file to get metadata if we're in ignore all mode
-            push @prompt, getDirectoryError($path, $i) unless $all or $fast;
-
+            push @prompt, coloredByIndex($elt->{path}, $i);
+            
+            if ($elt->{exists}) {
+                # Don't bother cracking the file to get metadata if we're in ignore all or fast mode
+                push @prompt, getDirectoryError($elt->{path}, $i) unless $all or $fast;                
+            } else {
+                push @prompt, colored('MISSING', 'bold red on_white');
+            }
+            
             push @prompt, "\n";
             # TODO: collect all sidecars and tell user
         }
@@ -712,14 +713,14 @@ sub doFindDupeFiles {
         # Add input options to prompt
         push @prompt, "Diff, Continue, Always continue, Trash Number, Open Number (d/c/a";
         for my $x ('t', 'o') {
-            push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#$group);
+            push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#group);
         }
         push @prompt, ")? ";
         push @prompt, "[$lastCommand] " if $defaultLastAction and $lastCommand;
 
-        metadataDiff(@$group) if $autoDiff;
+        metadataDiff(map { $_->{path} } @group) if $autoDiff;
         
-        my $itemCount = @$group;
+        my $itemCount = @group;
 
         # Get input until something sticks...
         PROMPT: while (1) {
@@ -730,7 +731,7 @@ sub doFindDupeFiles {
             # This allows for some automated processing if there are
             # temporary patterns of thousands of items that need the
             # same processing
-            #if ($group->[0] =~ /\/2017-2\//) {
+            #if ($group[0]->{path} =~ /\/2017-2\//) {
             #    $command = "t0"
             #}
             
@@ -746,7 +747,7 @@ sub doFindDupeFiles {
             for (split /;/, $command) {
                 if ($_ eq 'd') {
                     # Diff
-                    metadataDiff(@$group);
+                    metadataDiff(map { $_->{path} } @group);
                 } elsif ($_ eq 'c') {
                     # Continue
                     last PROMPT;
@@ -756,26 +757,26 @@ sub doFindDupeFiles {
                     last PROMPT;
                 } elsif (/^t(\d+)$/) {
                     # Trash Number
-                    if ($1 < @$group) {
-                        if (defined $group->[$1]) {
-                            trashMedia($group->[$1]);
-                            $group->[$1] = undef;
+                    if ($1 <= $#group) {
+                        # TODO: if ($group[$1]->{exists}) {
+                            trashMedia($group[$1]->{path});
+                            $group[$1]->{exists} = undef;
                             $itemCount--;
                             last PROMPT if $itemCount < 2;
-                        }
+                        # TODO: }
                     } else {
-                        print "$1 is out of range [0,", (@$group - 1), "]";
+                        print "$1 is out of range [0,", $#group, "]";
                         last PROMPT;
                     }
                 } elsif (/^o(\d+)$/i) {
                     # Open Number
-                    if ($1 < @$group) {
-                        `open "$group->[$1]"`;
+                    if ($1 <= $#group) {
+                        `open "$group[$1]->{path}"`;
                     }
                 } elsif (/^m(\d+(?:,\d+)+)$/) {
                     # Merge 1,2,3,4,... into 0
                     my @matches = split ',', $1;
-                    appendMetadata(map { $group->[$_] } @matches);
+                    appendMetadata(map { $group[$_]->{path} } @matches);
                 }
             }
             
@@ -905,28 +906,35 @@ sub doVerifyMd5 {
     our $all = 0;
     findMd5s(sub {
         my ($path, $expectedMd5) = @_;
-        my $actualMd5 = getMd5($path)->{md5};
-        if ($actualMd5 eq $expectedMd5) {
-            # Hash match
-            print "Verified MD5 for $path\n";
-        } else {
-            # Has MIS-match, needs input
-            warn "ERROR: MD5 mismatch for $path ($actualMd5 != $expectedMd5)\n";
-            unless ($all) {
-                while (1) {
-                    print "Ignore, ignore All, Quit (i/a/q)? ";
-                    chomp(my $in = lc <STDIN>);
+        if (-e $path) {
+            # File exists
+            my $actualMd5 = getMd5($path)->{md5};
+            if ($actualMd5 eq $expectedMd5) {
+                # Hash match
+                print "Verified MD5 for $path\n";
+            } else {
+                # Has MIS-match, needs input
+                warn "ERROR: MD5 mismatch for $path ($actualMd5 != $expectedMd5)\n";
+                unless ($all) {
+                    while (1) {
+                        print "Ignore, ignore All, Quit (i/a/q)? ";
+                        chomp(my $in = lc <STDIN>);
 
-                    if ($in eq 'i') {
-                        last;
-                    } elsif ($in eq 'a') {
-                        $all = 1;
-                        last;
-                    } elsif ($in eq 'q') {
-                        confess "MD5 mismatch for $path";
+                        if ($in eq 'i') {
+                            last;
+                        } elsif ($in eq 'a') {
+                            $all = 1;
+                            last;
+                        } elsif ($in eq 'q') {
+                            confess "MD5 mismatch for $path";
+                        }
                     }
                 }
             }
+        } else {
+            # File doesn't exist
+            # TODO: prompt to see if we should remove this via removeMd5ForPath
+            warn "Missing file: $path\n";
         }
     }, @globPatterns);
 }
