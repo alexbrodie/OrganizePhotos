@@ -564,29 +564,52 @@ sub doFindDupeFiles {
     if ($byName) {
         # Make hash from filename components to files that have that base name
         traverseGlobPatterns(sub {
-            if (-f and /$mediaType/) {
-                push rel2abs($_);
+            if (-f and /$mediaType/) { 
+                my $path = rel2abs($_);
+                my @splitPath = deepSplitPath($path);
+                my ($name, $ext) = pop(@splitPath) =~ /^(.*)\.([^.]*)/;
                 
-                # Key component: different basename formats
-                my $key = '';
-                if (/^([a-zA-Z0-9_]{4}\d{4}|\d{4}[-_]\d{2}[-_]\d{2}[-_ ]\d{2}[-_]\d{2}[-_]\d{2})\b(\.[^.]+)$/ or
-                    /^([^-(]*\S)\b\s*(?:-\d+|\(\d+\))?(\.[^.]+)$/) {
-                    $key .= lc "$1$2";
+                #print join('%', @splitPath), ";name=$name;ext=$ext;\n";
+
+                # Start with extension
+                #my $key = lc ($path =~ /\.([^\/\\.]*)$/)[0];
+                my $key = lc $ext . ';';
+
+                # Add basename
+                my $nameRegex = qr/^
+                    (
+                        # things like DCF_1234
+                        [a-zA-Z\d_]{4} \d{4} |
+                        # things like 2009-08-11 12_31_45
+                        \d{4} [-_] \d{2} [-_] \d{2} [-_\s] \d{2} [-_] \d{2} [-_] \d{2}
+                    ) \b /x;
+
+                if ($name =~ /$nameRegex/) {
+                    $key .= lc $1 . ';';
                 } else {
                     # Unknown file format, just use filename?
-                    warn "Skipping unknown filename format: $_";
-                    $key .= lc $_;
+                    warn "Unknown filename format: $name";
+                    $key .= lc $name . ';';
                 }
-                
-                $key .= ';';
 
                 my $strictDir = 1;
                 if ($strictDir) {
                     # parent dir should be similar (based on date format)
+                    my $dirRegex = qr/^
+                        # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
+                        (?:19|20)(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
+                        /x;
+                        
+                    my $dir = pop(@splitPath); 
+                    if ($dir =~ /$dirRegex/) {
+                        $key .= lc "$1$2$3;";
+                    } else {
+                        warn "Unknown directory format: $dir";
+                    }
                 }
-                
 
-                push @{$keyToPaths{$key}}, rel2abs($_);
+                print "KEY($key) = VALUE($path);\n";
+                push @{$keyToPaths{$key}}, $path;
             }
         }, 1, @globPatterns);
         
@@ -1594,7 +1617,7 @@ sub getDirectoryError {
 # except for extension)
 sub trashMedia {
     my ($path) = @_;
-    print colored("trashMedia($path)\n", 'black on_white');
+    #print colored("trashMedia($path)", 'black on_white'), "\n";
 
     if ($path =~ /[._]bak\d*$/i) {
         # For backups, only remove the backup, not associated files
@@ -1662,6 +1685,7 @@ sub deepSplitPath {
 
     my ($volume, $dir, $name) = splitpath($path);
     my @dirs = splitdir($dir);
+    pop @dirs unless $dirs[-1];
 
     return ($volume, @dirs, $name);
 }
