@@ -15,7 +15,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl -h
 
     # Typical workflow:
-    # Import via Image Capture to local folder as originals
+    # Import via Image Capture to local folder as originals (unmodified file copy)
     # Import that folder in Lightroom as move
     OrganizePhotos.pl checkup /photos/root/dir
     # Archive /photos/root/dir (see help)
@@ -416,6 +416,7 @@ exit 0;
 
 #===============================================================================
 sub main {
+    # Parse args (using GetOptions) and delegate to the doVerb methods...
     if ($#ARGV == -1) {
         pod2usage();        
     } elsif ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]$/i) {
@@ -524,6 +525,7 @@ sub doCollectTrash {
 # Execute consolodate-metadata verb
 sub doConsolodateMetadata {
     my ($arg1, $arg2, $etc) = @_;
+    # TODO
 }
 
 #===============================================================================
@@ -678,7 +680,7 @@ sub doFindDupeFiles {
     }
 
     # Sort groups by first element with JPG last, raw files first
-    my %extOrder = ( CRW => -1, CR2 => -1, NEF => -1, RAF => -1, CRW => -1, JPG => 1, JPEG => 1 );
+    my %extOrder = ( CRW => -1, CR2 => -1, HEIC => -1, NEF => -1, RAF => -1, JPG => 1, JPEG => 1 );
     @dupes = sort { 
         my ($an, $ae) = $a->[0] =~ /^(.*)\.([^.]*)$/;
         my ($bn, $be) = $b->[0] =~ /^(.*)\.([^.]*)$/;
