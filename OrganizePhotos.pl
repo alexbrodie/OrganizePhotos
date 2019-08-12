@@ -3,6 +3,15 @@
 # Commands to regenerate documentation:
 #   pod2markdown OrganizePhotos.pl > README.md
 #
+# TODO LIST
+#  * look for zero duration videos (this hang's Lightroom's DynamicLinkMediaServer which pegs the CPU and blocks Lr preventing any video imports or other things requiring DLMS, e.g. purging video cache)
+#  * get rid of texted photos (no metadata (e.g. camera make & model), small files)
+#  * need to remove item from md5.txt when trashed and add it to trashed dir - currently that seems broken
+#  * also report base name match when resolving groups
+#  * content match for mov, png, tiff
+#  * content only png check
+#  * ADD HEIC SUPPORT
+#
 =pod
 
 =head1 NAME
@@ -316,6 +325,13 @@ the provided timestamp or timestamp at last MD5 check
     # Append all keyword metadata from SOURCE to DESTINATION
     exiftool -addTagsfromfile SOURCE -HierarchicalSubject -Subject DESTINATION
 
+    # Shift all mp4 times, useful when clock on GoPro is reset to 1/1/2015 due to dead battery
+    # Format is: offset='[y:m:d ]h:m:s' or more see https://sno.phy.queensu.ca/~phil/exiftool/Shift.html#SHIFT-STRING
+    offset='4:6:24 13:0:0'
+    exiftool "-CreateDate+=$offset" "-ModifyDate+=$offset" 
+             "-TrackCreateDate+=$offset" "-TrackModifyDate+=$offset" 
+             "-MediaCreateDate+=$offset" "-MediaModifyDate+=$offset" *.mp4
+    
 =head2 Complementary Mac commands
 
     # Mirror SOURCE to TARGET
