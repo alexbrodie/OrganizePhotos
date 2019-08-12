@@ -8,7 +8,8 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl -h
 
     # Typical workflow:
-    # Import via Lightroom 
+    # Import via Image Capture to local folder as originals (unmodified file copy)
+    # Import that folder in Lightroom as move
     OrganizePhotos.pl checkup /photos/root/dir
     # Archive /photos/root/dir (see help)
 
@@ -35,7 +36,7 @@ The following verbs are available:
 - **add-md5** \[glob patterns...\]
 - **append-metadata** &lt;target file> &lt;source files...>
 - **check-md5** \[glob patterns...\]
-- **checkup** \[-a\]
+- **checkup** \[-a\] \[-d\] \[-l\] \[-n\] \[glob patterns...\]
 - **collect-trash** \[glob patterns...\]
 - **consolodate-metadata** &lt;dir>
 - **find-dupe-dirs**
@@ -87,9 +88,9 @@ the md5.txt files.
     # Check or add MD5 for all CR2 files in the current directory
     $ OrganizePhotos.pl c5 *.CR2
 
-## checkup
+## checkup \[glob patterns...\]
 
-_Alias: c_ \[glob patterns...\]
+_Alias: c_
 
 This command runs the following suggested suite of commands:
 
@@ -103,6 +104,18 @@ This command runs the following suggested suite of commands:
 - **-a, --always-continue**
 
     Always continue
+
+- **-d, --auto-diff**
+
+    Automatically do the 'd' diff command for every new group of files
+
+- **-l, --default-last-action**
+
+    Enter repeats last command
+
+- **-n, --by-name**
+
+    Search for items based on name rather than the default of MD5
 
 - **glob patterns**
 
@@ -172,6 +185,11 @@ Find files that have multiple copies under the current directory.
 
     Search for items based on name rather than the default of MD5
 
+- **glob patterns**
+
+    Rather than operate on files under the current directory, operate on
+    the specified glob pattern.
+
 ## metadata-diff &lt;files...>
 
 _Alias: md_
@@ -218,19 +236,28 @@ This method does not modify any file.
     # Append all keyword metadata from SOURCE to DESTINATION
     exiftool -addTagsfromfile SOURCE -HierarchicalSubject -Subject DESTINATION
 
+    # Shift all mp4 times, useful when clock on GoPro is reset to 1/1/2015 due to dead battery
+    # Format is: offset='[y:m:d ]h:m:s' or more see https://sno.phy.queensu.ca/~phil/exiftool/Shift.html#SHIFT-STRING
+    offset='4:6:24 13:0:0'
+    exiftool "-CreateDate+=$offset" "-ModifyDate+=$offset" 
+             "-TrackCreateDate+=$offset" "-TrackModifyDate+=$offset" 
+             "-MediaCreateDate+=$offset" "-MediaModifyDate+=$offset" *.mp4
+    
+
 ## Complementary Mac commands
 
-    # Print .Trash directories
-    find . -type d -iname '.Trash'
+    # Mirror SOURCE to TARGET
+    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
+        SOURCE TARGET
 
-    # Move .Trash directories to the trash
+    # Move .Trash directories recursively to the trash
     find . -type d -iname '.Trash' -exec trash {} \;
 
-    # Remove .DS_Store (omit "-delete" to only print)
+    # Delete .DS_Store recursively (omit "-delete" to only print)
     find . -type f -name .DS_Store -print -delete
 
-    # Remove zero byte md5.txt files (omit "-delete" to only print)
-    find . -type f -name md5.txt -empty -print -delete
+    # Delete zero byte md5.txt files (omit "-delete" to only print)
+    find . -type f -iname md5.txt -empty -print -delete
 
     # Remove empty directories (omit "-delete" to only print)
     find . -type d -empty -print -delete
@@ -245,10 +272,6 @@ This method does not modify any file.
     # Remove the downloaded-and-untrusted extended attribute for the current tree
     xattr -d -r com.apple.quarantine .
 
-    # Mirror SOURCE to TARGET
-    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
-        SOURCE TARGET
-
     # Find large-ish files
     find . -size +100MB
 
@@ -262,7 +285,7 @@ This method does not modify any file.
 
 # AUTHOR
 
-Copyright 2016, Alex Brodie
+Copyright 2017, Alex Brodie
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
