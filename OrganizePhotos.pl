@@ -15,7 +15,8 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl -h
 
     # Typical workflow:
-    # Import via Lightroom 
+    # Import via Image Capture to local folder as originals
+    # Import that folder in Lightroom as move
     OrganizePhotos.pl checkup /photos/root/dir
     # Archive /photos/root/dir (see help)
 
@@ -400,7 +401,7 @@ my $md5pattern = qr/[0-9a-f]{32}/;
 # Media file extensions
 my $mediaType = qr/
     # Media extension
-    (?: \. (?i) (?:avi|crw|cr2|jpeg|jpg|m4v|mov|mp4|mpg|mts|nef|png|psb|psd|raf|tif|tiff) $)
+    (?: \. (?i) (?:avi|crw|cr2|jpeg|jpg|heic|m4v|mov|mp4|mpg|mts|nef|png|psb|psd|raf|tif|tiff) $)
     | # Backup file
     (?: [._] (?i) bak\d* $)
     /x;
@@ -592,23 +593,27 @@ sub doFindDupeFiles {
                     $key .= lc $name . ';';
                 }
 
-                my $strictDir = 1;
-                if ($strictDir) {
-                    # parent dir should be similar (based on date format)
-                    my $dirRegex = qr/^
-                        # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
-                        (?:19|20)(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
-                        /x;
-                        
-                    my $dir = pop(@splitPath); 
-                    if ($dir =~ /$dirRegex/) {
-                        $key .= lc "$1$2$3;";
-                    } else {
-                        warn "Unknown directory format: $dir";
+                # parent dir should be similar (based on date format)
+                my $dirRegex = qr/^
+                    # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
+                    (?:19|20)?(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
+                    /x;
+
+                my $dirKey = '';
+                for (reverse @splitPath) {
+                    if (/$dirRegex/) {
+                        $dirKey = lc "$1$2$3;";
+                        last;
                     }
                 }
+                
+                if ($dirKey) {
+                    $key .= $dirKey;
+                } else {
+                    warn "Unknown directory format: $path\n";
+                }
 
-                print "KEY($key) = VALUE($path);\n";
+                #print "KEY($key) = VALUE($path);\n";
                 push @{$keyToPaths{$key}}, $path;
             }
         }, 1, @globPatterns);
@@ -696,7 +701,7 @@ sub doFindDupeFiles {
             { path => $_, exists => -e }
         } @{$dupes[$dupeIndex]};
         
-        my $autoRemoveMissingDuplicates = 0;
+        my $autoRemoveMissingDuplicates = 1;
         if ($autoRemoveMissingDuplicates) {
             # If there's missing files but at least one not missing...
             my $numMissing = grep { !$_->{exists} } @group;
@@ -1397,7 +1402,7 @@ sub metadataDiff {
     my @paths = @_;
 
     # Get metadata for all files
-    my @items = map { readMetadata($_) } @paths;
+    my @items = map { (-e) ? readMetadata($_) : {} } @paths;
 
     my @tagsToSkip = qw(
         CurrentIPTCDigest DocumentID DustRemovalData
@@ -1445,9 +1450,7 @@ sub appendMetadata {
     my @properties = qw(XPKeywords Rating Subject HierarchicalSubject LastKeywordXMP Keywords);
     
     # Extract current metadata in target
-    my $etTarget = new Image::ExifTool;
-    $etTarget->ExtractInfo($target)
-        or confess "Couldn't ExtractInfo for $target";
+    my $etTarget = ExtractInfo($target);
     my $infoTarget = $etTarget->GetInfo(@properties);
     print "$target: ", Dumper($infoTarget) if $verbosity >= VERBOSITY_DEBUG;
     
@@ -1465,9 +1468,7 @@ sub appendMetadata {
         
     for my $source (@sources) {
         # Extract metadata in source to merge in
-        my $etSource = new Image::ExifTool;
-        $etSource->ExtractInfo($source)
-            or confess "Couldn't ExtractInfo for $source";            
+        my $etSource = ExtractInfo($source);            
         my $infoSource = $etSource->GetInfo(@properties);
         print "$source: ", Dumper($infoSource) if $verbosity >= VERBOSITY_DEBUG;
         
@@ -1543,10 +1544,7 @@ sub appendMetadata {
 sub readMetadata {
     my ($path) = @_;
 
-    my $et = new Image::ExifTool;
-
-    $et->ExtractInfo($path)
-        or confess "Couldn't ExtractInfo for $path";
+    my $et = ExtractInfo($path);
 
     my $info = $et->GetInfo();
 
@@ -1570,6 +1568,18 @@ sub readMetadata {
     #my $keys = $et->GetTagList($info);
 
     return $info;
+}
+
+#-------------------------------------------------------------------------------
+# Wrapper for Image::ExifTool::ExtractInfo + GetInfo with error handling
+sub ExtractInfo {
+    my ($path) = @_;
+    
+    my $et = new Image::ExifTool;
+    $et->ExtractInfo($path)
+        or confess "Couldn't ExtractInfo for $path: " . $et->GetValue('Error');
+        
+    return $et;
 }
 
 #-------------------------------------------------------------------------------
