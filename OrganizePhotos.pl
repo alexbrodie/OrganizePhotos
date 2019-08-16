@@ -11,6 +11,8 @@
 #  * content match for mov, png, tiff
 #  * content only png check
 #  * ADD HEIC SUPPORT
+#  * add sidecars to prompt output
+# *  undo support (z)
 #
 =pod
 
@@ -423,7 +425,7 @@ my $mediaType = qr/
     /x;
     
 # For extra output
-my $verbosity = 0;
+my $verbosity = 10000;
 use constant VERBOSITY_2 => 2;
 use constant VERBOSITY_DEBUG => 999;
 
@@ -530,6 +532,9 @@ sub doCollectTrash {
             my $newFullPath = rel2abs($newRelPath, $root);
 
             if ($oldFullPath ne $newFullPath) {
+                # BUGBUG - this should probably strip out any extra .Trash
+                # right now occasionally seeing things like
+                # .Trash/foo/.Trash/bar.jpg
                 moveDir($oldFullPath, $newFullPath);
             } else {
                 #print "Noop for path $oldRelPath\n";
@@ -1073,6 +1078,20 @@ sub verifyOrGenerateMd5ForGlob {
 }
 
 #-------------------------------------------------------------------------------
+# Gets the path to the file containing the md5 information and the key used
+# to index into the contents of that file.
+sub getMd5PathAndKey {
+    my ($path) = @_;
+
+    $path = rel2abs($path);
+    my ($volume, $dir, $name) = splitpath($path);
+    my $md5Path = catpath($volume, $dir, 'md5.txt');
+    my $md5Key = lc $name;
+    
+    return ($md5Path, $md5Key);
+}
+
+#-------------------------------------------------------------------------------
 # If the file's md5.txt file has a MD5 for the specified [path], this
 # verifies it matches the current MD5.
 #
@@ -1081,13 +1100,8 @@ sub verifyOrGenerateMd5ForGlob {
 sub verifyOrGenerateMd5ForFile {
     my ($addOnly, $omitSkipMessage, $path) = @_;
 
-    # The path to file that contains the MD5 info
     $path = rel2abs($path);
-    my ($volume, $dir, $name) = splitpath($path);
-    my $md5Path = catpath($volume, $dir, 'md5.txt');
-
-    # Index into the md5.txt file essentially
-    my $key = lc $name;
+    my ($md5Path, $md5Key) = getMd5PathAndKey($path);
     
     # Get file stats for the file we're evaluating to reference and/or
     # update MD5.txt
@@ -1107,7 +1121,7 @@ sub verifyOrGenerateMd5ForFile {
     if ($lastMd5Path and $md5Path eq $lastMd5Path) {
         # Skip files whose date modified and file size haven't changed
         # TODO: unless force override if specified
-        return if canMakeMd5MetadataShortcut($addOnly, $omitSkipMessage, $path, $lastMd5Set->{$key}, $actualMd5);
+        return if canMakeMd5MetadataShortcut($addOnly, $omitSkipMessage, $path, $lastMd5Set->{$md5Key}, $actualMd5);
     }
         
     # Read MD5.txt file to consult
@@ -1127,7 +1141,7 @@ sub verifyOrGenerateMd5ForFile {
     $lastMd5Set = $expectedMd5Set;
 
     # Target hash and metadata from cache and/or md5.txt
-    my $expectedMd5 = $expectedMd5Set->{$key};
+    my $expectedMd5 = $expectedMd5Set->{$md5Key};
         
     # Skip files whose date modified and file size haven't changed
     # TODO: unless force override if specified
@@ -1187,7 +1201,7 @@ sub verifyOrGenerateMd5ForFile {
     }
 
     # Add/update MD5
-    $expectedMd5Set->{$key} = $actualMd5;
+    $expectedMd5Set->{$md5Key} = $actualMd5;
 
     # Update cache
     $lastMd5Path = $md5Path;
@@ -1225,43 +1239,59 @@ sub canMakeMd5MetadataShortcut {
 }
 
 #-------------------------------------------------------------------------------
-sub getMetadataForPath {
-    my ($path) = @_;
-
-    # The path to file that contains the MD5 info
-    my ($volume, $dir, $name) = splitpath($path);
-    my $md5Path = catpath($volume, $dir, 'md5.txt');
-
-    if (open(my $fh, '<:crlf', $md5Path)) {
-        my $md5s = readMd5FileFromHandle($fh);
-        return $md5s->{$name};
-    } else {
-        return undef;
-    }
-}
-
-#-------------------------------------------------------------------------------
 # Removes the cached MD5 hash for the specified path
 sub removeMd5ForPath {
     my ($path) = @_;
 
-    # The path to file that contains the MD5 info
-    my ($volume, $dir, $name) = splitpath($path);
-    my $md5Path = catpath($volume, $dir, 'md5.txt');
+    my ($md5Path, $md5Key) = getMd5PathAndKey($path);
 
     if (open(my $fh, '+<:crlf', $md5Path)) {
         my $md5s = readMd5FileFromHandle($fh);
         
-        if (exists $md5s->{$name}) {
-            delete $md5s->{$name};
-            
+        if (exists $md5s->{$md5Key}) {
+            delete $md5s->{$md5Key};            
             writeMd5FileToHandle($fh, $md5s);
             
-            # TODO: update the cashe from the validate func?
+            # TODO: update the cache from the validate func?
 
-            print "Removed $name from $md5Path\n";
+            print "Removed $md5Key from $md5Path\n";
+        } else {
+            print "$md5Key didn't exist in $md5Path\n" 
+                if $verbosity >= VERBOSITY_DEBUG;
         }
+    } else {
+        print "Couldn't open $md5Path\n"
+            if $verbosity >= VERBOSITY_DEBUG;
     }
+}
+
+#-------------------------------------------------------------------------------
+# TODO
+sub moveMd5ForPath {
+    my ($oldPath, $newPath) = @_;
+
+    my ($oldMd5Path, $oldMd5Key) = getMd5PathAndKey($oldPath);
+    my ($newMd5Path, $newMd5Key) = getMd5PathAndKey($newPath);
+    
+    if (open(my $oldFh, '+<:crlf', $oldMd5Path)) {
+        my $oldMd5s = readMd5FileFromHandle($oldFh);
+    
+        if (open(my $newFh, '+<:crlf', $newMd5Path)) {
+            my $newMd5s = readMd5FileFromHandle($newFh);
+            
+            # TODO - We have both files, so try to move the hash entry from old to new
+            
+        } else {
+            # TODO - write single entry to new file
+            my $newMd5s = { $newMd5Key => $oldMd5s }
+        }   
+
+        delete $oldMd5s->{$oldMd5Key};            
+        writeMd5FileToHandle($oldFh, $oldMd5s);
+    } else {
+        # TODO - error
+    }
+    
 }
 
 #-------------------------------------------------------------------------------
@@ -1269,7 +1299,8 @@ sub removeMd5ForPath {
 sub readMd5FileFromHandle {
     my ($fh) = @_;
     
-    print "Reading     MD5.txt\n" if $verbosity >= VERBOSITY_DEBUG;
+    print "Reading     MD5.txt\n" 
+        if $verbosity >= VERBOSITY_DEBUG;
     
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple name: md5 format parsing
