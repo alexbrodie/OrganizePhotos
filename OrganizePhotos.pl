@@ -12,6 +12,7 @@
 #  * also report base name match when resolving groups
 #  * content only match for mov, png, tiff, png
 #  * undo support (z)
+#  * get dates for HEIC. maybe just need to update ExifTools?
 #
 =pod
 
@@ -1496,9 +1497,6 @@ sub metadataDiff {
     for my $key (sort keys %keys) {
         print colored("$key:", 'bold'), ' ' x (29 - length $key);
         for (my $i = 0; $i < @items; $i++) {
-#            my $message = exists $items[$i]->{$key}
-#                ? $items[$i]->{$key}
-#                : coloredFaint('undef');
             my $message = $items[$i]->{$key} || coloredFaint('undef');
             print coloredByIndex($message, $i), "\n", ' ' x 30;
         }
@@ -1847,7 +1845,7 @@ sub formatDate {
 sub coloredFaint {
     my ($message) = @_;
 
-    return colored('faint', $message);
+    return colored($message, 'faint');
 }
 
 #-------------------------------------------------------------------------------
