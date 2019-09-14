@@ -4,15 +4,14 @@
 #   pod2markdown OrganizePhotos.pl > README.md
 #
 # TODO LIST
-#  * look for zero duration videos (this hang's Lightroom's DynamicLinkMediaServer which pegs the CPU and blocks Lr preventing any video imports or other things requiring DLMS, e.g. purging video cache)
-#  * get rid of texted photos (no metadata (e.g. camera make & model), small files)
-#  * need to remove item from md5.txt when trashed and add it to trashed dir - currently that seems broken
+#  * look for zero duration videos (this hang's Lightroom's
+#    DynamicLinkMediaServer which pegs the CPU and blocks Lr preventing any
+#    video imports or other things requiring DLMS, e.g. purging video cache)
+#  * get rid of texted photos (no metadata (e.g. camera make & model), small 
+#    files)
 #  * also report base name match when resolving groups
-#  * content match for mov, png, tiff
-#  * content only png check
-#  * ADD HEIC SUPPORT
-#  * add sidecars to prompt output
-# *  undo support (z)
+#  * content only match for mov, png, tiff, png
+#  * undo support (z)
 #
 =pod
 
@@ -26,7 +25,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl -h
 
     # Typical workflow:
-    # Import via Image Capture to local folder as originals (unmodified file copy)
+    # Import via Image Capture to local folder as originals (unmodified copy)
     # Import that folder in Lightroom as move
     OrganizePhotos.pl checkup /photos/root/dir
     # Archive /photos/root/dir (see help)
@@ -359,7 +358,7 @@ the provided timestamp or timestamp at last MD5 check
         -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF"
         -or -iname "md5.txt" \) -print -exec chmod -x {} \;
 
-    # Remove the downloaded-and-untrusted extended attribute for the current tree
+    # Remove downloaded-and-untrusted extended attribute for the current tree
     xattr -d -r com.apple.quarantine .
 
     # Find large-ish files
@@ -425,7 +424,7 @@ my $mediaType = qr/
     /x;
     
 # For extra output
-my $verbosity = 10000;
+my $verbosity = 0;
 use constant VERBOSITY_2 => 2;
 use constant VERBOSITY_DEBUG => 999;
 
@@ -433,6 +432,8 @@ main();
 exit 0;
 
 #===============================================================================
+# Main entrypoint that parses command line a bit and routes to the 
+# subroutines starting with "do"
 sub main {
     # Parse args (using GetOptions) and delegate to the doVerb methods...
     if ($#ARGV == -1) {
@@ -584,6 +585,7 @@ sub doFindDupeFiles {
     
     my $fast = 0; # avoid slow operations, potentially with less precision?
     
+    # Create the initial groups
     my %keyToPaths = ();
     if ($byName) {
         # Make hash from filename components to files that have that base name
@@ -705,8 +707,12 @@ sub doFindDupeFiles {
     @dupes = sort { 
         my ($an, $ae) = $a->[0] =~ /^(.*)\.([^.]*)$/;
         my ($bn, $be) = $b->[0] =~ /^(.*)\.([^.]*)$/;
+
+        # Sort by filename first
         my $cmp = $an cmp $bn;
         return $cmp if $cmp;
+
+        # Sort by extension (by extOrder, rather than alphabetic)
         my $aOrder = $extOrder{uc $ae} || 0;
         my $bOrder = $extOrder{uc $be} || 0;
         return $aOrder <=> $bOrder;
@@ -724,6 +730,7 @@ sub doFindDupeFiles {
             { path => $_, exists => -e }
         } @{$dupes[$dupeIndex]};
         
+        # If dupes are missing, we can auto-remove
         my $autoRemoveMissingDuplicates = 1;
         if ($autoRemoveMissingDuplicates) {
             # If there's missing files but at least one not missing...
@@ -783,17 +790,25 @@ sub doFindDupeFiles {
 
             push @prompt, "  $i. ";
 
-            push @prompt, coloredByIndex($elt->{path}, $i);
+            my $path = $elt->{path};
+            push @prompt, coloredByIndex($path, $i);
             
+            # Add file error suffix
             if ($elt->{exists}) {
                 # Don't bother cracking the file to get metadata if we're in ignore all or fast mode
-                push @prompt, getDirectoryError($elt->{path}, $i) unless $all or $fast;                
+                push @prompt, getDirectoryError($path, $i) unless $all or $fast;                
             } else {
                 push @prompt, ' ', colored('[MISSING]', 'bold red on_white');
             }
             
             push @prompt, "\n";
-            # TODO: collect all sidecars and tell user
+            
+            # Collect all sidecars and add to prompt
+            for (getSidecarPaths($path)) {
+                if (lc ne lc $path) {
+                    push @prompt, '     ', coloredByIndex(coloredFaint($_), $i), "\n";
+                }
+            }
         }
 
         # Just print that and move on if "Always continue" was
@@ -945,8 +960,7 @@ sub doTest {
         # Get file metadata
         my $et = new Image::ExifTool;
         $et->Options(DateFormat => '%FT%TZ');
-        $et->ExtractInfo($filename)
-            or confess "Couldn't ExtractInfo for $filename";
+        $et = extractInfo($filename, $et);
         my $info = $et->GetInfo(qw(
             DateTimeOriginal TimeZone TimeZoneCity DaylightSavings 
             Make Model SerialNumber));
@@ -1482,10 +1496,11 @@ sub metadataDiff {
     for my $key (sort keys %keys) {
         print colored("$key:", 'bold'), ' ' x (29 - length $key);
         for (my $i = 0; $i < @items; $i++) {
-            print coloredByIndex(exists $items[$i]->{$key}
-                ? $items[$i]->{$key}
-                : colored('undef', 'faint'), $i),
-                "\n", ' ' x 30;
+#            my $message = exists $items[$i]->{$key}
+#                ? $items[$i]->{$key}
+#                : coloredFaint('undef');
+            my $message = $items[$i]->{$key} || coloredFaint('undef');
+            print coloredByIndex($message, $i), "\n", ' ' x 30;
         }
         print "\n";
     }
@@ -1499,7 +1514,7 @@ sub appendMetadata {
     my @properties = qw(XPKeywords Rating Subject HierarchicalSubject LastKeywordXMP Keywords);
     
     # Extract current metadata in target
-    my $etTarget = ExtractInfo($target);
+    my $etTarget = extractInfo($target);
     my $infoTarget = $etTarget->GetInfo(@properties);
     print "$target: ", Dumper($infoTarget) if $verbosity >= VERBOSITY_DEBUG;
     
@@ -1517,7 +1532,7 @@ sub appendMetadata {
         
     for my $source (@sources) {
         # Extract metadata in source to merge in
-        my $etSource = ExtractInfo($source);            
+        my $etSource = extractInfo($source);            
         my $infoSource = $etSource->GetInfo(@properties);
         print "$source: ", Dumper($infoSource) if $verbosity >= VERBOSITY_DEBUG;
         
@@ -1593,7 +1608,7 @@ sub appendMetadata {
 sub readMetadata {
     my ($path) = @_;
 
-    my $et = ExtractInfo($path);
+    my $et = extractInfo($path);
 
     my $info = $et->GetInfo();
 
@@ -1607,8 +1622,7 @@ sub readMetadata {
     if ($path !~ /\.(jpeg|jpeg|tif|tiff)$/i) {
         (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
         if (-s $xmpPath) {
-            $et->ExtractInfo($xmpPath)
-                or confess "Couldn't ExtractInfo for $xmpPath";
+            $et = extractInfo($xmpPath, $et);
 
             $info = { %{$et->GetInfo()}, %$info };
         }
@@ -1621,10 +1635,11 @@ sub readMetadata {
 
 #-------------------------------------------------------------------------------
 # Wrapper for Image::ExifTool::ExtractInfo + GetInfo with error handling
-sub ExtractInfo {
-    my ($path) = @_;
+sub extractInfo {
+    my ($path, $et) = @_;
     
-    my $et = new Image::ExifTool;
+    $et = new Image::ExifTool unless $et;
+    
     $et->ExtractInfo($path)
         or confess "Couldn't ExtractInfo for $path: " . $et->GetValue('Error');
         
@@ -1672,20 +1687,27 @@ sub getDirectoryError {
 }
 
 #-------------------------------------------------------------------------------
+sub getSidecarPaths {
+    my ($path) = @_;
+
+    if ($path =~ /[._]bak\d*$/i) {
+        # For backups, we don't associate related files as sidecars
+        return ($path);
+    } else {
+        # Note that this assumes a proper extension
+        (my $query = $path) =~ s/[^.]*$/*/;
+        return glob qq("$query");
+    }
+}
+
+#-------------------------------------------------------------------------------
 # Trash the specified path and any sidecars (anything with the same path
 # except for extension)
 sub trashMedia {
     my ($path) = @_;
     #print colored("trashMedia($path)", 'black on_white'), "\n";
 
-    if ($path =~ /[._]bak\d*$/i) {
-        # For backups, only remove the backup, not associated files
-        trashPath($path);
-    } else {
-        # Note that this assumes a proper extension
-        (my $query = $path) =~ s/[^.]*$/*/;
-        trashPath($_) for glob qq("$query");
-    }
+    trashPath($_) for getSidecarPaths($path);
 }
 
 #-------------------------------------------------------------------------------
@@ -1717,6 +1739,7 @@ sub moveDir {
             or confess "Can't move a non-directory to a directory ($oldPath > $newPath)";
 
         for my $oldChild (glob(catfile($oldPath, '*'))) {
+            # BUGBUG - this doesn't seem to like curly quotes
             (my $newChild = $oldChild) =~ s/^\Q$oldPath\E/$newPath/
                 or confess "$oldChild should start with $oldPath";
 
@@ -1818,6 +1841,13 @@ sub formatDate {
     my ($sec, $min, $hour, $day, $mon, $year) = localtime $_[0];
     return sprintf '%04d-%02d-%02dT%02d:%02d:%02d',
         $year + 1900, $mon + 1, $day, $hour, $min, $sec;
+}
+
+#-------------------------------------------------------------------------------
+sub coloredFaint {
+    my ($message) = @_;
+
+    return colored('faint', $message);
 }
 
 #-------------------------------------------------------------------------------
