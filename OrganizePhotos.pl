@@ -4,6 +4,7 @@
 #   pod2markdown OrganizePhotos.pl > README.md
 #
 # TODO LIST
+#  * !! when trashing a dupe, make sure not to trash sidecars that don't match
 #  * look for zero duration videos (this hang's Lightroom's
 #    DynamicLinkMediaServer which pegs the CPU and blocks Lr preventing any
 #    video imports or other things requiring DLMS, e.g. purging video cache)
@@ -13,6 +14,10 @@
 #  * content only match for mov, png, tiff, png
 #  * undo support (z)
 #  * get dates for HEIC. maybe just need to update ExifTools?
+#  * should notice new MD5 in one dir and missing MD5 in another dir with
+#    same file name for when files are moved outside of this script, e.g.
+#    Lightroom imports from ToImport folder as move
+#  * Offer to trash short sidecar movies with primary image tagged 'NoPeople'?
 #
 =pod
 
@@ -368,6 +373,17 @@ the provided timestamp or timestamp at last MD5 check
     # Display disk usage stats sorted by size decreasing
     du *|sort -rn
 
+    # For each HEIC move some metadata from neighboring JPG to XMP sidecar
+    # and trash the JPG. This is useful when you have both the raw HEIC from
+    # iPhone and the converted JPG which holds the metadata and you want to
+    # move it to the HEIC and just keep that. For example if you import once
+    # as JPG, add metadata, and then re-import as HEIC.
+    find . -iname '*.heic' -exec sh -c 'x={}; y=${x:0:${#x}-4}; exiftool -tagsFromFile ${y}jpg -Rating -Subject -HierarchicalSubject ${y}xmp; trash ${y}jpg' \;
+
+    # Restore _original files (undo exiftool changes)
+    find . -iname '*_original' -exec sh -c 'x={}; y=${x:0:${#x}-9}; echo mv $x $y' \;
+
+
 =head2 Complementary PC commands
 
     # Mirror SOURCE to TARGET
@@ -482,8 +498,9 @@ sub main {
                        'default-last-action|l' => \$defaultLastAction);
             doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction, @ARGV);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
-            GetOptions();
-            doMetadataDiff(@ARGV);
+            my ($excludeSidecars);
+            GetOptions('exclude-sidecars|x' => \$excludeSidecars);
+            doMetadataDiff($excludeSidecars, @ARGV);
         } elsif ($verb eq 'remove-empties' or $verb eq 're') {
             GetOptions();
             doRemoveEmpties(@ARGV);
@@ -824,7 +841,7 @@ sub doFindDupeFiles {
         push @prompt, ")? ";
         push @prompt, "[$lastCommand] " if $defaultLastAction and $lastCommand;
 
-        metadataDiff(map { $_->{path} } @group) if $autoDiff;
+        metadataDiff(undef, map { $_->{path} } @group) if $autoDiff;
 
         # Get input until something sticks...
         PROMPT: while (1) {
@@ -852,7 +869,7 @@ sub doFindDupeFiles {
             for (split /;/, $command) {
                 if ($_ eq 'd') {
                     # Diff
-                    metadataDiff(map { $_->{path} } @group);
+                    metadataDiff(undef, map { $_->{path} } @group);
                 } elsif ($_ eq 'c') {
                     # Continue
                     last PROMPT;
@@ -899,7 +916,9 @@ sub doFindDupeFiles {
 #===============================================================================
 # Execute metadata-diff verb
 sub doMetadataDiff {
-    metadataDiff(@_);
+    my ($excludeSidecars, @paths) = @_;
+
+    metadataDiff($excludeSidecars, @paths);
 }
 
 #===============================================================================
@@ -1463,10 +1482,10 @@ sub getMd5Digest {
 #-------------------------------------------------------------------------------
 # Print all the metadata values which differ in a set of paths
 sub metadataDiff {
-    my @paths = @_;
+    my ($excludeSidecars, @paths) = @_;
 
     # Get metadata for all files
-    my @items = map { (-e) ? readMetadata($_) : {} } @paths;
+    my @items = map { (-e) ? readMetadata($_, $excludeSidecars) : {} } @paths;
 
     my @tagsToSkip = qw(
         CurrentIPTCDigest DocumentID DustRemovalData
@@ -1604,25 +1623,27 @@ sub appendMetadata {
 # Read metadata as an ExifTool hash for the specified path (and any
 # XMP sidecar when appropriate)
 sub readMetadata {
-    my ($path) = @_;
+    my ($path, $excludeSidecars) = @_;
 
     my $et = extractInfo($path);
 
     my $info = $et->GetInfo();
 
-    # If this file can't hold XMP (i.e. not JPEG or TIFF), look for
-    # XMP sidecar
-    # TODO: Should we exclude DNG here too?
-    # TODO: How do we prevent things like FileSize from being overwritten
-    #       by the XMP sidecar? read it first? exclude fields somehow (eg
-    #       by "file" group)?
-    #       (FileSize, FileModifyDate, FileAccessDate, FilePermissions)
-    if ($path !~ /\.(jpeg|jpeg|tif|tiff)$/i) {
-        (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
-        if (-s $xmpPath) {
-            $et = extractInfo($xmpPath, $et);
+    unless ($excludeSidecars) {
+        # If this file can't hold XMP (i.e. not JPEG or TIFF), look for
+        # XMP sidecar
+        # TODO: Should we exclude DNG here too?
+        # TODO: How do we prevent things like FileSize from being overwritten
+        #       by the XMP sidecar? read it first? exclude fields somehow (eg
+        #       by "file" group)?
+        #       (FileSize, FileModifyDate, FileAccessDate, FilePermissions)
+        if ($path !~ /\.(jpeg|jpg|tif|tiff|xmp)$/i) {
+            (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
+            if (-s $xmpPath) {
+                $et = extractInfo($xmpPath, $et);
 
-            $info = { %{$et->GetInfo()}, %$info };
+                $info = { %{$et->GetInfo()}, %$info };
+            }
         }
     }
 
