@@ -5,6 +5,7 @@
 #
 # TODO LIST
 #  * !! when trashing a dupe, make sure not to trash sidecars that don't match
+#  * glob in friendly sort order
 #  * look for zero duration videos (this hang's Lightroom's
 #    DynamicLinkMediaServer which pegs the CPU and blocks Lr preventing any
 #    video imports or other things requiring DLMS, e.g. purging video cache)
@@ -378,7 +379,11 @@ the provided timestamp or timestamp at last MD5 check
     # iPhone and the converted JPG which holds the metadata and you want to
     # move it to the HEIC and just keep that. For example if you import once
     # as JPG, add metadata, and then re-import as HEIC.
-    find . -iname '*.heic' -exec sh -c 'x={}; y=${x:0:${#x}-4}; exiftool -tagsFromFile ${y}jpg -Rating -Subject -HierarchicalSubject ${y}xmp; trash ${y}jpg' \;
+    find . -iname '*.heic' -exec sh -c 'x="{}"; y=${x:0:${#x}-4}; exiftool -tagsFromFile ${y}jpg -Rating -Subject -HierarchicalSubject ${y}xmp; trash ${y}jpg' \;
+
+    # For each small MOV file, look for pairing JPG or HEIC files and print
+    # the path of the MOV files where the main image file is missing.
+    find . -iname '*.mov' -size -6M -execdir sh -c 'x="{}"; y=${x:0:${#x}-3}; [[ -n `find . -iname "${y}jpg" -o -iname "${y}heic"` ]] || echo "$PWD/$x"' \;
 
     # Restore _original files (undo exiftool changes)
     find . -iname '*_original' -exec sh -c 'x={}; y=${x:0:${#x}-9}; echo mv $x $y' \;
