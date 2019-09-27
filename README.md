@@ -8,7 +8,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos.pl -h
 
     # Typical workflow:
-    # Import via Image Capture to local folder as originals (unmodified file copy)
+    # Import via Image Capture to local folder as originals (unmodified copy)
     # Import that folder in Lightroom as move
     OrganizePhotos.pl checkup /photos/root/dir
     # Archive /photos/root/dir (see help)
@@ -161,7 +161,7 @@ _Alias: fdd_
 
 Find directories that represent the same date.
 
-## find-dupe-files \[glob patterns...\]
+## find-dupe-files \[  patterns...\]
 
 _Alias: fdf_
 
@@ -197,6 +197,14 @@ _Alias: md_
 Do a diff of the specified media files (including their sidecar metadata).
 
 This method does not modify any file.
+
+### Options
+
+- **-x, --exclude-sidecars**
+
+    Don't include sidecar metadata for a file. For example, a CR2 file wouldn't 
+    include any metadata from a sidecar XMP which typically is the place where
+    user added tags like rating and keywords are placed.
 
 ## remove-empties \[glob patterns...\]
 
@@ -269,7 +277,7 @@ This method does not modify any file.
         -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF"
         -or -iname "md5.txt" \) -print -exec chmod -x {} \;
 
-    # Remove the downloaded-and-untrusted extended attribute for the current tree
+    # Remove downloaded-and-untrusted extended attribute for the current tree
     xattr -d -r com.apple.quarantine .
 
     # Find large-ish files
@@ -277,6 +285,20 @@ This method does not modify any file.
 
     # Display disk usage stats sorted by size decreasing
     du *|sort -rn
+
+    # For each HEIC move some metadata from neighboring JPG to XMP sidecar
+    # and trash the JPG. This is useful when you have both the raw HEIC from
+    # iPhone and the converted JPG which holds the metadata and you want to
+    # move it to the HEIC and just keep that. For example if you import once
+    # as JPG, add metadata, and then re-import as HEIC.
+    find . -iname '*.heic' -exec sh -c 'x="{}"; y=${x:0:${#x}-4}; exiftool -tagsFromFile ${y}jpg -Rating -Subject -HierarchicalSubject ${y}xmp; trash ${y}jpg' \;
+
+    # For each small MOV file, look for pairing JPG or HEIC files and print
+    # the path of the MOV files where the main image file is missing.
+    find . -iname '*.mov' -size -6M -execdir sh -c 'x="{}"; y=${x:0:${#x}-3}; [[ -n `find . -iname "${y}jpg" -o -iname "${y}heic"` ]] || echo "$PWD/$x"' \;
+
+    # Restore _original files (undo exiftool changes)
+    find . -iname '*_original' -exec sh -c 'x={}; y=${x:0:${#x}-9}; echo mv $x $y' \;
 
 ## Complementary PC commands
 

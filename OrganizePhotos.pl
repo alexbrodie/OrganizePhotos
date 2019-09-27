@@ -259,6 +259,18 @@ Do a diff of the specified media files (including their sidecar metadata).
 
 This method does not modify any file.
 
+=head3 Options
+
+=over 24
+
+=item B<-x, --exclude-sidecars>
+
+Don't include sidecar metadata for a file. For example, a CR2 file wouldn't 
+include any metadata from a sidecar XMP which typically is the place where
+user added tags like rating and keywords are placed.
+
+=back
+
 =head2 remove-empties [glob patterns...]
 
 I<Alias: re>
@@ -1746,13 +1758,11 @@ sub getSidecarPaths {
         # For backups, we don't associate related files as sidecars
         return ($path);
     } else {
-        # This proved very damaging, so finding another way
-=pod
-        # Consider everything with the same base name as a sidecar.
-        # Note that this assumes a proper extension
-        (my $query = $path) =~ s/[^.]*$/*/;
-        return glob qq("$query");
-=cut
+        #! This proved very damaging, so finding another way
+        ### Consider everything with the same base name as a sidecar.
+        ### Note that this assumes a proper extension
+        ##(my $query = $path) =~ s/[^.]*$/*/;
+        ##return glob qq("$query");
         
         my ($base, $ext) = splitExt($path);
         my $key = uc $ext;
