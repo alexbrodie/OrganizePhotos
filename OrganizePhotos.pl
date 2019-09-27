@@ -559,25 +559,25 @@ sub main {
     }
 }
 
-#===============================================================================
+# API ==========================================================================
 # Execute add-md5 verb
 sub doAddMd5 {
     verifyOrGenerateMd5ForGlob(1, 1, @_);
 }
 
-#===============================================================================
+# API ==========================================================================
 # Execute append-metadata verb
 sub doAppendMetadata {
     appendMetadata(@_);
 }
 
-#===============================================================================
+# API ==========================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
     verifyOrGenerateMd5ForGlob(0, 0, @_);
 }
 
-#===============================================================================
+# API ==========================================================================
 # Execute collect-trash verb
 sub doCollectTrash {
     my (@globPatterns) = @_;
@@ -605,14 +605,15 @@ sub doCollectTrash {
         }
     }, 0, @globPatterns);
 }
-#===============================================================================
+
+# API ==========================================================================
 # Execute consolodate-metadata verb
 sub doConsolodateMetadata {
     my ($arg1, $arg2, $etc) = @_;
     # TODO
 }
 
-#===============================================================================
+# API ==========================================================================
 # Execute find-dupe-dirs verb
 sub doFindDupeDirs {
 
@@ -640,7 +641,7 @@ sub doFindDupeDirs {
     }
 }
 
-#===============================================================================
+# API ==========================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
     my ($all, $byName, $autoDiff, $defaultLastAction, @globPatterns) = @_;
@@ -957,7 +958,7 @@ sub doFindDupeFiles {
     } # DUPES
 }
 
-#===============================================================================
+# API ==========================================================================
 # Execute metadata-diff verb
 sub doMetadataDiff {
     my ($excludeSidecars, @paths) = @_;
@@ -965,7 +966,7 @@ sub doMetadataDiff {
     metadataDiff($excludeSidecars, @paths);
 }
 
-#===============================================================================
+# API ==========================================================================
 # Execute metadata-diff verb
 sub doRemoveEmpties {
     my (@globPatterns) = @_;
@@ -993,7 +994,7 @@ sub doRemoveEmpties {
     }
 }
 
-#===============================================================================
+# API ==========================================================================
 # Execute test verb
 sub doTest {
     my $filename = $ARGV[0];
@@ -1070,7 +1071,7 @@ EOM
     }
 }
 
-#===============================================================================
+# API ==========================================================================
 # Execute verify-md5 verb
 sub doVerifyMd5 {
     my (@globPatterns) = @_;
@@ -1111,7 +1112,7 @@ sub doVerifyMd5 {
     }, @globPatterns);
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (MD5) ------------------------------------------------------------------
 # For each item in each md5.txt file under [dir], invoke [callback]
 # passing it full path and MD5 hash as arguments like
 #      callback($absolutePath, $md5AsString)
@@ -1155,7 +1156,7 @@ sub verifyOrGenerateMd5ForGlob {
     }, 1, @globPatterns);
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (MD5) ------------------------------------------------------------------
 # Gets the path to the file containing the md5 information and the key used
 # to index into the contents of that file.
 sub getMd5PathAndKey {
@@ -1316,7 +1317,7 @@ sub canMakeMd5MetadataShortcut {
     return 0;
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (MD5) ------------------------------------------------------------------
 # Removes the cached MD5 hash for the specified path
 sub removeMd5ForPath {
     my ($path) = @_;
@@ -1343,7 +1344,7 @@ sub removeMd5ForPath {
     }
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (MD5) ------------------------------------------------------------------
 # TODO
 sub moveMd5ForPath {
     my ($oldPath, $newPath) = @_;
@@ -1372,7 +1373,7 @@ sub moveMd5ForPath {
     
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (MD5) ------------------------------------------------------------------
 # Deserialize a md5.txt file handle into a OM
 sub readMd5FileFromHandle {
     my ($fh) = @_;
@@ -1412,7 +1413,7 @@ sub readMd5FileFromHandle {
     }
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (MD5) ------------------------------------------------------------------
 # Serialize OM into a md5.txt file handle
 sub writeMd5FileToHandle {
     my ($fh, $md5s) = @_;
@@ -1438,7 +1439,7 @@ sub writeMd5FileToHandle {
     }
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (MD5) ------------------------------------------------------------------
 # Calculates and returns the MD5 digest of a file.
 # properties:
 #   md5: primary MD5 comparison (excludes volitile data from calculation)
@@ -1508,7 +1509,7 @@ sub getMd5 {
     return $result;
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (MD5) ------------------------------------------------------------------
 # Get/verify/canonicalize hash from a FILEHANDLE object
 sub getMd5Digest {
     my ($fh) = @_;
@@ -1663,7 +1664,7 @@ sub appendMetadata {
     }
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (Metadata) -------------------------------------------------------------
 # Read metadata as an ExifTool hash for the specified path (and any
 # XMP sidecar when appropriate)
 sub readMetadata {
@@ -1696,7 +1697,7 @@ sub readMetadata {
     return $info;
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (Metadata) -------------------------------------------------------------
 # Wrapper for Image::ExifTool::ExtractInfo + GetInfo with error handling
 sub extractInfo {
     my ($path, $et) = @_;
@@ -1802,7 +1803,7 @@ sub trashMedia {
     trashPath($_) for getSidecarPaths($path);
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (File Operations) ------------------------------------------------------
 # Trash the specified path by moving it to a .Trash subdir and removing
 # its entry from the md5.txt file
 sub trashPath {
@@ -1817,7 +1818,7 @@ sub trashPath {
     removeMd5ForPath($path);
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (File Operations) ------------------------------------------------------
 # Move the [oldPath] directory to [newPath] with merging if [newPath]
 # already exists
 sub moveDir {
@@ -1852,7 +1853,7 @@ sub moveDir {
     }
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (Path Operations) ------------------------------------------------------
 # Split a [path] into ($volume, @dirs, $name)
 sub deepSplitPath {
     my ($path) = @_;
@@ -1864,7 +1865,7 @@ sub deepSplitPath {
     return ($volume, @dirs, $name);
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (Path Operations) ------------------------------------------------------
 # Splits the filename into basename and extension. (Both without a dot.)
 sub splitExt {
     my ($path) = @_;
@@ -1875,7 +1876,7 @@ sub splitExt {
     return ($filename, $ext);
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (File Operations) ------------------------------------------------------
 # Unrolls globs and traverses directories recursively calling
 #   $callback->($fileName, $rootDirOfSearch);
 # with current directory set to $fileName's dir before calling
@@ -1896,7 +1897,7 @@ sub traverseGlobPatterns {
     }
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (File Operations) ------------------------------------------------------
 sub traverseGlobPatternsHelper {
     my ($callback, $skipTrash, $dir) = @_;
     
@@ -1909,13 +1910,13 @@ sub traverseGlobPatternsHelper {
     }, $dir);
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (File Operations ) -----------------------------------------------------
 # 'preprocess' callback for find of File::Find which skips .Trash dirs
 sub preprocessSkipTrash  {
     return grep { !-d or lc ne '.trash' } @_;
 }
 
-#-------------------------------------------------------------------------------
+# MODEL (File Operations ) -----------------------------------------------------
 # Move [oldPath] to [newPath] in a convinient and safe manner
 # [oldPath] - original path of file
 # [newPath] - desired target path for the file
@@ -1938,7 +1939,7 @@ sub moveFile {
     print colored("! Moved $oldPath\n!    to $newPath\n", 'bright_cyan');
 }
 
-#-------------------------------------------------------------------------------
+# VIEW -------------------------------------------------------------------------
 # Format a date (such as that returned by stat) into string form
 sub formatDate {
     my ($sec, $min, $hour, $day, $mon, $year) = localtime $_[0];
@@ -1946,14 +1947,14 @@ sub formatDate {
         $year + 1900, $mon + 1, $day, $hour, $min, $sec;
 }
 
-#-------------------------------------------------------------------------------
+# VIEW -------------------------------------------------------------------------
 sub coloredFaint {
     my ($message) = @_;
 
     return colored($message, 'faint');
 }
 
-#-------------------------------------------------------------------------------
+# VIEW -------------------------------------------------------------------------
 # Colorizes text for diffing purposes
 # [message] - Text to color
 # [colorIndex] - Index for a color class
@@ -1963,7 +1964,7 @@ sub coloredByIndex {
     return colored($message, colorByIndex($colorIndex));
 }
 
-#-------------------------------------------------------------------------------
+# VIEW -------------------------------------------------------------------------
 # Returns a color name (usable with colored()) based on an index
 # [colorIndex] - Index for a color class
 sub colorByIndex {
