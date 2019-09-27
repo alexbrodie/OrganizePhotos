@@ -1112,34 +1112,9 @@ sub doVerifyMd5 {
     }, @globPatterns);
 }
 
-# MODEL (MD5) ------------------------------------------------------------------
-# For each item in each md5.txt file under [dir], invoke [callback]
-# passing it full path and MD5 hash as arguments like
-#      callback($absolutePath, $md5AsString)
-sub findMd5s {
-    my ($callback, @globPatterns) = @_;
-    
-    print colored(join("\n\t", "Looking for md5.txt in", @globPatterns), 'yellow'), "\n" if $verbosity >= VERBOSITY_2; 
-
-    traverseGlobPatterns(sub {
-        if (-f and lc eq 'md5.txt') {
-            my $path = rel2abs($_);
-            print colored("Found $path\n", 'yellow') if $verbosity >= VERBOSITY_2;
-            open(my $fh, '<:crlf', $path)
-                or confess "Couldn't open $path: $!";
-        
-            my $md5s = readMd5FileFromHandle($fh);
-            
-            my ($volume, $dir, undef) = splitpath($path);
-            for (sort keys %$md5s) {
-                $callback->(catpath($volume, $dir, $_), $md5s->{$_}->{md5});
-            }
-        }
-    }, 1, @globPatterns);
-}
 
 #-------------------------------------------------------------------------------
-# Call verifyOrGenerateMd5 for each media file
+# Call verifyOrGenerateMd5ForFile for each media file in the glob patterns
 sub verifyOrGenerateMd5ForGlob {
     my ($addOnly, $omitSkipMessage, @globPatterns) = @_;
 
@@ -1154,20 +1129,6 @@ sub verifyOrGenerateMd5ForGlob {
             }
         }
     }, 1, @globPatterns);
-}
-
-# MODEL (MD5) ------------------------------------------------------------------
-# Gets the path to the file containing the md5 information and the key used
-# to index into the contents of that file.
-sub getMd5PathAndKey {
-    my ($path) = @_;
-
-    $path = rel2abs($path);
-    my ($volume, $dir, $name) = splitpath($path);
-    my $md5Path = catpath($volume, $dir, 'md5.txt');
-    my $md5Key = lc $name;
-    
-    return ($md5Path, $md5Key);
 }
 
 #-------------------------------------------------------------------------------
@@ -1317,6 +1278,236 @@ sub canMakeMd5MetadataShortcut {
     return 0;
 }
 
+#-------------------------------------------------------------------------------
+# Print all the metadata values which differ in a set of paths
+sub metadataDiff {
+    my ($excludeSidecars, @paths) = @_;
+
+    # Get metadata for all files
+    my @items = map { (-e) ? readMetadata($_, $excludeSidecars) : {} } @paths;
+
+    my @tagsToSkip = qw(
+        CurrentIPTCDigest DocumentID DustRemovalData
+        FileInodeChangeDate FileName HistoryInstanceID
+        IPTCDigest InstanceID OriginalDocumentID
+        PreviewImage RawFileName ThumbnailImage);
+
+    # Collect all the keys which whose values aren't all equal
+    my %keys = ();
+    for (my $i = 0; $i < @items; $i++) {
+        while (my ($key, $value) = each %{$items[$i]}) {
+            no warnings 'experimental::smartmatch';
+            unless ($key ~~ @tagsToSkip) {
+                for (my $j = 0; $j < @items; $j++) {
+                    if ($i != $j and
+                        (!exists $items[$j]->{$key} or
+                         $items[$j]->{$key} ne $value)) {
+                        $keys{$key} = 1;
+                        last;
+                    }
+                }
+            }
+        }
+    }
+
+    # Pretty print all the keys and associated values
+    # which differ
+    for my $key (sort keys %keys) {
+        print colored("$key:", 'bold'), ' ' x (29 - length $key);
+        for (my $i = 0; $i < @items; $i++) {
+            my $message = $items[$i]->{$key} || coloredFaint('undef');
+            print coloredByIndex($message, $i), "\n", ' ' x 30;
+        }
+        print "\n";
+    }
+}
+
+#-------------------------------------------------------------------------------
+# Work in progress...
+sub appendMetadata {
+    my ($target, @sources) = @_;
+    
+    my @properties = qw(XPKeywords Rating Subject HierarchicalSubject LastKeywordXMP Keywords);
+    
+    # Extract current metadata in target
+    my $etTarget = extractInfo($target);
+    my $infoTarget = $etTarget->GetInfo(@properties);
+    print "$target: ", Dumper($infoTarget) if $verbosity >= VERBOSITY_DEBUG;
+    
+    my $rating = $infoTarget->{Rating};
+    my $oldRating = $rating;
+    
+    my %keywordTypes = ();
+    for (qw(XPKeywords Subject HierarchicalSubject LastKeywordXMP Keywords)) {
+        my $old = $infoTarget->{$_};
+        $keywordTypes{$_} = {
+            OLD => $old, 
+            NEW => {map { $_ => 1 } split /\s*,\s*/, ($old || '')}
+        };
+    }
+        
+    for my $source (@sources) {
+        # Extract metadata in source to merge in
+        my $etSource = extractInfo($source);            
+        my $infoSource = $etSource->GetInfo(@properties);
+        print "$source: ", Dumper($infoSource) if $verbosity >= VERBOSITY_DEBUG;
+        
+        # Add rating if we don't already have one
+        unless (defined $rating) {
+            $rating = $infoSource->{Rating};
+        }
+        
+        # For each field, loop over each component of the source's value
+        # and add it to the set of new values
+        while (my ($name, $value) = each %keywordTypes) {
+            for (split /\s*,\s*/, $infoSource->{$name}) {
+                $value->{NEW}->{$_} = 1;
+            }
+        }
+    }
+
+    my $dirty = 0;
+    
+    # Update rating if it's changed
+    if (defined $rating and (!defined $oldRating or $rating ne $oldRating)) {
+        print "Rating: ", 
+            defined $oldRating ? $oldRating : "(null)", 
+            " -> $rating\n";
+        $etTarget->SetNewValue('Rating', $rating)
+            or confess "Couldn't set Rating";
+        $dirty = 1;
+    }
+        
+    while (my ($name, $value) = each %keywordTypes) {
+        my $old = $value->{OLD};
+        my $new = join ', ', sort keys $value->{NEW};
+        if (($old || '') ne $new) {
+            print "$name: ",
+                defined $old ? "\"$old\"" : "(null)",
+                " -> \"$new\"\n";            
+            $etTarget->SetNewValue($name, $new)
+                or confess "Couldn't set $name";
+            $dirty = 1;
+        }
+    }
+    
+    # Write file if metadata is dirty
+    if ($dirty) {
+        # Compute backup path
+        my $backup = "${target}_bak";
+        for (my $i = 2; -s $backup; $i++) {
+            $backup =~ s/_bak\d*$/_bak$i/;
+        }
+    
+        # Make backup
+        copy $target, $backup
+            or confess "Couldn't copy $target to $backup: $!";
+
+        # Update metadata in target file
+        my $write = $etTarget->WriteInfo($target);
+        if ($write == 1) {
+            # updated
+            print "Updated $target\nOriginal backed up to $backup\n";
+        } elsif ($write == 2) {
+            # noop
+            print "$target was already up to date\n";
+        } else {
+            # failure
+            confess "Couldn't WriteInfo for $target";
+        }
+    }
+}
+
+#-------------------------------------------------------------------------------
+# If specified media [path] is in the right directory, returns the falsy
+# empty string. If it is in the wrong directory, a short truthy error
+# string for display (colored by [colorIndex]) is returned.
+sub getDirectoryError {
+    my ($path, $colorIndex) = @_;
+
+    my $et = new Image::ExifTool;
+
+    my @dateProps = qw(DateTimeOriginal MediaCreateDate);
+
+    my $info = $et->ImageInfo($path, \@dateProps, {DateFormat => '%F'});
+
+    my $date;
+    for (@dateProps) {
+        if (exists $info->{$_}) {
+            $date = $info->{$_};
+            last;
+        }
+    }
+
+    if (!defined $date) {
+        warn "Couldn't find date for $path";
+        return '';
+    }
+
+    my $yyyy = substr $date, 0, 4;
+    my $date2 = join '', $date =~ /^..(..)-(..)-(..)$/;
+    my @dirs = splitdir((splitpath($path))[1]);
+    if ($dirs[-3] eq $yyyy and
+        $dirs[-2] =~ /^(?:$date|$date2)/) {
+        # Falsy empty string when path is correct
+        return '';
+    } else {
+        # Truthy error string
+        my $backColor = defined $colorIndex ? colorByIndex($colorIndex) : 'red';
+        return ' ' . colored("** Wrong dir! [$date] **", "bright_white on_$backColor") . ' ';
+    }
+}
+
+
+
+
+
+
+============
+------------
+~~~~~~~~~~~~~
+
+
+# MODEL (MD5) ------------------------------------------------------------------
+# For each item in each md5.txt file under [dir], invoke [callback]
+# passing it full path and MD5 hash as arguments like
+#      callback($absolutePath, $md5AsString)
+sub findMd5s {
+    my ($callback, @globPatterns) = @_;
+    
+    print colored(join("\n\t", "Looking for md5.txt in", @globPatterns), 'yellow'), "\n" if $verbosity >= VERBOSITY_2; 
+
+    traverseGlobPatterns(sub {
+        if (-f and lc eq 'md5.txt') {
+            my $path = rel2abs($_);
+            print colored("Found $path\n", 'yellow') if $verbosity >= VERBOSITY_2;
+            open(my $fh, '<:crlf', $path)
+                or confess "Couldn't open $path: $!";
+        
+            my $md5s = readMd5FileFromHandle($fh);
+            
+            my ($volume, $dir, undef) = splitpath($path);
+            for (sort keys %$md5s) {
+                $callback->(catpath($volume, $dir, $_), $md5s->{$_}->{md5});
+            }
+        }
+    }, 1, @globPatterns);
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Gets the path to the file containing the md5 information and the key used
+# to index into the contents of that file.
+sub getMd5PathAndKey {
+    my ($path) = @_;
+
+    $path = rel2abs($path);
+    my ($volume, $dir, $name) = splitpath($path);
+    my $md5Path = catpath($volume, $dir, 'md5.txt');
+    my $md5Key = lc $name;
+    
+    return ($md5Path, $md5Key);
+}
+
 # MODEL (MD5) ------------------------------------------------------------------
 # Removes the cached MD5 hash for the specified path
 sub removeMd5ForPath {
@@ -1370,7 +1561,6 @@ sub moveMd5ForPath {
     } else {
         # TODO - error
     }
-    
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -1524,142 +1714,45 @@ sub getMd5Digest {
     return $hexdigest;
 }
 
-#-------------------------------------------------------------------------------
-# Print all the metadata values which differ in a set of paths
-sub metadataDiff {
-    my ($excludeSidecars, @paths) = @_;
+# MODEL (Metadata) -------------------------------------------------------------
+# Provided a path, returns an array of sidecar files based on extension.
+sub getSidecarPaths {
+    my ($path) = @_;
 
-    # Get metadata for all files
-    my @items = map { (-e) ? readMetadata($_, $excludeSidecars) : {} } @paths;
-
-    my @tagsToSkip = qw(
-        CurrentIPTCDigest DocumentID DustRemovalData
-        FileInodeChangeDate FileName HistoryInstanceID
-        IPTCDigest InstanceID OriginalDocumentID
-        PreviewImage RawFileName ThumbnailImage);
-
-    # Collect all the keys which whose values aren't all equal
-    my %keys = ();
-    for (my $i = 0; $i < @items; $i++) {
-        while (my ($key, $value) = each %{$items[$i]}) {
-            no warnings 'experimental::smartmatch';
-            unless ($key ~~ @tagsToSkip) {
-                for (my $j = 0; $j < @items; $j++) {
-                    if ($i != $j and
-                        (!exists $items[$j]->{$key} or
-                         $items[$j]->{$key} ne $value)) {
-                        $keys{$key} = 1;
-                        last;
-                    }
-                }
+    if ($path =~ /[._]bak\d*$/i) {
+        # For backups, we don't associate related files as sidecars
+        return ($path);
+    } else {
+        #! This proved very damaging, so finding another way
+        ### Consider everything with the same base name as a sidecar.
+        ### Note that this assumes a proper extension
+        ##(my $query = $path) =~ s/[^.]*$/*/;
+        ##return glob qq("$query");
+        
+        my ($base, $ext) = splitExt($path);
+        my $key = uc $ext;
+        
+        if (exists $sidecarTypes{$key}) {
+            my $types = $sidecarTypes{$key};
+            if (@$types) {            
+                # Base + all the sidecar extensions as a regex
+                my $query = $base . '.{' . join(',', @$types) . '}';
+                my @sidecars = glob qq("$query");
+            
+                #confess "getting sidecar for $path has \n query:   $query\n results: " . join(';', @sidecars);
+                
+                confess "TODO: Where we left off... currently it looks like all matches hit even if the file doesn't exist"
+                
+                return ($path, @sidecars);
+            } else {
+                # No sidecars for this type
+                return ($path);   
             }
-        }
-    }
-
-    # Pretty print all the keys and associated values
-    # which differ
-    for my $key (sort keys %keys) {
-        print colored("$key:", 'bold'), ' ' x (29 - length $key);
-        for (my $i = 0; $i < @items; $i++) {
-            my $message = $items[$i]->{$key} || coloredFaint('undef');
-            print coloredByIndex($message, $i), "\n", ' ' x 30;
-        }
-        print "\n";
-    }
-}
-
-#-------------------------------------------------------------------------------
-# Work in progress...
-sub appendMetadata {
-    my ($target, @sources) = @_;
-    
-    my @properties = qw(XPKeywords Rating Subject HierarchicalSubject LastKeywordXMP Keywords);
-    
-    # Extract current metadata in target
-    my $etTarget = extractInfo($target);
-    my $infoTarget = $etTarget->GetInfo(@properties);
-    print "$target: ", Dumper($infoTarget) if $verbosity >= VERBOSITY_DEBUG;
-    
-    my $rating = $infoTarget->{Rating};
-    my $oldRating = $rating;
-    
-    my %keywordTypes = ();
-    for (qw(XPKeywords Subject HierarchicalSubject LastKeywordXMP Keywords)) {
-        my $old = $infoTarget->{$_};
-        $keywordTypes{$_} = {
-            OLD => $old, 
-            NEW => {map { $_ => 1 } split /\s*,\s*/, ($old || '')}
-        };
-    }
-        
-    for my $source (@sources) {
-        # Extract metadata in source to merge in
-        my $etSource = extractInfo($source);            
-        my $infoSource = $etSource->GetInfo(@properties);
-        print "$source: ", Dumper($infoSource) if $verbosity >= VERBOSITY_DEBUG;
-        
-        # Add rating if we don't already have one
-        unless (defined $rating) {
-            $rating = $infoSource->{Rating};
-        }
-        
-        # For each field, loop over each component of the source's value
-        # and add it to the set of new values
-        while (my ($name, $value) = each %keywordTypes) {
-            for (split /\s*,\s*/, $infoSource->{$name}) {
-                $value->{NEW}->{$_} = 1;
-            }
-        }
-    }
-
-    my $dirty = 0;
-    
-    # Update rating if it's changed
-    if (defined $rating and (!defined $oldRating or $rating ne $oldRating)) {
-        print "Rating: ", 
-            defined $oldRating ? $oldRating : "(null)", 
-            " -> $rating\n";
-        $etTarget->SetNewValue('Rating', $rating)
-            or confess "Couldn't set Rating";
-        $dirty = 1;
-    }
-        
-    while (my ($name, $value) = each %keywordTypes) {
-        my $old = $value->{OLD};
-        my $new = join ', ', sort keys $value->{NEW};
-        if (($old || '') ne $new) {
-            print "$name: ",
-                defined $old ? "\"$old\"" : "(null)",
-                " -> \"$new\"\n";            
-            $etTarget->SetNewValue($name, $new)
-                or confess "Couldn't set $name";
-            $dirty = 1;
-        }
-    }
-    
-    # Write file if metadata is dirty
-    if ($dirty) {
-        # Compute backup path
-        my $backup = "${target}_bak";
-        for (my $i = 2; -s $backup; $i++) {
-            $backup =~ s/_bak\d*$/_bak$i/;
-        }
-    
-        # Make backup
-        copy $target, $backup
-            or confess "Couldn't copy $target to $backup: $!";
-
-        # Update metadata in target file
-        my $write = $etTarget->WriteInfo($target);
-        if ($write == 1) {
-            # updated
-            print "Updated $target\nOriginal backed up to $backup\n";
-        } elsif ($write == 2) {
-            # noop
-            print "$target was already up to date\n";
         } else {
-            # failure
-            confess "Couldn't WriteInfo for $target";
+            # Unknown file type (based on extension)
+            #warn "Assuming no sidecars for unknown file type $key for $path\n";
+            #return ($path);
+            confess "Unknown type $key to determine sidecars for $path"; 
         }
     }
 }
@@ -1708,149 +1801,6 @@ sub extractInfo {
         or confess "Couldn't ExtractInfo for $path: " . $et->GetValue('Error');
         
     return $et;
-}
-
-#-------------------------------------------------------------------------------
-# If specified media [path] is in the right directory, returns the falsy
-# empty string. If it is in the wrong directory, a short truthy error
-# string for display (colored by [colorIndex]) is returned.
-sub getDirectoryError {
-    my ($path, $colorIndex) = @_;
-
-    my $et = new Image::ExifTool;
-
-    my @dateProps = qw(DateTimeOriginal MediaCreateDate);
-
-    my $info = $et->ImageInfo($path, \@dateProps, {DateFormat => '%F'});
-
-    my $date;
-    for (@dateProps) {
-        if (exists $info->{$_}) {
-            $date = $info->{$_};
-            last;
-        }
-    }
-
-    if (!defined $date) {
-        warn "Couldn't find date for $path";
-        return '';
-    }
-
-    my $yyyy = substr $date, 0, 4;
-    my $date2 = join '', $date =~ /^..(..)-(..)-(..)$/;
-    my @dirs = splitdir((splitpath($path))[1]);
-    if ($dirs[-3] eq $yyyy and
-        $dirs[-2] =~ /^(?:$date|$date2)/) {
-        # Falsy empty string when path is correct
-        return '';
-    } else {
-        # Truthy error string
-        my $backColor = defined $colorIndex ? colorByIndex($colorIndex) : 'red';
-        return ' ' . colored("** Wrong dir! [$date] **", "bright_white on_$backColor") . ' ';
-    }
-}
-
-#-------------------------------------------------------------------------------
-# Provided a path, returns an array of sidecar files based on extension.
-sub getSidecarPaths {
-    my ($path) = @_;
-
-    if ($path =~ /[._]bak\d*$/i) {
-        # For backups, we don't associate related files as sidecars
-        return ($path);
-    } else {
-        #! This proved very damaging, so finding another way
-        ### Consider everything with the same base name as a sidecar.
-        ### Note that this assumes a proper extension
-        ##(my $query = $path) =~ s/[^.]*$/*/;
-        ##return glob qq("$query");
-        
-        my ($base, $ext) = splitExt($path);
-        my $key = uc $ext;
-        
-        if (exists $sidecarTypes{$key}) {
-            my $types = $sidecarTypes{$key};
-            if (@$types) {            
-                # Base + all the sidecar extensions as a regex
-                my $query = $base . '.{' . join(',', @$types) . '}';
-                my @sidecars = glob qq("$query");
-            
-                #confess "getting sidecar for $path has \n query:   $query\n results: " . join(';', @sidecars);
-                
-                confess "TODO: Where we left off... currently it looks like all matches hit even if the file doesn't exist"
-                
-                return ($path, @sidecars);
-            } else {
-                # No sidecars for this type
-                return ($path);   
-            }
-        } else {
-            # Unknown file type (based on extension)
-            #warn "Assuming no sidecars for unknown file type $key for $path\n";
-            #return ($path);
-            confess "Unknown type $key to determine sidecars for $path"; 
-        }
-    }
-}
-
-#-------------------------------------------------------------------------------
-# Trash the specified path and any sidecars (anything with the same path
-# except for extension)
-sub trashMedia {
-    my ($path) = @_;
-    #print colored("trashMedia($path)", 'black on_white'), "\n";
-
-    trashPath($_) for getSidecarPaths($path);
-}
-
-# MODEL (File Operations) ------------------------------------------------------
-# Trash the specified path by moving it to a .Trash subdir and removing
-# its entry from the md5.txt file
-sub trashPath {
-    my ($path) = @_;
-    #print "trashPath('$path');\n";
-
-    my ($volume, $dir, $name) = splitpath($path);
-    my $trashDir = catpath($volume, $dir, '.Trash');
-    my $trashPath = catfile($trashDir, $name);
-
-    moveFile($path, $trashPath);
-    removeMd5ForPath($path);
-}
-
-# MODEL (File Operations) ------------------------------------------------------
-# Move the [oldPath] directory to [newPath] with merging if [newPath]
-# already exists
-sub moveDir {
-    my ($oldPath, $newPath) = @_;
-    print "moveDir('$oldPath', '$newPath');\n" if $verbosity >= VERBOSITY_DEBUG;
-
-    if (-d $newPath) {
-        # Dest dir already exists, need to move-merge
-
-        -d $oldPath
-            or confess "Can't move a non-directory to a directory ($oldPath > $newPath)";
-
-        for my $oldChild (glob(catfile($oldPath, '*'))) {
-            # BUGBUG - this doesn't seem to like curly quotes
-            (my $newChild = $oldChild) =~ s/^\Q$oldPath\E/$newPath/
-                or confess "$oldChild should start with $oldPath";
-
-            if (-e $newChild and compare($newChild, $oldChild) == 0) {
-                # newChild already exists and is identical to oldChild
-                # so let's just remove oldChild
-                print "Removing $oldChild which already exists at $newChild\n";
-                #unlink $oldChild;
-            } else {
-                moveFile($oldChild, $newChild);
-            }
-        }
-    } else {
-        # Dest dir doesn't exist
-
-        # Move the source to the target
-        moveFile($oldPath, $newPath);
-    }
 }
 
 # MODEL (Path Operations) ------------------------------------------------------
@@ -1916,6 +1866,31 @@ sub preprocessSkipTrash  {
     return grep { !-d or lc ne '.trash' } @_;
 }
 
+# MODEL (File Operations) ------------------------------------------------------
+# Trash the specified path by moving it to a .Trash subdir and removing
+# its entry from the md5.txt file
+sub trashPath {
+    my ($path) = @_;
+    #print "trashPath('$path');\n";
+
+    my ($volume, $dir, $name) = splitpath($path);
+    my $trashDir = catpath($volume, $dir, '.Trash');
+    my $trashPath = catfile($trashDir, $name);
+
+    moveFile($path, $trashPath);
+    removeMd5ForPath($path);
+}
+
+# MODEL (File Operations ) -----------------------------------------------------
+# Trash the specified path and any sidecars (anything with the same path
+# except for extension)
+sub trashMedia {
+    my ($path) = @_;
+    #print colored("trashMedia($path)", 'black on_white'), "\n";
+
+    trashPath($_) for getSidecarPaths($path);
+}
+
 # MODEL (File Operations ) -----------------------------------------------------
 # Move [oldPath] to [newPath] in a convinient and safe manner
 # [oldPath] - original path of file
@@ -1937,6 +1912,41 @@ sub moveFile {
         or confess "Failed to move $oldPath to $newPath: $!";
 
     print colored("! Moved $oldPath\n!    to $newPath\n", 'bright_cyan');
+}
+
+# MODEL (File Operations) ------------------------------------------------------
+# Move the [oldPath] directory to [newPath] with merging if [newPath]
+# already exists
+sub moveDir {
+    my ($oldPath, $newPath) = @_;
+    print "moveDir('$oldPath', '$newPath');\n" if $verbosity >= VERBOSITY_DEBUG;
+
+    if (-d $newPath) {
+        # Dest dir already exists, need to move-merge
+
+        -d $oldPath
+            or confess "Can't move a non-directory to a directory ($oldPath > $newPath)";
+
+        for my $oldChild (glob(catfile($oldPath, '*'))) {
+            # BUGBUG - this doesn't seem to like curly quotes
+            (my $newChild = $oldChild) =~ s/^\Q$oldPath\E/$newPath/
+                or confess "$oldChild should start with $oldPath";
+
+            if (-e $newChild and compare($newChild, $oldChild) == 0) {
+                # newChild already exists and is identical to oldChild
+                # so let's just remove oldChild
+                print "Removing $oldChild which already exists at $newChild\n";
+                #unlink $oldChild;
+            } else {
+                moveFile($oldChild, $newChild);
+            }
+        }
+    } else {
+        # Dest dir doesn't exist
+
+        # Move the source to the target
+        moveFile($oldPath, $newPath);
+    }
 }
 
 # VIEW -------------------------------------------------------------------------
