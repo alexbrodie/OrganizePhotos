@@ -21,6 +21,7 @@
 #    Lightroom imports from ToImport folder as move
 #  * Offer to trash short sidecar movies with primary image tagged 'NoPeople'?
 #  * Consolidate filename/ext handling, e.g. the regex \.([^.]*)$
+#  * Consolidate formatting (view) options for file operations output
 #
 =pod
 
@@ -217,7 +218,7 @@ I<Alias: fdd>
 
 Find directories that represent the same date.
 
-=head2 find-dupe-files [glob patterns...]
+=head2 find-dupe-files [  patterns...]
 
 I<Alias: fdf>
 
@@ -389,7 +390,6 @@ the provided timestamp or timestamp at last MD5 check
 
     # Restore _original files (undo exiftool changes)
     find . -iname '*_original' -exec sh -c 'x={}; y=${x:0:${#x}-9}; echo mv $x $y' \;
-
 
 =head2 Complementary PC commands
 
@@ -1320,7 +1320,7 @@ sub removeMd5ForPath {
             
             # TODO: update the cache from the validate func?
 
-            print "Removed $md5Key from $md5Path\n";
+            print colored("! Removed $md5Key from $md5Path\n", 'bright_cyan');
         } else {
             print "$md5Key didn't exist in $md5Path\n" 
                 if $verbosity >= VERBOSITY_DEBUG;
@@ -1764,10 +1764,11 @@ sub getSidecarPaths {
                 my $query = $base . '.{' . join(',', @$types) . '}';
                 my @sidecars = glob qq("$query");
             
-                #my @results = glob($query);
-                #if (@sidecars) {
-                    confess "getting sidecar for $path has \n query:   $query\n results: " . join(';', @sidecars);
-                #}
+                #confess "getting sidecar for $path has \n query:   $query\n results: " . join(';', @sidecars);
+                
+                confess "TODO: Where we left off... currently it looks like all matches hit even if the file doesn't exist"
+                
+                return ($path, @sidecars);
             } else {
                 # No sidecars for this type
                 return ($path);   
@@ -1924,7 +1925,7 @@ sub moveFile {
     move($oldPath, $newPath)
         or confess "Failed to move $oldPath to $newPath: $!";
 
-    print "Moved $oldPath\n   to $newPath\n";
+    print colored("! Moved $oldPath\n!    to $newPath\n", 'bright_cyan');
 }
 
 #-------------------------------------------------------------------------------
