@@ -868,9 +868,7 @@ sub doFindDupeFiles {
             
             # Collect all sidecars and add to prompt
             for (getSidecarPaths($path)) {
-                if (lc ne lc $path) {
-                    push @prompt, '     ', coloredByIndex(coloredFaint($_), $i), "\n";
-                }
+                push @prompt, '     ', coloredByIndex(coloredFaint($_), $i), "\n";
             }
         }
 
@@ -1458,16 +1456,6 @@ sub getDirectoryError {
     }
 }
 
-
-
-
-
-
-============
-------------
-~~~~~~~~~~~~~
-
-
 # MODEL (MD5) ------------------------------------------------------------------
 # For each item in each md5.txt file under [dir], invoke [callback]
 # passing it full path and MD5 hash as arguments like
@@ -1719,9 +1707,10 @@ sub getMd5Digest {
 sub getSidecarPaths {
     my ($path) = @_;
 
+    # TODO: Consolidate backup regex
     if ($path =~ /[._]bak\d*$/i) {
         # For backups, we don't associate related files as sidecars
-        return ($path);
+        return ();
     } else {
         #! This proved very damaging, so finding another way
         ### Consider everything with the same base name as a sidecar.
@@ -1729,29 +1718,16 @@ sub getSidecarPaths {
         ##(my $query = $path) =~ s/[^.]*$/*/;
         ##return glob qq("$query");
         
+        # Using extension as a key, look up associated sidecar types (if any)
         my ($base, $ext) = splitExt($path);
         my $key = uc $ext;
-        
         if (exists $sidecarTypes{$key}) {
-            my $types = $sidecarTypes{$key};
-            if (@$types) {            
-                # Base + all the sidecar extensions as a regex
-                my $query = $base . '.{' . join(',', @$types) . '}';
-                my @sidecars = glob qq("$query");
-            
-                #confess "getting sidecar for $path has \n query:   $query\n results: " . join(';', @sidecars);
-                
-                confess "TODO: Where we left off... currently it looks like all matches hit even if the file doesn't exist"
-                
-                return ($path, @sidecars);
-            } else {
-                # No sidecars for this type
-                return ($path);   
-            }
+            # Return the other types which exist
+            my @sidecars = map { "$base.$_" } @{$sidecarTypes{$key}};
+            @sidecars = grep { -e } @sidecars;
+            return @sidecars;
         } else {
             # Unknown file type (based on extension)
-            #warn "Assuming no sidecars for unknown file type $key for $path\n";
-            #return ($path);
             confess "Unknown type $key to determine sidecars for $path"; 
         }
     }
@@ -1888,7 +1864,7 @@ sub trashMedia {
     my ($path) = @_;
     #print colored("trashMedia($path)", 'black on_white'), "\n";
 
-    trashPath($_) for getSidecarPaths($path);
+    trashPath($_) for ($path, getSidecarPaths($path));
 }
 
 # MODEL (File Operations ) -----------------------------------------------------
