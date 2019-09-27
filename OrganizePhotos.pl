@@ -6,6 +6,7 @@
 # TODO LIST
 #  * !! when trashing a dupe, make sure not to trash sidecars that don't match
 #  * glob in friendly sort order
+#  * add prefix/coloring to operations output to differntate (move, trash, etc)
 #  * look for zero duration videos (this hang's Lightroom's
 #    DynamicLinkMediaServer which pegs the CPU and blocks Lr preventing any
 #    video imports or other things requiring DLMS, e.g. purging video cache)
@@ -19,6 +20,7 @@
 #    same file name for when files are moved outside of this script, e.g.
 #    Lightroom imports from ToImport folder as move
 #  * Offer to trash short sidecar movies with primary image tagged 'NoPeople'?
+#  * Consolidate filename/ext handling, e.g. the regex \.([^.]*)$
 #
 =pod
 
@@ -437,6 +439,8 @@ use Term::ANSIColor;
 # What we expect an MD5 hash to look like
 my $md5pattern = qr/[0-9a-f]{32}/;
 
+# TODO - consolidate extension checks here as much as possible
+
 # Media file extensions
 my $mediaType = qr/
     # Media extension
@@ -444,6 +448,29 @@ my $mediaType = qr/
     | # Backup file
     (?: [._] (?i) bak\d* $)
     /x;
+    
+# Map of extension to pointer to array of extensions of possible sidecars
+# TODO: flesh this out
+my %sidecarTypes = (
+    AVI     => [],
+    CRW     => [qw( JPEG JPG XMP )],
+    CR2     => [qw( JPEG JPG XMP )],
+    JPEG    => [],
+    JPG     => [qw( MOV )],
+    HEIC    => [qw( MOV XMP )],
+    M4V     => [],
+    MOV     => [],
+    MP4     => [],
+    MPG     => [],
+    MTS     => [],
+    NEF     => [qw( JPEG JPG XMP )],
+    PNG     => [],
+    PSB     => [],
+    PSD     => [],
+    RAF     => [qw( JPEG JPG XMP )],
+    TIF     => [],
+    TIFF    => []
+);
     
 # For extra output
 my $verbosity = 0;
@@ -1673,7 +1700,7 @@ sub extractInfo {
 #-------------------------------------------------------------------------------
 # If specified media [path] is in the right directory, returns the falsy
 # empty string. If it is in the wrong directory, a short truthy error
-# string (colored by [colorIndex]) is returned.
+# string for display (colored by [colorIndex]) is returned.
 sub getDirectoryError {
     my ($path, $colorIndex) = @_;
 
@@ -1711,6 +1738,7 @@ sub getDirectoryError {
 }
 
 #-------------------------------------------------------------------------------
+# Provided a path, returns an array of sidecar files based on extension.
 sub getSidecarPaths {
     my ($path) = @_;
 
@@ -1718,9 +1746,38 @@ sub getSidecarPaths {
         # For backups, we don't associate related files as sidecars
         return ($path);
     } else {
+        # This proved very damaging, so finding another way
+=pod
+        # Consider everything with the same base name as a sidecar.
         # Note that this assumes a proper extension
         (my $query = $path) =~ s/[^.]*$/*/;
         return glob qq("$query");
+=cut
+        
+        my ($base, $ext) = splitExt($path);
+        my $key = uc $ext;
+        
+        if (exists $sidecarTypes{$key}) {
+            my $types = $sidecarTypes{$key};
+            if (@$types) {            
+                # Base + all the sidecar extensions as a regex
+                my $query = $base . '.{' . join(',', @$types) . '}';
+                my @sidecars = glob qq("$query");
+            
+                #my @results = glob($query);
+                #if (@sidecars) {
+                    confess "getting sidecar for $path has \n query:   $query\n results: " . join(';', @sidecars);
+                #}
+            } else {
+                # No sidecars for this type
+                return ($path);   
+            }
+        } else {
+            # Unknown file type (based on extension)
+            #warn "Assuming no sidecars for unknown file type $key for $path\n";
+            #return ($path);
+            confess "Unknown type $key to determine sidecars for $path"; 
+        }
     }
 }
 
@@ -1794,6 +1851,17 @@ sub deepSplitPath {
     pop @dirs unless $dirs[-1];
 
     return ($volume, @dirs, $name);
+}
+
+#-------------------------------------------------------------------------------
+# Splits the filename into basename and extension. (Both without a dot.)
+sub splitExt {
+    my ($path) = @_;
+    
+    my ($filename, $ext) = $path =~ /^(.*)\.([^.]*)/;
+    # TODO: handle case without extension
+    
+    return ($filename, $ext);
 }
 
 #-------------------------------------------------------------------------------
