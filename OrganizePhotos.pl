@@ -462,17 +462,23 @@ my $mediaType = qr/
     /x;
     
 # Map of extension to pointer to array of extensions of possible sidecars
+# While JPG and HEIC may have MOV alongside them, we won't consider those
+# sidecars (at least for now) since in practice it gets a little weird if one
+# set of files has a MOV and the other doesn't. This is a bit different from
+# JPG sidecars of raw files or THM since those are redunant. Before adding
+# MOV back, we should update the dupe detection to compare the sidecars as
+# well rather than just the primary file.
 # TODO: flesh this out
 my %sidecarTypes = (
     AVI     => [],
     CRW     => [qw( JPEG JPG XMP )],
     CR2     => [qw( JPEG JPG XMP )],
     JPEG    => [],
-    JPG     => [qw( MOV )],
-    HEIC    => [qw( MOV XMP )],
+    JPG     => [],
+    HEIC    => [qw( XMP )],
     M4V     => [],
     MOV     => [],
-    MP4     => [],
+    MP4     => [qw( THM )],
     MPG     => [],
     MTS     => [],
     NEF     => [qw( JPEG JPG XMP )],
@@ -710,7 +716,7 @@ sub doFindDupeFiles {
         # Make hash from MD5 to files with that MD5
         findMd5s(sub {
             my ($path, $md5) = @_;
-            push @{$keyToPaths{$md5}}, $path;
+            push(@{$keyToPaths{$md5}}, $path) if -e $path;
         }, @globPatterns);
     }
 
