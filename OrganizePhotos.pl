@@ -22,6 +22,8 @@
 #  * Offer to trash short sidecar movies with primary image tagged 'NoPeople'?
 #  * Consolidate filename/ext handling, e.g. the regex \.([^.]*)$
 #  * Consolidate formatting (view) options for file operations output
+#  * Fix benign trash warning: 
+#         Can't cd to (/some/path.) .Trash: No such file or directory
 #
 =pod
 
@@ -389,6 +391,9 @@ the provided timestamp or timestamp at last MD5 check
     # Display disk usage stats sorted by size decreasing
     du *|sort -rn
 
+    # Find all HEIC files that have a JPG with the same base name
+    find . -iname '*.heic' -execdir sh -c 'x="{}"; y=${x:0:${#x}-4}; [[ -n `find . -iname "${y}jpg"` ]] && echo "$PWD/$x"' \;
+
     # For each HEIC move some metadata from neighboring JPG to XMP sidecar
     # and trash the JPG. This is useful when you have both the raw HEIC from
     # iPhone and the converted JPG which holds the metadata and you want to
@@ -719,6 +724,8 @@ sub doFindDupeFiles {
             push(@{$keyToPaths{$md5}}, $path) if -e $path;
         }, @globPatterns);
     }
+    
+    print "Found @{[scalar keys %keyToPaths]} initial duplicate groups\n";
 
     # Put everthing that has dupes in an array for sorting
     my @dupes = ();
