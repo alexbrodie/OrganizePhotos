@@ -21,10 +21,21 @@
 #    Lightroom imports from ToImport folder as move
 #  * Offer to trash short sidecar movies with primary image tagged 'NoPeople'?
 #  * Consolidate filename/ext handling, e.g. the regex \.([^.]*)$
+#  * on enter in -l mode, print last command after pressing enter
 #  * Consolidate formatting (view) options for file operations output
 #  * Fix benign trash warning: 
 #         Can't cd to (/some/path.) .Trash: No such file or directory
-#
+#  * Option for find-dupe-files to auto delete full duplicate files that match
+#    some conditions, e.g.:  
+#       - MD5 match of another which doesn't hold the other conditions
+#       - with subset (or no "user applied"?) metadata
+#       - wrong folder
+#       - is in a user suppiled expected dupe dir, e.g. 'ToImport'
+#  * something much better than the (i/o/q) prompty for MD5 conflicts (and echo
+#    TIFF content only checks like JPEG for less noise there)
+#  * restore trash
+#  * undo last action
+#  * dedupe IMG_XXXX.HEIC and IMG_EXXXX.JPG
 =pod
 
 =head1 NAME
@@ -365,6 +376,9 @@ the provided timestamp or timestamp at last MD5 check
 
     # Move .Trash directories recursively to the trash
     find . -type d -iname '.Trash' -exec trash {} \;
+
+    # Move all AAE and LRV files in the ToImport folder to trash
+    find ~/Pictures/ToImport/ -type f -iname '*.AAE' -or -iname '*.LRV' -exec trash {} \;
 
     # Delete .DS_Store recursively (omit "-delete" to only print)
     find . -type f -name .DS_Store -print -delete
@@ -731,52 +745,52 @@ sub doFindDupeFiles {
     my @dupes = ();
     while (my ($md5, $paths) = each %keyToPaths) {
         if (@$paths > 1) {
-            if (@$paths > 1) {
-                push @dupes, [sort {
-                    # Try to sort paths trying to put the most likely
-                    # master copies first and duplicates last
+            push @dupes, [sort {
+                # Try to sort paths trying to put the most likely
+                # master copies first and duplicates last
 
-                    my (undef, @as) = deepSplitPath($a);
-                    my (undef, @bs) = deepSplitPath($b);
+                my (undef, @as) = deepSplitPath($a);
+                my (undef, @bs) = deepSplitPath($b);
 
-                    for (my $i = 0; $i < @as; $i++) {
-                        # If A is in a subdir of B, then B goes first
-                        return 1 if $i >= @bs;
+                for (my $i = 0; $i < @as; $i++) {
+                    # If A is in a subdir of B, then B goes first
+                    return 1 if $i >= @bs;
 
-                        my ($aa, $bb) = ($as[$i], $bs[$i]);
-                        if ($aa ne $bb) {
-                            if ($aa =~ /^\Q$bb\E(.+)/) {
-                                # A is a substring of B, put B first
-                                return -1;
-                            } elsif ($bb =~ /^\Q$aa\E(.+)/) {
-                                # B is a substring of A, put A first
-                                return 1;
-                            }
-
-                            # Try as filename and extension
-                            my ($an, $ae) = $aa =~ /^(.*)\.([^.]*)$/;
-                            my ($bn, $be) = $bb =~ /^(.*)\.([^.]*)$/;
-                            if (defined $ae and defined $be and $ae eq $be) {
-                                if ($an =~ /^\Q$bn\E(.+)/) {
-                                    # A's filename is a substring of B's, put A first
-                                    return 1;
-                                } elsif ($bn =~ /^\Q$an\E(.+)/) {
-                                    # B's filename is a substring of A's, put B first
-                                    return -1;
-                                }
-                            }
-
-                            return $aa cmp $bb;
+                    my ($aa, $bb) = ($as[$i], $bs[$i]);
+                    if ($aa ne $bb) {
+                        if ($aa =~ /^\Q$bb\E(.+)/) {
+                            # A is a substring of B, put B first
+                            return -1;
+                        } elsif ($bb =~ /^\Q$aa\E(.+)/) {
+                            # B is a substring of A, put A first
+                            return 1;
                         }
-                    }
 
-                    # If B is in a subdir of be then B goes first
-                    # else they are equal
-                    return @bs > @as ? -1 : 0;
-                } @$paths];
-            }
+                        # Try as filename and extension
+                        my ($an, $ae) = $aa =~ /^(.*)\.([^.]*)$/;
+                        my ($bn, $be) = $bb =~ /^(.*)\.([^.]*)$/;
+                        if (defined $ae and defined $be and $ae eq $be) {
+                            if ($an =~ /^\Q$bn\E(.+)/) {
+                                # A's filename is a substring of B's, put A first
+                                return 1;
+                            } elsif ($bn =~ /^\Q$an\E(.+)/) {
+                                # B's filename is a substring of A's, put B first
+                                return -1;
+                            }
+                        }
+
+                        return $aa cmp $bb;
+                    }
+                }
+
+                # If B is in a subdir of be then B goes first
+                # else they are equal
+                return @bs > @as ? -1 : 0;
+            } @$paths];
         }
     }
+    
+    print "Found @{[scalar @dupes]} duplicate groups with multiple files\n";
 
     # Sort groups by first element with JPG last, raw files first
     my %extOrder = ( CRW => -1, CR2 => -1, HEIC => -1, NEF => -1, RAF => -1, JPG => 1, JPEG => 1 );
@@ -826,11 +840,14 @@ sub doFindDupeFiles {
                 # If there's still multiple in the group, continue
                 # with what was left over, else move to next group
                 next DUPES if @newGroup < 2;
+                
                 @group = @newGroup;
             }
         }
 
         # Except when trying to be fast, calculate the MD5 match
+        # TODO: get this pairwise and store it somehow for later
+        # TODO: (hopefully for auto-delete)
         my $reco = '';
         unless ($fast) {
             # Want to tell if the files are identical, so we need hashes
@@ -887,6 +904,7 @@ sub doFindDupeFiles {
 
         # Just print that and move on if "Always continue" was
         # previously specified
+        # TODO: is this actually useful?
         print @prompt and next if $all;
 
         # Add input options to prompt
@@ -897,14 +915,27 @@ sub doFindDupeFiles {
         push @prompt, ")? ";
         push @prompt, "[$lastCommand] " if $defaultLastAction and $lastCommand;
 
+        # TODO: somehow determine whether one is a superset of one or
+        # TODO: more of the others (hopefully for auto-delete) 
         metadataDiff(undef, map { $_->{path} } @group) if $autoDiff;
 
+        my $command;
+        
+        # TODO: Prototype
+        for (my $i = 0; $i < @group; $i++) {
+            my $elt = $group[$i];
+
+            my $path = $elt->{path};
+            if ($path =~ /\/ToImport\//) {
+                print colored("I suggest you t$i, sir", 'bold black on_red'), "\n";
+                $command = "t$i";
+            }
+        }
+        
         # Get input until something sticks...
         PROMPT: while (1) {
             print "\n", @prompt;
-            
-            my $command;
-            
+                        
             # This allows for some automated processing if there are
             # temporary patterns of thousands of items that need the
             # same processing
