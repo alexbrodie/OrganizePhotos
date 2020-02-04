@@ -13,7 +13,7 @@
 #  * get rid of texted photos (no metadata (e.g. camera make & model), small 
 #    files)
 #  * also report base name match when resolving groups
-#  * content only match for mov, png, tiff, png
+#  * getMd5: content only match for mov, png, tiff, png
 #  * undo support (z)
 #  * get dates for HEIC. maybe just need to update ExifTools?
 #  * should notice new MD5 in one dir and missing MD5 in another dir with
@@ -36,6 +36,7 @@
 #  * restore trash
 #  * undo last action
 #  * dedupe IMG_XXXX.HEIC and IMG_EXXXX.JPG
+#  * versioning info for md5.txt
 =pod
 
 =head1 NAME
@@ -364,15 +365,12 @@ the provided timestamp or timestamp at last MD5 check
     # Shift all mp4 times, useful when clock on GoPro is reset to 1/1/2015 due to dead battery
     # Format is: offset='[y:m:d ]h:m:s' or more see https://sno.phy.queensu.ca/~phil/exiftool/Shift.html#SHIFT-STRING
     offset='4:6:24 13:0:0'
-    exiftool "-CreateDate+=$offset" "-ModifyDate+=$offset" 
-             "-TrackCreateDate+=$offset" "-TrackModifyDate+=$offset" 
-             "-MediaCreateDate+=$offset" "-MediaModifyDate+=$offset" *.mp4
+    exiftool "-CreateDate+=$offset" "-MediaCreateDate+=$offset" "-MediaModifyDate+=$offset" "-ModifyDate+=$offset" "-TrackCreateDate+=$offset" "-TrackModifyDate+=$offset" *.MP4 
     
 =head2 Complementary Mac commands
 
     # Mirror SOURCE to TARGET
-    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
-        SOURCE TARGET
+    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
 
     # Move .Trash directories recursively to the trash
     find . -type d -iname '.Trash' -exec trash {} \;
@@ -497,7 +495,7 @@ my %sidecarTypes = (
     HEIC    => [qw( XMP )],
     M4V     => [],
     MOV     => [],
-    MP4     => [qw( THM )],
+    MP4     => [qw( LRV THM )],
     MPG     => [],
     MTS     => [],
     NEF     => [qw( JPEG JPG XMP )],
@@ -706,24 +704,28 @@ sub doFindDupeFiles {
                     $key .= lc $name . ';';
                 }
 
-                # parent dir should be similar (based on date format)
-                my $dirRegex = qr/^
-                    # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
-                    (?:19|20)?(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
-                    /x;
-
-                my $dirKey = '';
-                for (reverse @splitPath) {
-                    if (/$dirRegex/) {
-                        $dirKey = lc "$1$2$3;";
-                        last;
-                    }
-                }
                 
-                if ($dirKey) {
-                    $key .= $dirKey;
-                } else {
-                    warn "Unknown directory format: $path\n";
+                my $nameKeyIncludesDir = 1;
+                if ($nameKeyIncludesDir) {
+                    # parent dir should be similar (based on date format)
+                    my $dirRegex = qr/^
+                        # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
+                        (?:19|20)?(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
+                        /x;
+
+                    my $dirKey = '';
+                    for (reverse @splitPath) {
+                        if (/$dirRegex/) {
+                            $dirKey = lc "$1$2$3;";
+                            last;
+                        }
+                    }
+                
+                    if ($dirKey) {
+                        $key .= $dirKey;
+                    } else {
+                        warn "Unknown directory format: $path\n";
+                    }
                 }
 
                 #print "KEY($key) = VALUE($path);\n";
@@ -739,11 +741,12 @@ sub doFindDupeFiles {
         }, @globPatterns);
     }
     
-    print "Found @{[scalar keys %keyToPaths]} initial duplicate groups\n";
+    print "Found @{[scalar keys %keyToPaths]} initial duplicate groups\n"
+        if $verbosity >= VERBOSITY_DEBUG;
 
     # Put everthing that has dupes in an array for sorting
     my @dupes = ();
-    while (my ($md5, $paths) = each %keyToPaths) {
+    while (my ($key, $paths) = each %keyToPaths) {
         if (@$paths > 1) {
             push @dupes, [sort {
                 # Try to sort paths trying to put the most likely
@@ -790,7 +793,8 @@ sub doFindDupeFiles {
         }
     }
     
-    print "Found @{[scalar @dupes]} duplicate groups with multiple files\n";
+    print "Found @{[scalar @dupes]} duplicate groups with multiple files\n"
+        if $verbosity >= VERBOSITY_DEBUG;
 
     # Sort groups by first element with JPG last, raw files first
     my %extOrder = ( CRW => -1, CR2 => -1, HEIC => -1, NEF => -1, RAF => -1, JPG => 1, JPEG => 1 );
