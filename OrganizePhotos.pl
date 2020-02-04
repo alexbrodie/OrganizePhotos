@@ -13,7 +13,7 @@
 #  * get rid of texted photos (no metadata (e.g. camera make & model), small 
 #    files)
 #  * also report base name match when resolving groups
-#  * getMd5: content only match for mov, png, tiff, png
+#  * getMd5: content only match for mov, png, tiff, mp4
 #  * undo support (z)
 #  * get dates for HEIC. maybe just need to update ExifTools?
 #  * should notice new MD5 in one dir and missing MD5 in another dir with
@@ -544,7 +544,8 @@ sub main {
                        'by-name|n' => \$byName,
                        'default-last-action|l' => \$defaultLastAction);
             doCheckMd5(@ARGV);
-            doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction, @ARGV);
+            doFindDupeFiles($all, $byName, $autoDiff, 
+                            $defaultLastAction, @ARGV);
             doRemoveEmpties(@ARGV);
             doCollectTrash(@ARGV);
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
@@ -563,7 +564,8 @@ sub main {
                        'auto-diff|d' => \$autoDiff,
                        'by-name|n' => \$byName,
                        'default-last-action|l' => \$defaultLastAction);
-            doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction, @ARGV);
+            doFindDupeFiles($all, $byName, $autoDiff, 
+                            $defaultLastAction, @ARGV);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             my ($excludeSidecars);
             GetOptions('exclude-sidecars|x' => \$excludeSidecars);
@@ -855,7 +857,6 @@ sub doFindDupeFiles {
         my $reco = '';
         unless ($fast) {
             # Want to tell if the files are identical, so we need hashes
-            #my @md5Info = map { getMd5($_) } @group;
             # TODO: if we're not doing this by name we can use the md5.txt file contents for  MD5 and other metadata
             $_->{exists} and $_ = { %$_, %{getMd5($_->{path})} } for @group;
         
@@ -1302,6 +1303,11 @@ sub verifyOrGenerateMd5ForFile {
 sub canMakeMd5MetadataShortcut {
     my ($addOnly, $omitSkipMessage, $path, $expectedMd5, $actualMd5) = @_;
     
+    # HACK: when content-only MD5 are added for things other than JPG,
+    # just return 0 for those extensions for a full check-md5 pass.
+    # TODO; remove this hack once no longer needed
+    return 0 if $path =~ /\/(mp4|m4v)$/i;
+    
     if (defined $expectedMd5) {
         if ($addOnly) {
             if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
@@ -1690,43 +1696,22 @@ sub getMd5 {
     my $origPath = $path;
     $origPath =~ s/[._]bak\d*$//i;
 
-    my $partialMd5Hash = $fullMd5Hash;
+    my $partialMd5Hash = undef;
 
     if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
-        # If JPEG, skip metadata which may change and only hash pixel data
-        # and hash from Start of Scan [SOS] to end...
-
-        # Read Start of Image [SOI]
-        seek($fh, 0, 0)
-            or confess "Failed to reset seek for $path: $!";
-        read($fh, my $soiData, 2)
-            or confess "Failed to read SOI from $path: $!";
-        my ($soi) = unpack('n', $soiData);
-        $soi == 0xffd8
-            or confess "File didn't start with SOI marker: $path";
-
-        # Read blobs until SOS
-        my $tags = '';
-        while (1) {
-            read($fh, my $data, 4)
-                or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
-
-            my ($tag, $size) = unpack('nn', $data);
-            last if $tag == 0xffda;
-
-            $tags .= sprintf("%04x,%04x;", $tag, $size);
-            #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
-
-            my $address = tell($fh) + $size - 2;
-            seek($fh, $address, 0)
-                or confess "Failed to seek $path to $address: $!";
-        }
-
-        $partialMd5Hash = getMd5Digest($fh);
-    } #TODO: elsif ($origPath =~ /\.(tif|tiff)$/i) {
+        $partialMd5Hash = getJpgContentDataMd5($path, $fh);
+    } elsif ($origPath =~ /\.(mp4|m4v)$/i) {
+        $partialMd5Hash = getMp4ContentDataMd5($path, $fh);            
+    } elsif ($origPath =~ /\.mov$/i) {
+        # TODO
+    } elsif ($origPath =~ /\.(tif|tiff)$/i) {
+        # TODO
+    } elsif ($origPath =~ /\.png$/i) {
+        # TODO
+    }
     
     my $result = {
-        md5 => $partialMd5Hash,
+        md5 => $partialMd5Hash || $fullMd5Hash,
         full_md5 => $fullMd5Hash,
     };
     
@@ -1735,6 +1720,68 @@ sub getMd5 {
     return $result;
 }
 
+# MODEL (MD5) ------------------------------------------------------------------
+# If JPEG, skip metadata which may change and only hash pixel data
+# and hash from Start of Scan [SOS] to end of file
+sub getJpgContentDataMd5 {
+    my ($path, $fh) = @_;
+
+    # Read Start of Image [SOI]
+    seek($fh, 0, 0)
+        or confess "Failed to reset seek for $path: $!";
+    read($fh, my $fileData, 2)
+        or confess "Failed to read SOI from $path: $!";
+    my ($soi) = unpack('n', $fileData);
+    $soi == 0xffd8
+        or confess "File didn't start with SOI marker: $path";
+
+    # Read blobs until SOS
+    my $tags = '';
+    while (1) {
+        read($fh, my $fileData, 4)
+            or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
+
+        my ($tag, $size) = unpack('nn', $fileData);
+        last if $tag == 0xffda;
+
+        $tags .= sprintf("%04x,%04x;", $tag, $size);
+        #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
+
+        my $address = tell($fh) + $size - 2;
+        seek($fh, $address, 0)
+            or confess "Failed to seek $path to $address: $!";
+    }
+    
+    # Use rest of file from current seek
+    return getMd5Digest($fh)
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+sub getMp4ContentDataMd5 {
+    my ($path, $fh) = @_;
+    
+    seek($fh, 0, 0)
+        or confess "Failed to reset seek for $path: $!";
+    
+    while(1) {
+        my $seek = tell($fh);
+        read($fh, my $fileData, 8)
+            or confess "Failed to read chunk from $path: $!";
+        my ($size, $type) = unpack('NA4', $fileData)
+            or confess "Failed to read from $path at @{[tell $fh]}: $!";
+            
+        $size >= 8 or confess "Unexpected size for MP4 chunk $size";
+                
+        printf("@%08x: %s, %08x\n", $seek, $type, $size);
+
+        my $address = $seek + $size;
+        seek($fh, $address, 0)
+            or confess "Failed to seek $path to $address: $!";
+    }
+        
+    return undef;
+}
+    
 # MODEL (MD5) ------------------------------------------------------------------
 # Get/verify/canonicalize hash from a FILEHANDLE object
 sub getMd5Digest {
