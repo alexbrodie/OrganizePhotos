@@ -1689,7 +1689,7 @@ sub getMd5 {
     open(my $fh, '<:raw', $path)
         or confess "Couldn't open $path: $!";
         
-    my $fullMd5Hash = getMd5Digest($fh);
+    my $fullMd5Hash = getMd5Digest($path, $fh);
 
     # If the file is a backup (has some "bak" suffix), 
     # we want to consider the real extension
@@ -1753,7 +1753,7 @@ sub getJpgContentDataMd5 {
     }
     
     # Use rest of file from current seek
-    return getMd5Digest($fh)
+    return getMd5Digest($path, $fh)
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -1763,7 +1763,7 @@ sub getMp4ContentDataMd5 {
     seek($fh, 0, 0)
         or confess "Failed to reset seek for $path: $!";
     
-    while(1) {
+    while (!eof($fh)) {
         my $seek = tell($fh);
         read($fh, my $fileData, 8)
             or confess "Failed to read chunk from $path: $!";
@@ -1773,6 +1773,8 @@ sub getMp4ContentDataMd5 {
         $size >= 8 or confess "Unexpected size for MP4 chunk $size";
                 
         printf("@%08x: %s, %08x\n", $seek, $type, $size);
+        
+        # I think we want to take all the the mdat atom data?
 
         my $address = $seek + $size;
         seek($fh, $address, 0)
@@ -1785,10 +1787,24 @@ sub getMp4ContentDataMd5 {
 # MODEL (MD5) ------------------------------------------------------------------
 # Get/verify/canonicalize hash from a FILEHANDLE object
 sub getMd5Digest {
-    my ($fh) = @_;
+    my ($path, $fh, $size) = @_;
 
     my $md5 = new Digest::MD5;
-    $md5->addfile($fh);
+
+    unless ($size) {
+        $md5->addfile($fh);
+    } else {
+        # There's no addfile with a size limit, so we roll our own
+        # by reading in chunks and adding one at a time (since $size
+        # might be huge and we don't want to read it all into memory)
+        my $chunkSize = 1024;
+        for (my $remaining = $size; $remaining > 0; $remaining -= $chunkSize) {
+            my $readSize = min($chunkSize, $remaining);
+            read($fh, my $fileData, $readSize)
+                or confess "Failed to read from $path: $!";
+            $md5->add($fileData);
+        }
+    }
     
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$md5pattern/
