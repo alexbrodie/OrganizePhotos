@@ -1305,8 +1305,9 @@ sub canMakeMd5MetadataShortcut {
     
     # HACK: when content-only MD5 are added for things other than JPG,
     # just return 0 for those extensions for a full check-md5 pass.
+    # The user will still be prompted to overwrite MD5.
     # TODO; remove this hack once no longer needed
-    return 0 if $path =~ /\/(mp4|m4v)$/i;
+    return 0 if $path =~ /\.(mp4|m4v)$/i;
     
     if (defined $expectedMd5) {
         if ($addOnly) {
@@ -1742,7 +1743,9 @@ sub getJpgContentDataMd5 {
             or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
 
         my ($tag, $size) = unpack('nn', $fileData);
-        last if $tag == 0xffda;
+        
+        # Take all the file after the SOS
+        return getMd5Digest($path, $fh) if $tag == 0xffda;
 
         $tags .= sprintf("%04x,%04x;", $tag, $size);
         #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
@@ -1751,9 +1754,6 @@ sub getJpgContentDataMd5 {
         seek($fh, $address, 0)
             or confess "Failed to seek $path to $address: $!";
     }
-    
-    # Use rest of file from current seek
-    return getMd5Digest($path, $fh)
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -1762,6 +1762,8 @@ sub getMp4ContentDataMd5 {
     
     seek($fh, 0, 0)
         or confess "Failed to reset seek for $path: $!";
+        
+    # TODO: should we verify the first atom is ftyp? Do we care?
     
     while (!eof($fh)) {
         my $seek = tell($fh);
@@ -1772,9 +1774,11 @@ sub getMp4ContentDataMd5 {
             
         $size >= 8 or confess "Unexpected size for MP4 chunk $size";
                 
-        printf("@%08x: %s, %08x\n", $seek, $type, $size);
+        printf("@%08x: %s, %08x\n", $seek, $type, $size)
+            if $verbosity >= VERBOSITY_DEBUG;
         
         # I think we want to take all the the mdat atom data?
+        return getMd5Digest($path, $fh, $size) if $type eq "mdat"; 
 
         my $address = $seek + $size;
         seek($fh, $address, 0)
@@ -1799,7 +1803,7 @@ sub getMd5Digest {
         # might be huge and we don't want to read it all into memory)
         my $chunkSize = 1024;
         for (my $remaining = $size; $remaining > 0; $remaining -= $chunkSize) {
-            my $readSize = min($chunkSize, $remaining);
+            my $readSize = $chunkSize < $remaining ? $chunkSize : $remaining;
             read($fh, my $fileData, $readSize)
                 or confess "Failed to read from $path: $!";
             $md5->add($fileData);
