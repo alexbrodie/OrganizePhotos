@@ -1678,11 +1678,10 @@ sub canMakeMd5MetadataShortcut {
             }
             return 1;
         }
-        
-        if (is)
     
-        if (defined $expectedMd5->{size} and 
-            $actualMd5->{size}  == $expectedMd5->{size} and
+        if (isMd5VersionUpToDate($path, $expectedMd5->{version}) and
+            defined $expectedMd5->{size} and 
+            $actualMd5->{size} == $expectedMd5->{size} and
             defined $expectedMd5->{mtime} and 
             $actualMd5->{mtime} == $expectedMd5->{mtime}) {
             if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
@@ -1702,17 +1701,21 @@ sub canMakeMd5MetadataShortcut {
 sub isMd5VersionUpToDate {
     my ($path, $version) = @_;
     
-    
+    # We added version data in version 2 :)
+    $version = 1 unless defined $version;
 
-    if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
-        $partialMd5Hash = getJpgContentDataMd5($path, $fh);
-    } elsif ($origPath =~ /\.(?:mp4|m4v)$/i) {
-        
-    } elsif ($origPath =~ /\.mov$/i) {
+    my $type = getMimeType($path);
+    if ($type eq 'image/jpeg') {
+        # JPG is unchanged since version 1
+        return 1;
+    } elsif ($type eq 'video/mp4v-es') {
+        # MP4 is unchanged since version 2
+        return ($version >= 2) ? 1 : 0;
+    } elsif ($type eq 'video/quicktime') {
         # TODO
-    } elsif ($origPath =~ /\.(?:tif|tiff)$/i) {
+    } elsif ($type eq 'image/tiff') {
         # TODO
-    } elsif ($origPath =~ /\.png$/i) {
+    } elsif ($type eq 'image/png') {
         # TODO
     }
     
@@ -1744,22 +1747,18 @@ sub getMd5 {
         
     my $fullMd5Hash = getMd5Digest($path, $fh);
 
-    # If the file is a backup (has some "bak" suffix), 
-    # we want to consider the real extension
-    my $origPath = $path;
-    $origPath =~ s/[._]bak\d*$//i;
-
     my $partialMd5Hash = undef;
 
-    if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
+    my $type = getMimeType($path);
+    if ($type eq 'image/jpeg') {
         $partialMd5Hash = getJpgContentDataMd5($path, $fh);
-    } elsif ($origPath =~ /\.(?:mp4|m4v)$/i) {
+    } elsif ($type eq 'video/mp4v-es') {
 #        $partialMd5Hash = getMp4ContentDataMd5($path, $fh);            
-    } elsif ($origPath =~ /\.mov$/i) {
+    } elsif ($type eq 'video/quicktime') {
         # TODO
-    } elsif ($origPath =~ /\.(?:tif|tiff)$/i) {
+    } elsif ($type eq 'image/tiff') {
         # TODO
-    } elsif ($origPath =~ /\.png$/i) {
+    } elsif ($type eq 'image/png') {
         # TODO
     }
     
@@ -1772,6 +1771,57 @@ sub getMd5 {
     $md5Cache{$cacheKey} = $result;
     
     return $result;
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Gets the mime type from a path for all types supported by $mediaType
+sub getMimeType {
+    my ($path) = @_;
+
+    # If the file is a backup (has some "bak" suffix), 
+    # we want to consider the real extension
+    $path =~ s/[._]bak\d*$//i;
+    
+    # Take the extension
+    $path =~ /\.([^.]*)$/ or confess "Unexpected path $path";
+    my $type = lc $1;
+
+    # Reference: filext.com
+    # For types without a MIME type, we fabricate a "non-standard" one
+    # based on extension
+    if ($type eq 'avi') {
+        return 'video/x-msvideo';
+    } elsif ($type eq 'crw') {
+        return 'image/crw';
+    } elsif ($type eq 'cr2') {
+        return 'image/cr2'; # Non-standard
+    } elsif ($type eq 'jpeg' or $type eq 'jpg') {
+        return 'image/jpeg';
+    } elsif ($type eq 'heic') {
+        return 'image/heic'; # Non-standard
+    } elsif ($type eq 'm4v' or $type eq 'mp4') {
+        return 'video/mp4v-es';
+    } elsif ($type eq 'mov') {
+        return 'video/quicktime';
+    } elsif ($type eq 'mpg') {
+        return 'video/mpeg';
+    } elsif ($type eq 'mts') {
+        return 'video/mts'; # Non-standard
+    } elsif ($type eq 'nef') {
+        return 'image/nef'; # Non-standard
+    } elsif ($type eq 'png') {
+        return 'image/png'; 
+    } elsif ($type eq 'psb') {
+        return 'image/psb'; # Non-standard
+    } elsif ($type eq 'psd') {
+        return 'image/photoshop';
+    } elsif ($type eq 'raf') {
+        return 'image/raf'; # Non-standard
+    } elsif ($type eq 'tif' or $type eq 'tiff') {
+        return 'image/tiff';
+    }
+
+    confess "Unexpected file type $type for $path";
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
