@@ -465,6 +465,10 @@ use JSON;
 use Pod::Usage;
 use Term::ANSIColor;
 
+# Implementation version of getMd5 (useful when comparing older serialized
+# results, such as canMakeMd5MetadataShortcut and isMd5VersionUpToDate)
+my $getMd5Version = 2;
+
 # What we expect an MD5 hash to look like
 my $md5pattern = qr/[0-9a-f]{32}/;
 
@@ -1257,6 +1261,22 @@ sub verifyOrGenerateMd5ForFile {
             # else to do. If not (probably missing or updated metadata 
             # fields), then continue on where we'll re-write md5.txt.
             return if Compare($expectedMd5, $actualMd5);
+        } elsif ($expectedMd5->{full_md5} eq $actualMd5->{full_md5}) {
+            # Full MD5 match and content mismatch. This should only be
+            # expected when we change how to calculate content MD5s.
+            # Which we don't have an upgrade path for at the moment.
+            
+            # HACK: While we make our first pass after MP4 files after
+            # content MP5 calculation change
+            unless ($path =~ /\.(?:mp4|m4v)$/i) {
+                die <<EOM
+Unexpected state: full MD5 match and content MD5 mismatch for
+$path
+             Full MD5                          Content MD5
+  Expected:  $expectedMd5->{full_md5}  $expectedMd5->{md5}
+    Actual:  $actualMd5->{full_md5}  $actualMd5->{md5}
+EOM
+            }
         } else {
             # Mismatch and we can update MD5, needs resolving...
             warn colored("MISMATCH OF MD5 for $path", 'red'), 
@@ -1307,7 +1327,7 @@ sub canMakeMd5MetadataShortcut {
     # just return 0 for those extensions for a full check-md5 pass.
     # The user will still be prompted to overwrite MD5.
     # TODO; remove this hack once no longer needed
-    return 0 if $path =~ /\.(mp4|m4v)$/i;
+    return 0 if $path =~ /\.(?:mp4|m4v)$/i;
     
     if (defined $expectedMd5) {
         if ($addOnly) {
@@ -1316,6 +1336,8 @@ sub canMakeMd5MetadataShortcut {
             }
             return 1;
         }
+        
+        if (is)
     
         if (defined $expectedMd5->{size} and 
             $actualMd5->{size}  == $expectedMd5->{size} and
@@ -1673,12 +1695,41 @@ sub writeMd5FileToHandle {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
+# The data returned by getMd5 is versioned, but not all version changes are
+# meaningful for every type of file. This method determines if the provided
+# version is equivalent to the current version for the specified file type.
+sub isMd5VersionUpToDate {
+    my ($path, $version) = @_;
+    
+    
+
+    if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
+        $partialMd5Hash = getJpgContentDataMd5($path, $fh);
+    } elsif ($origPath =~ /\.(?:mp4|m4v)$/i) {
+        
+    } elsif ($origPath =~ /\.mov$/i) {
+        # TODO
+    } elsif ($origPath =~ /\.(?:tif|tiff)$/i) {
+        # TODO
+    } elsif ($origPath =~ /\.png$/i) {
+        # TODO
+    }
+    
+    # This type just does whole file MD5 (the original implementation)
+    return 1;
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
 # Calculates and returns the MD5 digest of a file.
 # properties:
 #   md5: primary MD5 comparison (excludes volitile data from calculation)
 #   full_md5: full MD5 calculation for exact match
 sub getMd5 {
     my ($path, $useCache) = @_;
+    
+    # *** IMPORTANT NOTE ***
+    # $getMd5Version should be incremented whenever the output of
+    # this method changes in such a way that XXXXXXXXXXXXXXXXXX
     
     our %md5Cache;
     my $cacheKey = rel2abs($path);
@@ -1701,17 +1752,18 @@ sub getMd5 {
 
     if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
         $partialMd5Hash = getJpgContentDataMd5($path, $fh);
-    } elsif ($origPath =~ /\.(mp4|m4v)$/i) {
-        $partialMd5Hash = getMp4ContentDataMd5($path, $fh);            
+    } elsif ($origPath =~ /\.(?:mp4|m4v)$/i) {
+#        $partialMd5Hash = getMp4ContentDataMd5($path, $fh);            
     } elsif ($origPath =~ /\.mov$/i) {
         # TODO
-    } elsif ($origPath =~ /\.(tif|tiff)$/i) {
+    } elsif ($origPath =~ /\.(?:tif|tiff)$/i) {
         # TODO
     } elsif ($origPath =~ /\.png$/i) {
         # TODO
     }
     
     my $result = {
+#        version => $getMd5Version,
         md5 => $partialMd5Hash || $fullMd5Hash,
         full_md5 => $fullMd5Hash,
     };
