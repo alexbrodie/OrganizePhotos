@@ -1264,17 +1264,18 @@ sub verifyOrGenerateMd5ForFile {
         } elsif ($expectedMd5->{full_md5} eq $actualMd5->{full_md5}) {
             # Full MD5 match and content mismatch. This should only be
             # expected when we change how to calculate content MD5s.
-            # Which we don't have an upgrade path for at the moment.
-            
-            # HACK: While we make our first pass after MP4 files after
-            # content MP5 calculation change
-            unless ($path =~ /\.(?:mp4|m4v)$/i) {
-                die <<EOM
+            # If that's the case (i.e. the expected version is not up to
+            # date), then we should just update the MD5s. If it's not the
+            # case, then it's unexpected and some kind of programer error.
+            if (isMd5VersionUpToDate($path, $expectedMd5->{version})) {
+                # TODO: switch this hacky crash output to better perl way
+                # of generating tables
+                confess <<EOM
 Unexpected state: full MD5 match and content MD5 mismatch for
 $path
-             Full MD5                          Content MD5
-  Expected:  $expectedMd5->{full_md5}  $expectedMd5->{md5}
-    Actual:  $actualMd5->{full_md5}  $actualMd5->{md5}
+             version  full_md5                          md5
+  Expected:  $expectedMd5->{version}        $expectedMd5->{full_md5}  $expectedMd5->{md5}
+    Actual:  $actualMd5->{version}        $actualMd5->{full_md5}  $actualMd5->{md5}
 EOM
             }
         } else {
@@ -1616,9 +1617,17 @@ sub readMd5FileFromHandle {
 
     if ($useJson) {
         # Parse as JSON
-        return decode_json(join '', <$fh>);
+        my $md5s = decode_json(join '', <$fh>);
         # TODO: Consider validating response - do a lc on  
         # TODO: filename/md5s/whatever, and verify vs $md5pattern???
+        
+        # If there's no version data, then it is version 1. We didn't
+        # start storing version information until version 2.
+        while (my ($key, $values) = each %$md5s) {
+            $values->{version} = 1 unless exists $values->{version};
+        }
+        
+        return $md5s;
     } else {
         # Parse as simple "name: md5" text
         my %md5s = ();    
@@ -1626,7 +1635,10 @@ sub readMd5FileFromHandle {
             /^([^:]+):\s*($md5pattern)$/ or
                 warn "unexpected line in MD5: $_";
 
-            $md5s{lc $1} = { md5 => lc $2 };
+            # We use version 0 here for the very old way before we went to
+            # JSON when we added more info than just the full file MD5
+            my $fullMd5 = lc $2;
+            $md5s{lc $1} = { version => 0, md5 => $fullMd5, full_md5 => $fullMd5 };
         }        
 
         return \%md5s;
@@ -1665,12 +1677,6 @@ sub writeMd5FileToHandle {
 sub canMakeMd5MetadataShortcut {
     my ($addOnly, $omitSkipMessage, $path, $expectedMd5, $actualMd5) = @_;
     
-    # HACK: when content-only MD5 are added for things other than JPG,
-    # just return 0 for those extensions for a full check-md5 pass.
-    # The user will still be prompted to overwrite MD5.
-    # TODO; remove this hack once no longer needed
-    return 0 if $path =~ /\.(?:mp4|m4v)$/i;
-    
     if (defined $expectedMd5) {
         if ($addOnly) {
             if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
@@ -1701,13 +1707,10 @@ sub canMakeMd5MetadataShortcut {
 sub isMd5VersionUpToDate {
     my ($path, $version) = @_;
     
-    # We added version data in version 2 :)
-    $version = 1 unless defined $version;
-
     my $type = getMimeType($path);
     if ($type eq 'image/jpeg') {
         # JPG is unchanged since version 1
-        return 1;
+        return ($version >= 1) ? 1 : 0;
     } elsif ($type eq 'video/mp4v-es') {
         # MP4 is unchanged since version 2
         return ($version >= 2) ? 1 : 0;
@@ -1731,6 +1734,9 @@ sub isMd5VersionUpToDate {
 sub getMd5 {
     my ($path, $useCache) = @_;
     
+    print "Generating MD5 for $path\n"
+        if $verbosity >= VERBOSITY_DEBUG;
+    
     # *** IMPORTANT NOTE ***
     # $getMd5Version should be incremented whenever the output of
     # this method changes in such a way that XXXXXXXXXXXXXXXXXX
@@ -1753,7 +1759,7 @@ sub getMd5 {
     if ($type eq 'image/jpeg') {
         $partialMd5Hash = getJpgContentDataMd5($path, $fh);
     } elsif ($type eq 'video/mp4v-es') {
-#        $partialMd5Hash = getMp4ContentDataMd5($path, $fh);            
+        $partialMd5Hash = getMp4ContentDataMd5($path, $fh);            
     } elsif ($type eq 'video/quicktime') {
         # TODO
     } elsif ($type eq 'image/tiff') {
@@ -1763,7 +1769,7 @@ sub getMd5 {
     }
     
     my $result = {
-#        version => $getMd5Version,
+        version => $getMd5Version,
         md5 => $partialMd5Hash || $fullMd5Hash,
         full_md5 => $fullMd5Hash,
     };
