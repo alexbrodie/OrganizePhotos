@@ -1319,41 +1319,6 @@ EOM
 }
 
 #-------------------------------------------------------------------------------
-# Check if we can shortcut based on metadata without evaluating MD5s
-sub canMakeMd5MetadataShortcut {
-    my ($addOnly, $omitSkipMessage, $path, $expectedMd5, $actualMd5) = @_;
-    
-    # HACK: when content-only MD5 are added for things other than JPG,
-    # just return 0 for those extensions for a full check-md5 pass.
-    # The user will still be prompted to overwrite MD5.
-    # TODO; remove this hack once no longer needed
-    return 0 if $path =~ /\.(?:mp4|m4v)$/i;
-    
-    if (defined $expectedMd5) {
-        if ($addOnly) {
-            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
-                print colored("Skipping    MD5 for $path", 'yellow'), "(add-only)\n";
-            }
-            return 1;
-        }
-        
-        if (is)
-    
-        if (defined $expectedMd5->{size} and 
-            $actualMd5->{size}  == $expectedMd5->{size} and
-            defined $expectedMd5->{mtime} and 
-            $actualMd5->{mtime} == $expectedMd5->{mtime}) {
-            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
-                print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
-            }
-            return 1;
-        }
-    }
-    
-    return 0;
-}
-
-#-------------------------------------------------------------------------------
 # Print all the metadata values which differ in a set of paths
 sub metadataDiff {
     my ($excludeSidecars, @paths) = @_;
@@ -1692,6 +1657,42 @@ sub writeMd5FileToHandle {
             print $fh lc $_, ': ', $md5s->{$_}->{md5}, "\n";
         }
     }
+}
+
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Check if we can shortcut based on metadata without evaluating MD5s
+sub canMakeMd5MetadataShortcut {
+    my ($addOnly, $omitSkipMessage, $path, $expectedMd5, $actualMd5) = @_;
+    
+    # HACK: when content-only MD5 are added for things other than JPG,
+    # just return 0 for those extensions for a full check-md5 pass.
+    # The user will still be prompted to overwrite MD5.
+    # TODO; remove this hack once no longer needed
+    return 0 if $path =~ /\.(?:mp4|m4v)$/i;
+    
+    if (defined $expectedMd5) {
+        if ($addOnly) {
+            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
+                print colored("Skipping    MD5 for $path", 'yellow'), "(add-only)\n";
+            }
+            return 1;
+        }
+        
+        if (is)
+    
+        if (defined $expectedMd5->{size} and 
+            $actualMd5->{size}  == $expectedMd5->{size} and
+            defined $expectedMd5->{mtime} and 
+            $actualMd5->{mtime} == $expectedMd5->{mtime}) {
+            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
+                print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
+            }
+            return 1;
+        }
+    }
+    
+    return 0;
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
