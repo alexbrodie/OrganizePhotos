@@ -1707,6 +1707,10 @@ sub canMakeMd5MetadataShortcut {
 sub isMd5VersionUpToDate {
     my ($path, $version) = @_;
     
+    # NOTE: this is a good place to put a hack if you want to force 
+    # regeneration of MD5s for file(s). Returning something falsy will 
+    # cause check-md5 to recalc.
+    
     my $type = getMimeType($path);
     if ($type eq 'image/jpeg') {
         # JPG is unchanged since version 1
@@ -1739,7 +1743,8 @@ sub getMd5 {
     
     # *** IMPORTANT NOTE ***
     # $getMd5Version should be incremented whenever the output of
-    # this method changes in such a way that XXXXXXXXXXXXXXXXXX
+    # this method changes in such a way that old values need to be
+    # recalculated.
     
     our %md5Cache;
     my $cacheKey = rel2abs($path);
@@ -1789,7 +1794,9 @@ sub getMimeType {
     $path =~ s/[._]bak\d*$//i;
     
     # Take the extension
-    $path =~ /\.([^.]*)$/ or confess "Unexpected path $path";
+    unless ($path =~ /\.([^.]*)$/) {
+        return 'unknown';
+    }
     my $type = lc $1;
 
     # Reference: filext.com
@@ -1875,23 +1882,39 @@ sub getMp4ContentDataMd5 {
     # TODO: should we verify the first atom is ftyp? Do we care?
     
     while (!eof($fh)) {
-        my $seek = tell($fh);
+        my $seekStartOfAtom = tell($fh);
         read($fh, my $fileData, 8)
             or confess "Failed to read chunk from $path: $!";
-        my ($size, $type) = unpack('NA4', $fileData)
-            or confess "Failed to read from $path at @{[tell $fh]}: $!";
+        my ($atomSize, $atomType) = unpack('NA4', $fileData);
             
-        $size >= 8 or confess "Unexpected size for MP4 chunk $size";
-                
-        printf("@%08x: %s, %08x\n", $seek, $type, $size)
-            if $verbosity >= VERBOSITY_DEBUG;
+        if ($atomSize == 0) {
+            # 0 means the atom goes to the end of file
         
-        # I think we want to take all the the mdat atom data?
-        return getMd5Digest($path, $fh, $size) if $type eq "mdat"; 
+            # I think we want to take all the the mdat atom data?
+            return getMd5Digest($path, $fh) if $atomType eq "mdat"; 
+            
+            last;
+        } else {
+            my $dataSize = $atomSize - 8;
+            
+            if ($atomSize == 1) {
+                # 1 means it's 64 bit size
+                read($fh, $fileData, 8)
+                    or confess "Failed to read chunk from $path: $!";
+                $atomSize = unpack('Q>', $fileData);
+                $dataSize = $atomSize - 16;
+            }
+            
+            $dataSize >= 0 or confess "Unexpected size for MP4 chunk '$atomType': $atomSize";
+        
+            # I think we want to take all the the mdat atom data?
+            return getMd5Digest($path, $fh, $dataSize) if $atomType eq "mdat"; 
 
-        my $address = $seek + $size;
-        seek($fh, $address, 0)
-            or confess "Failed to seek $path to $address: $!";
+            # Seek to start of next atom
+            my $address = $seekStartOfAtom + $atomSize;
+            seek($fh, $address, 0)
+                or confess "Failed to seek $path to $address: $!";
+        }
     }
         
     return undef;
