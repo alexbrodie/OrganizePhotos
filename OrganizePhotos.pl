@@ -474,13 +474,17 @@ my $md5pattern = qr/[0-9a-f]{32}/;
 
 # TODO - consolidate extension checks here as much as possible
 
+my $backupSuffix = qr/
+    [._] (?i) (?:bak|original) \d*
+    /x;
+
 # Media file extensions
 my $mediaType = qr/
     # Media extension
-    (?: \. (?i) (?:avi|crw|cr2|jpeg|jpg|heic|m4v|mov|mp4|mpg|mts|nef|png|psb|psd|raf|tif|tiff) $)
-    | # Backup file
-    (?: [._] (?i) bak\d* $)
-    /x;
+    (?: \. (?i) (?:avi|crw|cr2|jpeg|jpg|heic|m4v|mov|mp4|mpg|mts|nef|png|psb|psd|raf|tif|tiff))
+    # Backup file
+    (?: $backupSuffix)?
+    $/x;
     
 # Map of extension to pointer to array of extensions of possible sidecars
 # While JPG and HEIC may have MOV alongside them, we won't consider those
@@ -1790,9 +1794,9 @@ sub getMd5 {
 sub getMimeType {
     my ($path) = @_;
 
-    # If the file is a backup (has some "bak" suffix), 
+    # If the file is a backup (has some "bak"/"original" suffix), 
     # we want to consider the real extension
-    $path =~ s/[._]bak\d*$//i;
+    $path =~ s/$backupSuffix$//;
     
     # Take the extension
     unless ($path =~ /\.([^.]*)$/) {
@@ -2021,7 +2025,7 @@ sub getSidecarPaths {
     my ($path) = @_;
 
     # TODO: Consolidate backup regex
-    if ($path =~ /[._]bak\d*$/i) {
+    if ($path =~ /$backupSuffix$/) {
         # For backups, we don't associate related files as sidecars
         return ();
     } else {
