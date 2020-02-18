@@ -527,6 +527,8 @@ exit 0;
 # Main entrypoint that parses command line a bit and routes to the 
 # subroutines starting with "do"
 sub main {
+    GetOptions("verbosity=i" => \$verbosity);
+    
     # Parse args (using GetOptions) and delegate to the doVerb methods...
     if ($#ARGV == -1) {
         pod2usage();        
@@ -1022,7 +1024,7 @@ sub doMetadataDiff {
 }
 
 # API ==========================================================================
-# Execute metadata-diff verb
+# Execute remove-empties verb
 sub doRemoveEmpties {
     my (@globPatterns) = @_;
     
@@ -2153,6 +2155,7 @@ sub traverseGlobPatternsHelper {
     
     $dir = rel2abs($dir);
     find({
+        bydepth => 1,
         preprocess => $skipTrash ? \&preprocessSkipTrash : undef,
         wanted => sub {
             $callback->($_, $dir);
@@ -2197,10 +2200,10 @@ sub trashMedia {
 # [newPath] - desired target path for the file
 sub moveFile {
     my ($oldPath, $newPath) = @_;
+    print "moveFile('$oldPath', '$newPath');\n" if $verbosity >= VERBOSITY_DEBUG;
 
-    # Haven't gotten to recursive merge (for dirs 'if -d') yet...
     -e $newPath
-        and confess "I can't overwrite files ($oldPath > $newPath)";
+        and confess "I can't overwrite files ($oldPath => $newPath)";
 
     # Create parent folder if it doesn't exist
     my $newParentDir = catpath((splitpath($newPath))[0,1]);
@@ -2221,26 +2224,32 @@ sub moveDir {
     my ($oldPath, $newPath) = @_;
     print "moveDir('$oldPath', '$newPath');\n" if $verbosity >= VERBOSITY_DEBUG;
 
-    if (-d $newPath) {
-        # Dest dir already exists, need to move-merge
+    -d $oldPath
+        or confess "Can't move a non-directory ($oldPath => $newPath)";
+        
+    if (-e $newPath) {
+        # Dest dir path already exists, need to move-merge
 
-        -d $oldPath
-            or confess "Can't move a non-directory to a directory ($oldPath > $newPath)";
+        -d $newPath
+            or confess "Can't move a directory - file already exists at destination ($oldPath => $newPath)";
 
-        for my $oldChild (glob(catfile($oldPath, '*'))) {
-            # BUGBUG - this doesn't seem to like curly quotes
-            (my $newChild = $oldChild) =~ s/^\Q$oldPath\E/$newPath/
-                or confess "$oldChild should start with $oldPath";
-
-            if (-e $newChild and compare($newChild, $oldChild) == 0) {
-                # newChild already exists and is identical to oldChild
-                # so let's just remove oldChild
-                print "Removing $oldChild which already exists at $newChild\n";
-                #unlink $oldChild;
-            } else {
-                moveFile($oldChild, $newChild);
+        # Walk through all the sub-items in the dir $oldPath
+        find({
+            wanted => sub {
+                if ($_ ne '.') {
+                    my $oldSubItemPath = $File::Find::name;
+                    my $newSubItemPath = catfile($newPath, $_);
+                
+                    if (-d) {
+                        # Subitem is a dir, so just recurse
+                        moveDir($oldSubItemPath, $newSubItemPath);
+                    } else {
+                        # Subitem is a file
+                        moveFile($oldSubItemPath, $newSubItemPath);
+                    }
+                }
             }
-        }
+        }, $oldPath);
     } else {
         # Dest dir doesn't exist
 
