@@ -13,7 +13,7 @@
 #  * get rid of texted photos (no metadata (e.g. camera make & model), small 
 #    files)
 #  * also report base name match when resolving groups
-#  * getMd5: content only match for mov, png, tiff, mp4
+#  * getMd5: content only match for mov, tiff
 #  * undo support (z)
 #  * get dates for HEIC. maybe just need to update ExifTools?
 #  * should notice new MD5 in one dir and missing MD5 in another dir with
@@ -467,7 +467,7 @@ use Term::ANSIColor;
 
 # Implementation version of getMd5 (useful when comparing older serialized
 # results, such as canMakeMd5MetadataShortcut and isMd5VersionUpToDate)
-my $getMd5Version = 2;
+my $getMd5Version = 3;
 
 # What we expect an MD5 hash to look like
 my $md5pattern = qr/[0-9a-f]{32}/;
@@ -1723,7 +1723,8 @@ sub isMd5VersionUpToDate {
     } elsif ($type eq 'image/tiff') {
         # TODO
     } elsif ($type eq 'image/png') {
-        # TODO
+        # PNG is unchanged since version 3
+        return ($version >= 3) ? 1 : 0;
     }
     
     # This type just does whole file MD5 (the original implementation)
@@ -1764,13 +1765,13 @@ sub getMd5 {
     if ($type eq 'image/jpeg') {
         $partialMd5Hash = getJpgContentDataMd5($path, $fh);
     } elsif ($type eq 'video/mp4v-es') {
-        $partialMd5Hash = getMp4ContentDataMd5($path, $fh);            
+        $partialMd5Hash = getMp4ContentDataMd5($path, $fh);
     } elsif ($type eq 'video/quicktime') {
         # TODO
     } elsif ($type eq 'image/tiff') {
         # TODO
     } elsif ($type eq 'image/png') {
-        # TODO
+        $partialMd5Hash = getPngContentDataMd5($path, $fh);
     }
     
     my $result = {
@@ -1850,7 +1851,7 @@ sub getJpgContentDataMd5 {
         or confess "Failed to read SOI from $path: $!";
     my ($soi) = unpack('n', $fileData);
     $soi == 0xffd8
-        or confess "File didn't start with SOI marker: $path";
+        or confess "JPG file didn't start with SOI marker: $path";
 
     # Read blobs until SOS
     my $tags = '';
@@ -1881,17 +1882,24 @@ sub getMp4ContentDataMd5 {
         
     # TODO: should we verify the first atom is ftyp? Do we care?
     
+    # TODO: currently we're only doing the first 'mdat' atom's data. I'm
+    # not sure if that's correct... can there be multiple mdat? Is pixel
+    # data located elsewhere? Should we just opt out certain atoms rather
+    # than opting in mdat?
+    
     while (!eof($fh)) {
         my $seekStartOfAtom = tell($fh);
+        
+        # Read atom header
         read($fh, my $fileData, 8)
-            or confess "Failed to read chunk from $path: $!";
+            or confess "Failed to read MP4 atom from $path: $!";
         my ($atomSize, $atomType) = unpack('NA4', $fileData);
             
         if ($atomSize == 0) {
             # 0 means the atom goes to the end of file
         
             # I think we want to take all the the mdat atom data?
-            return getMd5Digest($path, $fh) if $atomType eq "mdat"; 
+            return getMd5Digest($path, $fh) if $atomType eq 'mdat'; 
             
             last;
         } else {
@@ -1900,15 +1908,15 @@ sub getMp4ContentDataMd5 {
             if ($atomSize == 1) {
                 # 1 means it's 64 bit size
                 read($fh, $fileData, 8)
-                    or confess "Failed to read chunk from $path: $!";
+                    or confess "Failed to read MP4 atom from $path: $!";
                 $atomSize = unpack('Q>', $fileData);
                 $dataSize = $atomSize - 16;
             }
             
-            $dataSize >= 0 or confess "Unexpected size for MP4 chunk '$atomType': $atomSize";
+            $dataSize >= 0 or confess "Unexpected size for MP4 atom '$atomType': $atomSize";
         
             # I think we want to take all the the mdat atom data?
-            return getMd5Digest($path, $fh, $dataSize) if $atomType eq "mdat"; 
+            return getMd5Digest($path, $fh, $dataSize) if $atomType eq 'mdat'; 
 
             # Seek to start of next atom
             my $address = $seekStartOfAtom + $atomSize;
@@ -1919,6 +1927,52 @@ sub getMp4ContentDataMd5 {
         
     return undef;
 }
+
+# MODEL (MD5) ------------------------------------------------------------------
+sub getPngContentDataMd5 {
+    my ($path, $fh) = @_;
+    
+    seek($fh, 0, 0)
+        or confess "Failed to reset seek for $path: $!";
+    read($fh, my $fileData, 8)
+        or confess "Failed to read PNG header from $path: $!";
+    my @actualHeader = unpack('C8', $fileData);
+
+    # All PNGs start with this
+    my @pngHeader = ( 137, 80, 78, 71, 13, 10, 26, 10 );
+    Compare(\@actualHeader, \@pngHeader)
+        or confess "PNG file didn't start with correct header: $path";
+
+    my $md5 = new Digest::MD5;
+        
+    while (!eof($fh)) {
+        # Read chunk header
+        read($fh, $fileData, 8)
+            or confess "Failed to read PNG chunk from $path: $!";
+        my ($size, $type) = unpack('NA4', $fileData);
+        
+        my $seekStartOfData = tell($fh);
+        
+        # TODO: Check that 'IHDR' chunk comes first and 'IEND' last?
+
+        if ($type eq 'tEXt' or $type eq 'zTXt' or $type eq 'iTXt') {
+            # This is a text field, so not pixel data
+            # TODO: should we only skip the type 'iTXt' and subtype
+            # 'XML:com.adobe.xmp'? 
+        } else {
+            # The type and data should be enough - don't need size or CRC
+            $md5->add($type);
+            addToMd5Digest($md5, $path, $fh, $size);
+        }
+
+        # Seek to start of next chunk (past header, data, and CRC)
+        my $address = $seekStartOfData + $size + 4;
+        seek($fh, $address, 0)
+            or confess "Failed to seek $path to $address: $!";
+    }
+
+    return resolveMd5Digest($md5);
+}
     
 # MODEL (MD5) ------------------------------------------------------------------
 # Get/verify/canonicalize hash from a FILEHANDLE object
@@ -1926,6 +1980,13 @@ sub getMd5Digest {
     my ($path, $fh, $size) = @_;
 
     my $md5 = new Digest::MD5;
+    addToMd5Digest($md5, $path, $fh, $size);
+    return resolveMd5Digest($md5);
+}
+    
+# MODEL (MD5) ------------------------------------------------------------------
+sub addToMd5Digest {
+    my ($md5, $path, $fh, $size) = @_;
 
     unless ($size) {
         $md5->addfile($fh);
@@ -1941,6 +2002,11 @@ sub getMd5Digest {
             $md5->add($fileData);
         }
     }
+}
+    
+# MODEL (MD5) ------------------------------------------------------------------
+sub resolveMd5Digest {
+    my ($md5) = @_;
     
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$md5pattern/
