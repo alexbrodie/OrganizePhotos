@@ -13,7 +13,7 @@
 #  * get rid of texted photos (no metadata (e.g. camera make & model), small 
 #    files)
 #  * also report base name match when resolving groups
-#  * content only match for mov, png, tiff, png
+#  * getMd5: content only match for mov, png, tiff, mp4
 #  * undo support (z)
 #  * get dates for HEIC. maybe just need to update ExifTools?
 #  * should notice new MD5 in one dir and missing MD5 in another dir with
@@ -36,6 +36,7 @@
 #  * restore trash
 #  * undo last action
 #  * dedupe IMG_XXXX.HEIC and IMG_EXXXX.JPG
+#  * versioning info for md5.txt
 =pod
 
 =head1 NAME
@@ -364,15 +365,12 @@ the provided timestamp or timestamp at last MD5 check
     # Shift all mp4 times, useful when clock on GoPro is reset to 1/1/2015 due to dead battery
     # Format is: offset='[y:m:d ]h:m:s' or more see https://sno.phy.queensu.ca/~phil/exiftool/Shift.html#SHIFT-STRING
     offset='4:6:24 13:0:0'
-    exiftool "-CreateDate+=$offset" "-ModifyDate+=$offset" 
-             "-TrackCreateDate+=$offset" "-TrackModifyDate+=$offset" 
-             "-MediaCreateDate+=$offset" "-MediaModifyDate+=$offset" *.mp4
+    exiftool "-CreateDate+=$offset" "-MediaCreateDate+=$offset" "-MediaModifyDate+=$offset" "-ModifyDate+=$offset" "-TrackCreateDate+=$offset" "-TrackModifyDate+=$offset" *.MP4 
     
 =head2 Complementary Mac commands
 
     # Mirror SOURCE to TARGET
-    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
-        SOURCE TARGET
+    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
 
     # Move .Trash directories recursively to the trash
     find . -type d -iname '.Trash' -exec trash {} \;
@@ -467,6 +465,10 @@ use JSON;
 use Pod::Usage;
 use Term::ANSIColor;
 
+# Implementation version of getMd5 (useful when comparing older serialized
+# results, such as canMakeMd5MetadataShortcut and isMd5VersionUpToDate)
+my $getMd5Version = 2;
+
 # What we expect an MD5 hash to look like
 my $md5pattern = qr/[0-9a-f]{32}/;
 
@@ -497,7 +499,7 @@ my %sidecarTypes = (
     HEIC    => [qw( XMP )],
     M4V     => [],
     MOV     => [],
-    MP4     => [qw( THM )],
+    MP4     => [qw( LRV THM )],
     MPG     => [],
     MTS     => [],
     NEF     => [qw( JPEG JPG XMP )],
@@ -546,7 +548,8 @@ sub main {
                        'by-name|n' => \$byName,
                        'default-last-action|l' => \$defaultLastAction);
             doCheckMd5(@ARGV);
-            doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction, @ARGV);
+            doFindDupeFiles($all, $byName, $autoDiff, 
+                            $defaultLastAction, @ARGV);
             doRemoveEmpties(@ARGV);
             doCollectTrash(@ARGV);
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
@@ -565,7 +568,8 @@ sub main {
                        'auto-diff|d' => \$autoDiff,
                        'by-name|n' => \$byName,
                        'default-last-action|l' => \$defaultLastAction);
-            doFindDupeFiles($all, $byName, $autoDiff, $defaultLastAction, @ARGV);
+            doFindDupeFiles($all, $byName, $autoDiff, 
+                            $defaultLastAction, @ARGV);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             my ($excludeSidecars);
             GetOptions('exclude-sidecars|x' => \$excludeSidecars);
@@ -706,24 +710,28 @@ sub doFindDupeFiles {
                     $key .= lc $name . ';';
                 }
 
-                # parent dir should be similar (based on date format)
-                my $dirRegex = qr/^
-                    # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
-                    (?:19|20)?(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
-                    /x;
-
-                my $dirKey = '';
-                for (reverse @splitPath) {
-                    if (/$dirRegex/) {
-                        $dirKey = lc "$1$2$3;";
-                        last;
-                    }
-                }
                 
-                if ($dirKey) {
-                    $key .= $dirKey;
-                } else {
-                    warn "Unknown directory format: $path\n";
+                my $nameKeyIncludesDir = 1;
+                if ($nameKeyIncludesDir) {
+                    # parent dir should be similar (based on date format)
+                    my $dirRegex = qr/^
+                        # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
+                        (?:19|20)?(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
+                        /x;
+
+                    my $dirKey = '';
+                    for (reverse @splitPath) {
+                        if (/$dirRegex/) {
+                            $dirKey = lc "$1$2$3;";
+                            last;
+                        }
+                    }
+                
+                    if ($dirKey) {
+                        $key .= $dirKey;
+                    } else {
+                        warn "Unknown directory format: $path\n";
+                    }
                 }
 
                 #print "KEY($key) = VALUE($path);\n";
@@ -739,11 +747,12 @@ sub doFindDupeFiles {
         }, @globPatterns);
     }
     
-    print "Found @{[scalar keys %keyToPaths]} initial duplicate groups\n";
+    print "Found @{[scalar keys %keyToPaths]} initial duplicate groups\n"
+        if $verbosity >= VERBOSITY_DEBUG;
 
     # Put everthing that has dupes in an array for sorting
     my @dupes = ();
-    while (my ($md5, $paths) = each %keyToPaths) {
+    while (my ($key, $paths) = each %keyToPaths) {
         if (@$paths > 1) {
             push @dupes, [sort {
                 # Try to sort paths trying to put the most likely
@@ -790,7 +799,8 @@ sub doFindDupeFiles {
         }
     }
     
-    print "Found @{[scalar @dupes]} duplicate groups with multiple files\n";
+    print "Found @{[scalar @dupes]} duplicate groups with multiple files\n"
+        if $verbosity >= VERBOSITY_DEBUG;
 
     # Sort groups by first element with JPG last, raw files first
     my %extOrder = ( CRW => -1, CR2 => -1, HEIC => -1, NEF => -1, RAF => -1, JPG => 1, JPEG => 1 );
@@ -851,7 +861,6 @@ sub doFindDupeFiles {
         my $reco = '';
         unless ($fast) {
             # Want to tell if the files are identical, so we need hashes
-            #my @md5Info = map { getMd5($_) } @group;
             # TODO: if we're not doing this by name we can use the md5.txt file contents for  MD5 and other metadata
             $_->{exists} and $_ = { %$_, %{getMd5($_->{path})} } for @group;
         
@@ -1252,6 +1261,23 @@ sub verifyOrGenerateMd5ForFile {
             # else to do. If not (probably missing or updated metadata 
             # fields), then continue on where we'll re-write md5.txt.
             return if Compare($expectedMd5, $actualMd5);
+        } elsif ($expectedMd5->{full_md5} eq $actualMd5->{full_md5}) {
+            # Full MD5 match and content mismatch. This should only be
+            # expected when we change how to calculate content MD5s.
+            # If that's the case (i.e. the expected version is not up to
+            # date), then we should just update the MD5s. If it's not the
+            # case, then it's unexpected and some kind of programer error.
+            if (isMd5VersionUpToDate($path, $expectedMd5->{version})) {
+                # TODO: switch this hacky crash output to better perl way
+                # of generating tables
+                confess <<EOM
+Unexpected state: full MD5 match and content MD5 mismatch for
+$path
+             version  full_md5                          md5
+  Expected:  $expectedMd5->{version}        $expectedMd5->{full_md5}  $expectedMd5->{md5}
+    Actual:  $actualMd5->{version}        $actualMd5->{full_md5}  $actualMd5->{md5}
+EOM
+            }
         } else {
             # Mismatch and we can update MD5, needs resolving...
             warn colored("MISMATCH OF MD5 for $path", 'red'), 
@@ -1291,33 +1317,6 @@ sub verifyOrGenerateMd5ForFile {
 
     # Update MD5 file
     writeMd5FileToHandle($fh, $expectedMd5Set);   
-}
-
-#-------------------------------------------------------------------------------
-# Check if we can shortcut based on metadata without evaluating MD5s
-sub canMakeMd5MetadataShortcut {
-    my ($addOnly, $omitSkipMessage, $path, $expectedMd5, $actualMd5) = @_;
-    
-    if (defined $expectedMd5) {
-        if ($addOnly) {
-            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
-                print colored("Skipping    MD5 for $path", 'yellow'), "(add-only)\n";
-            }
-            return 1;
-        }
-    
-        if (defined $expectedMd5->{size} and 
-            $actualMd5->{size}  == $expectedMd5->{size} and
-            defined $expectedMd5->{mtime} and 
-            $actualMd5->{mtime} == $expectedMd5->{mtime}) {
-            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
-                print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
-            }
-            return 1;
-        }
-    }
-    
-    return 0;
 }
 
 #-------------------------------------------------------------------------------
@@ -1618,9 +1617,17 @@ sub readMd5FileFromHandle {
 
     if ($useJson) {
         # Parse as JSON
-        return decode_json(join '', <$fh>);
+        my $md5s = decode_json(join '', <$fh>);
         # TODO: Consider validating response - do a lc on  
         # TODO: filename/md5s/whatever, and verify vs $md5pattern???
+        
+        # If there's no version data, then it is version 1. We didn't
+        # start storing version information until version 2.
+        while (my ($key, $values) = each %$md5s) {
+            $values->{version} = 1 unless exists $values->{version};
+        }
+        
+        return $md5s;
     } else {
         # Parse as simple "name: md5" text
         my %md5s = ();    
@@ -1628,7 +1635,10 @@ sub readMd5FileFromHandle {
             /^([^:]+):\s*($md5pattern)$/ or
                 warn "unexpected line in MD5: $_";
 
-            $md5s{lc $1} = { md5 => lc $2 };
+            # We use version 0 here for the very old way before we went to
+            # JSON when we added more info than just the full file MD5
+            my $fullMd5 = lc $2;
+            $md5s{lc $1} = { version => 0, md5 => $fullMd5, full_md5 => $fullMd5 };
         }        
 
         return \%md5s;
@@ -1661,6 +1671,65 @@ sub writeMd5FileToHandle {
     }
 }
 
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Check if we can shortcut based on metadata without evaluating MD5s
+sub canMakeMd5MetadataShortcut {
+    my ($addOnly, $omitSkipMessage, $path, $expectedMd5, $actualMd5) = @_;
+    
+    if (defined $expectedMd5) {
+        if ($addOnly) {
+            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
+                print colored("Skipping    MD5 for $path", 'yellow'), "(add-only)\n";
+            }
+            return 1;
+        }
+    
+        if (isMd5VersionUpToDate($path, $expectedMd5->{version}) and
+            defined $expectedMd5->{size} and 
+            $actualMd5->{size} == $expectedMd5->{size} and
+            defined $expectedMd5->{mtime} and 
+            $actualMd5->{mtime} == $expectedMd5->{mtime}) {
+            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
+                print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
+            }
+            return 1;
+        }
+    }
+    
+    return 0;
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# The data returned by getMd5 is versioned, but not all version changes are
+# meaningful for every type of file. This method determines if the provided
+# version is equivalent to the current version for the specified file type.
+sub isMd5VersionUpToDate {
+    my ($path, $version) = @_;
+    
+    # NOTE: this is a good place to put a hack if you want to force 
+    # regeneration of MD5s for file(s). Returning something falsy will 
+    # cause check-md5 to recalc.
+    
+    my $type = getMimeType($path);
+    if ($type eq 'image/jpeg') {
+        # JPG is unchanged since version 1
+        return ($version >= 1) ? 1 : 0;
+    } elsif ($type eq 'video/mp4v-es') {
+        # MP4 is unchanged since version 2
+        return ($version >= 2) ? 1 : 0;
+    } elsif ($type eq 'video/quicktime') {
+        # TODO
+    } elsif ($type eq 'image/tiff') {
+        # TODO
+    } elsif ($type eq 'image/png') {
+        # TODO
+    }
+    
+    # This type just does whole file MD5 (the original implementation)
+    return 1;
+}
+
 # MODEL (MD5) ------------------------------------------------------------------
 # Calculates and returns the MD5 digest of a file.
 # properties:
@@ -1668,6 +1737,14 @@ sub writeMd5FileToHandle {
 #   full_md5: full MD5 calculation for exact match
 sub getMd5 {
     my ($path, $useCache) = @_;
+    
+    print "Generating MD5 for $path\n"
+        if $verbosity >= VERBOSITY_DEBUG;
+    
+    # *** IMPORTANT NOTE ***
+    # $getMd5Version should be incremented whenever the output of
+    # this method changes in such a way that old values need to be
+    # recalculated.
     
     our %md5Cache;
     my $cacheKey = rel2abs($path);
@@ -1679,50 +1756,26 @@ sub getMd5 {
     open(my $fh, '<:raw', $path)
         or confess "Couldn't open $path: $!";
         
-    my $fullMd5Hash = getMd5Digest($fh);
+    my $fullMd5Hash = getMd5Digest($path, $fh);
 
-    # If the file is a backup (has some "bak" suffix), 
-    # we want to consider the real extension
-    my $origPath = $path;
-    $origPath =~ s/[._]bak\d*$//i;
+    my $partialMd5Hash = undef;
 
-    my $partialMd5Hash = $fullMd5Hash;
-
-    if ($origPath =~ /\.(?:jpeg|jpg)$/i) {
-        # If JPEG, skip metadata which may change and only hash pixel data
-        # and hash from Start of Scan [SOS] to end...
-
-        # Read Start of Image [SOI]
-        seek($fh, 0, 0)
-            or confess "Failed to reset seek for $path: $!";
-        read($fh, my $soiData, 2)
-            or confess "Failed to read SOI from $path: $!";
-        my ($soi) = unpack('n', $soiData);
-        $soi == 0xffd8
-            or confess "File didn't start with SOI marker: $path";
-
-        # Read blobs until SOS
-        my $tags = '';
-        while (1) {
-            read($fh, my $data, 4)
-                or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
-
-            my ($tag, $size) = unpack('nn', $data);
-            last if $tag == 0xffda;
-
-            $tags .= sprintf("%04x,%04x;", $tag, $size);
-            #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
-
-            my $address = tell($fh) + $size - 2;
-            seek($fh, $address, 0)
-                or confess "Failed to seek $path to $address: $!";
-        }
-
-        $partialMd5Hash = getMd5Digest($fh);
-    } #TODO: elsif ($origPath =~ /\.(tif|tiff)$/i) {
+    my $type = getMimeType($path);
+    if ($type eq 'image/jpeg') {
+        $partialMd5Hash = getJpgContentDataMd5($path, $fh);
+    } elsif ($type eq 'video/mp4v-es') {
+        $partialMd5Hash = getMp4ContentDataMd5($path, $fh);            
+    } elsif ($type eq 'video/quicktime') {
+        # TODO
+    } elsif ($type eq 'image/tiff') {
+        # TODO
+    } elsif ($type eq 'image/png') {
+        # TODO
+    }
     
     my $result = {
-        md5 => $partialMd5Hash,
+        version => $getMd5Version,
+        md5 => $partialMd5Hash || $fullMd5Hash,
         full_md5 => $fullMd5Hash,
     };
     
@@ -1732,12 +1785,162 @@ sub getMd5 {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
+# Gets the mime type from a path for all types supported by $mediaType
+sub getMimeType {
+    my ($path) = @_;
+
+    # If the file is a backup (has some "bak" suffix), 
+    # we want to consider the real extension
+    $path =~ s/[._]bak\d*$//i;
+    
+    # Take the extension
+    unless ($path =~ /\.([^.]*)$/) {
+        return 'unknown';
+    }
+    my $type = lc $1;
+
+    # Reference: filext.com
+    # For types without a MIME type, we fabricate a "non-standard" one
+    # based on extension
+    if ($type eq 'avi') {
+        return 'video/x-msvideo';
+    } elsif ($type eq 'crw') {
+        return 'image/crw';
+    } elsif ($type eq 'cr2') {
+        return 'image/cr2'; # Non-standard
+    } elsif ($type eq 'jpeg' or $type eq 'jpg') {
+        return 'image/jpeg';
+    } elsif ($type eq 'heic') {
+        return 'image/heic'; # Non-standard
+    } elsif ($type eq 'm4v' or $type eq 'mp4') {
+        return 'video/mp4v-es';
+    } elsif ($type eq 'mov') {
+        return 'video/quicktime';
+    } elsif ($type eq 'mpg') {
+        return 'video/mpeg';
+    } elsif ($type eq 'mts') {
+        return 'video/mts'; # Non-standard
+    } elsif ($type eq 'nef') {
+        return 'image/nef'; # Non-standard
+    } elsif ($type eq 'png') {
+        return 'image/png'; 
+    } elsif ($type eq 'psb') {
+        return 'image/psb'; # Non-standard
+    } elsif ($type eq 'psd') {
+        return 'image/photoshop';
+    } elsif ($type eq 'raf') {
+        return 'image/raf'; # Non-standard
+    } elsif ($type eq 'tif' or $type eq 'tiff') {
+        return 'image/tiff';
+    }
+
+    confess "Unexpected file type $type for $path";
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# If JPEG, skip metadata which may change and only hash pixel data
+# and hash from Start of Scan [SOS] to end of file
+sub getJpgContentDataMd5 {
+    my ($path, $fh) = @_;
+
+    # Read Start of Image [SOI]
+    seek($fh, 0, 0)
+        or confess "Failed to reset seek for $path: $!";
+    read($fh, my $fileData, 2)
+        or confess "Failed to read SOI from $path: $!";
+    my ($soi) = unpack('n', $fileData);
+    $soi == 0xffd8
+        or confess "File didn't start with SOI marker: $path";
+
+    # Read blobs until SOS
+    my $tags = '';
+    while (1) {
+        read($fh, my $fileData, 4)
+            or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
+
+        my ($tag, $size) = unpack('nn', $fileData);
+        
+        # Take all the file after the SOS
+        return getMd5Digest($path, $fh) if $tag == 0xffda;
+
+        $tags .= sprintf("%04x,%04x;", $tag, $size);
+        #printf("@%08x: %04x, %04x\n", tell($fh) - 4, $tag, $size);
+
+        my $address = tell($fh) + $size - 2;
+        seek($fh, $address, 0)
+            or confess "Failed to seek $path to $address: $!";
+    }
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+sub getMp4ContentDataMd5 {
+    my ($path, $fh) = @_;
+    
+    seek($fh, 0, 0)
+        or confess "Failed to reset seek for $path: $!";
+        
+    # TODO: should we verify the first atom is ftyp? Do we care?
+    
+    while (!eof($fh)) {
+        my $seekStartOfAtom = tell($fh);
+        read($fh, my $fileData, 8)
+            or confess "Failed to read chunk from $path: $!";
+        my ($atomSize, $atomType) = unpack('NA4', $fileData);
+            
+        if ($atomSize == 0) {
+            # 0 means the atom goes to the end of file
+        
+            # I think we want to take all the the mdat atom data?
+            return getMd5Digest($path, $fh) if $atomType eq "mdat"; 
+            
+            last;
+        } else {
+            my $dataSize = $atomSize - 8;
+            
+            if ($atomSize == 1) {
+                # 1 means it's 64 bit size
+                read($fh, $fileData, 8)
+                    or confess "Failed to read chunk from $path: $!";
+                $atomSize = unpack('Q>', $fileData);
+                $dataSize = $atomSize - 16;
+            }
+            
+            $dataSize >= 0 or confess "Unexpected size for MP4 chunk '$atomType': $atomSize";
+        
+            # I think we want to take all the the mdat atom data?
+            return getMd5Digest($path, $fh, $dataSize) if $atomType eq "mdat"; 
+
+            # Seek to start of next atom
+            my $address = $seekStartOfAtom + $atomSize;
+            seek($fh, $address, 0)
+                or confess "Failed to seek $path to $address: $!";
+        }
+    }
+        
+    return undef;
+}
+    
+# MODEL (MD5) ------------------------------------------------------------------
 # Get/verify/canonicalize hash from a FILEHANDLE object
 sub getMd5Digest {
-    my ($fh) = @_;
+    my ($path, $fh, $size) = @_;
 
     my $md5 = new Digest::MD5;
-    $md5->addfile($fh);
+
+    unless ($size) {
+        $md5->addfile($fh);
+    } else {
+        # There's no addfile with a size limit, so we roll our own
+        # by reading in chunks and adding one at a time (since $size
+        # might be huge and we don't want to read it all into memory)
+        my $chunkSize = 1024;
+        for (my $remaining = $size; $remaining > 0; $remaining -= $chunkSize) {
+            my $readSize = $chunkSize < $remaining ? $chunkSize : $remaining;
+            read($fh, my $fileData, $readSize)
+                or confess "Failed to read from $path: $!";
+            $md5->add($fileData);
+        }
+    }
     
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$md5pattern/
