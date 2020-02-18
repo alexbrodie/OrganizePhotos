@@ -247,19 +247,19 @@ This method does not modify any file.
     # Shift all mp4 times, useful when clock on GoPro is reset to 1/1/2015 due to dead battery
     # Format is: offset='[y:m:d ]h:m:s' or more see https://sno.phy.queensu.ca/~phil/exiftool/Shift.html#SHIFT-STRING
     offset='4:6:24 13:0:0'
-    exiftool "-CreateDate+=$offset" "-ModifyDate+=$offset" 
-             "-TrackCreateDate+=$offset" "-TrackModifyDate+=$offset" 
-             "-MediaCreateDate+=$offset" "-MediaModifyDate+=$offset" *.mp4
+    exiftool "-CreateDate+=$offset" "-MediaCreateDate+=$offset" "-MediaModifyDate+=$offset" "-ModifyDate+=$offset" "-TrackCreateDate+=$offset" "-TrackModifyDate+=$offset" *.MP4 
     
 
 ## Complementary Mac commands
 
     # Mirror SOURCE to TARGET
-    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress 
-        SOURCE TARGET
+    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
 
     # Move .Trash directories recursively to the trash
     find . -type d -iname '.Trash' -exec trash {} \;
+
+    # Move all AAE and LRV files in the ToImport folder to trash
+    find ~/Pictures/ToImport/ -type f -iname '*.AAE' -or -iname '*.LRV' -exec trash {} \;
 
     # Delete .DS_Store recursively (omit "-delete" to only print)
     find . -type f -name .DS_Store -print -delete
@@ -285,6 +285,9 @@ This method does not modify any file.
 
     # Display disk usage stats sorted by size decreasing
     du *|sort -rn
+
+    # Find all HEIC files that have a JPG with the same base name
+    find . -iname '*.heic' -execdir sh -c 'x="{}"; y=${x:0:${#x}-4}; [[ -n `find . -iname "${y}jpg"` ]] && echo "$PWD/$x"' \;
 
     # For each HEIC move some metadata from neighboring JPG to XMP sidecar
     # and trash the JPG. This is useful when you have both the raw HEIC from

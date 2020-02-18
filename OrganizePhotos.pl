@@ -31,12 +31,9 @@
 #       - with subset (or no "user applied"?) metadata
 #       - wrong folder
 #       - is in a user suppiled expected dupe dir, e.g. 'ToImport'
-#  * something much better than the (i/o/q) prompty for MD5 conflicts (and echo
-#    TIFF content only checks like JPEG for less noise there)
+#  * something much better than the (i/o/q) prompty for MD5 conflicts
 #  * restore trash
-#  * undo last action
 #  * dedupe IMG_XXXX.HEIC and IMG_EXXXX.JPG
-#  * versioning info for md5.txt
 =pod
 
 =head1 NAME
@@ -527,8 +524,6 @@ exit 0;
 # Main entrypoint that parses command line a bit and routes to the 
 # subroutines starting with "do"
 sub main {
-    GetOptions("verbosity=i" => \$verbosity);
-    
     # Parse args (using GetOptions) and delegate to the doVerb methods...
     if ($#ARGV == -1) {
         pod2usage();        
