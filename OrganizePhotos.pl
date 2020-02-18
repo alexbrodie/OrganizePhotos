@@ -13,7 +13,7 @@
 #  * get rid of texted photos (no metadata (e.g. camera make & model), small 
 #    files)
 #  * also report base name match when resolving groups
-#  * getMd5: content only match for mov, tiff
+#  * getMd5: content only match for tiff
 #  * undo support (z)
 #  * get dates for HEIC. maybe just need to update ExifTools?
 #  * should notice new MD5 in one dir and missing MD5 in another dir with
@@ -467,7 +467,7 @@ use Term::ANSIColor;
 
 # Implementation version of getMd5 (useful when comparing older serialized
 # results, such as canMakeMd5MetadataShortcut and isMd5VersionUpToDate)
-my $getMd5Version = 3;
+my $getMd5Version = 4;
 
 # What we expect an MD5 hash to look like
 my $md5pattern = qr/[0-9a-f]{32}/;
@@ -1723,7 +1723,8 @@ sub isMd5VersionUpToDate {
         # MP4 is unchanged since version 2
         return ($version >= 2) ? 1 : 0;
     } elsif ($type eq 'video/quicktime') {
-        # TODO
+        # MOV is unchanged since version 4
+        return ($version >= 4) ? 1 : 0;
     } elsif ($type eq 'image/tiff') {
         # TODO
     } elsif ($type eq 'image/png') {
@@ -1771,7 +1772,7 @@ sub getMd5 {
     } elsif ($type eq 'video/mp4v-es') {
         $partialMd5Hash = getMp4ContentDataMd5($path, $fh);
     } elsif ($type eq 'video/quicktime') {
-        # TODO
+        $partialMd5Hash = getMovContentDataMd5($path, $fh);
     } elsif ($type eq 'image/tiff') {
         # TODO
     } elsif ($type eq 'image/png') {
@@ -1875,6 +1876,12 @@ sub getJpgContentDataMd5 {
         seek($fh, $address, 0)
             or confess "Failed to seek $path to $address: $!";
     }
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+sub getMovContentDataMd5 {
+    # For now, our approach is identical for MOV and MP4
+    return getMp4ContentDataMd5(@_);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
