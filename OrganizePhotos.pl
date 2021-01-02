@@ -470,7 +470,126 @@ my $getMd5Version = 4;
 # What we expect an MD5 hash to look like
 my $md5pattern = qr/[0-9a-f]{32}/;
 
-# TODO - consolidate extension checks here as much as possible
+# A map of supported file extensions to several different aspects:
+#
+# SIDECARS
+#   Map of extension to pointer to array of extensions of possible sidecars.
+#   While JPG and HEIC may have MOV alongside them, we won't consider those
+#   sidecars (at least for now) since in practice it gets a little weird if
+#   one set of files has a MOV and the other doesn't. This is a bit different
+#   from JPG sidecars of raw files or THM since those are redunant. Before
+#   adding MOV back, we should update the dupe detection to compare the
+#   sidecars as well rather than just the primary file.
+#
+# EXTORDER
+#   Defines the sort order when displaying a group of duplicate files with
+#   the lower values coming first. Typically the "primary" files are displayed
+#   first and so have lower values.
+#
+# MIMETYPE
+#   The mime type of the file type.
+#   Reference: filext.com
+#   For types without a MIME type, we fabricate a "non-standard" one
+#   based on extension.
+#
+# TODO: flesh this out
+my %fileTypes = (
+    AVI     => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'video/x-msvideo'
+    },
+    CRW     => {
+        SIDECARS => [qw( JPEG JPG XMP )],
+        EXTORDER => -1,
+        MIMETYPE => 'image/crw'
+    },
+    CR2     => {
+        SIDECARS => [qw( JPEG JPG XMP )],
+        EXTORDER => -1,
+        MIMETYPE => 'image/cr2' # Non-standard
+    },
+    CR3     => {
+        SIDECARS => [qw( JPEG JPG XMP )],
+        EXTORDER => -1,
+        MIMETYPE => 'image/cr3' # Non-standard
+    },
+    JPEG    => {
+        SIDECARS => [],
+        EXTORDER => 1,
+        MIMETYPE => 'image/jpeg'
+    },
+    JPG     => {
+        SIDECARS => [],
+        EXTORDER => 1,
+        MIMETYPE => 'image/jpeg'
+    },
+    HEIC    => {
+        SIDECARS => [qw( XMP MOV )],
+        EXTORDER => -1,
+        MIMETYPE => 'image/heic' # Non-standard
+    },
+    M4V     => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'video/mp4v-es'
+    },
+    MOV     => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'video/quicktime'
+    },
+    MP4     => {
+        SIDECARS => [qw( LRV THM )],
+        EXTORDER => 0,
+        MIMETYPE => 'video/mp4v-es'
+    },
+    MPG     => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'video/mpeg'
+    },
+    MTS     => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'video/mts' # Non-standard
+    },
+    NEF     => {
+        SIDECARS => [qw( JPEG JPG XMP )],
+        EXTORDER => -1,
+        MIMETYPE => 'image/nef' # Non-standard
+    },
+    PNG     => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'image/png'
+    },
+    PSB     => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'image/psb' # Non-standard
+    },
+    PSD     => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'image/photoshop'
+    },
+    RAF     => {
+        SIDECARS => [qw( JPEG JPG XMP )],
+        EXTORDER => -1,
+        MIMETYPE => 'image/raf' # Non-standard
+    },
+    TIF     => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'image/tiff'
+    },
+    TIFF    => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'image/tiff'
+    }
+);
 
 my $backupSuffix = qr/
     [._] (?i) (?:bak|original) \d*
@@ -479,40 +598,11 @@ my $backupSuffix = qr/
 # Media file extensions
 my $mediaType = qr/
     # Media extension
-    (?: \. (?i) (?:avi|crw|cr2|jpeg|jpg|heic|m4v|mov|mp4|mpg|mts|nef|png|psb|psd|raf|tif|tiff))
+    (?: \. (?i) (?: @{[ join '|', keys %fileTypes ]}))
     # Backup file
     (?: $backupSuffix)?
     $/x;
-    
-# Map of extension to pointer to array of extensions of possible sidecars
-# While JPG and HEIC may have MOV alongside them, we won't consider those
-# sidecars (at least for now) since in practice it gets a little weird if one
-# set of files has a MOV and the other doesn't. This is a bit different from
-# JPG sidecars of raw files or THM since those are redunant. Before adding
-# MOV back, we should update the dupe detection to compare the sidecars as
-# well rather than just the primary file.
-# TODO: flesh this out
-my %sidecarTypes = (
-    AVI     => [],
-    CRW     => [qw( JPEG JPG XMP )],
-    CR2     => [qw( JPEG JPG XMP )],
-    JPEG    => [],
-    JPG     => [],
-    HEIC    => [qw( XMP )],
-    M4V     => [],
-    MOV     => [],
-    MP4     => [qw( LRV THM )],
-    MPG     => [],
-    MTS     => [],
-    NEF     => [qw( JPEG JPG XMP )],
-    PNG     => [],
-    PSB     => [],
-    PSD     => [],
-    RAF     => [qw( JPEG JPG XMP )],
-    TIF     => [],
-    TIFF    => []
-);
-    
+
 # For extra output
 my $verbosity = 0;
 use constant VERBOSITY_2 => 2;
@@ -701,7 +791,8 @@ sub doFindDupeFiles {
                         # things like DCF_1234
                         [a-zA-Z\d_]{4} \d{4} |
                         # things like 2009-08-11 12_31_45
-                        \d{4} [-_] \d{2} [-_] \d{2} [-_\s] \d{2} [-_] \d{2} [-_] \d{2}
+                        \d{4} [-_] \d{2} [-_] \d{2} [-_\s] 
+                        \d{2} [-_] \d{2} [-_] \d{2}
                     ) \b /x;
 
                 if ($name =~ /$nameRegex/) {
@@ -804,8 +895,7 @@ sub doFindDupeFiles {
     print "Found @{[scalar @dupes]} duplicate groups with multiple files\n"
         if $verbosity >= VERBOSITY_DEBUG;
 
-    # Sort groups by first element with JPG last, raw files first
-    my %extOrder = ( CRW => -1, CR2 => -1, HEIC => -1, NEF => -1, RAF => -1, JPG => 1, JPEG => 1 );
+    # Sort groups by first element with with primary files first
     @dupes = sort { 
         my ($an, $ae) = $a->[0] =~ /^(.*)\.([^.]*)$/;
         my ($bn, $be) = $b->[0] =~ /^(.*)\.([^.]*)$/;
@@ -814,9 +904,9 @@ sub doFindDupeFiles {
         my $cmp = $an cmp $bn;
         return $cmp if $cmp;
 
-        # Sort by extension (by extOrder, rather than alphabetic)
-        my $aOrder = $extOrder{uc $ae} || 0;
-        my $bOrder = $extOrder{uc $be} || 0;
+        # Sort by extension (by EXTORDER, rather than alphabetic)
+        my $aOrder = $fileTypes{uc $ae}->{EXTORDER} || 0;
+        my $bOrder = $fileTypes{uc $be}->{EXTORDER} || 0;
         return $aOrder <=> $bOrder;
     } @dupes;
     
@@ -1801,44 +1891,13 @@ sub getMimeType {
     unless ($path =~ /\.([^.]*)$/) {
         return 'unknown';
     }
-    my $type = lc $1;
-
-    # Reference: filext.com
-    # For types without a MIME type, we fabricate a "non-standard" one
-    # based on extension
-    if ($type eq 'avi') {
-        return 'video/x-msvideo';
-    } elsif ($type eq 'crw') {
-        return 'image/crw';
-    } elsif ($type eq 'cr2') {
-        return 'image/cr2'; # Non-standard
-    } elsif ($type eq 'jpeg' or $type eq 'jpg') {
-        return 'image/jpeg';
-    } elsif ($type eq 'heic') {
-        return 'image/heic'; # Non-standard
-    } elsif ($type eq 'm4v' or $type eq 'mp4') {
-        return 'video/mp4v-es';
-    } elsif ($type eq 'mov') {
-        return 'video/quicktime';
-    } elsif ($type eq 'mpg') {
-        return 'video/mpeg';
-    } elsif ($type eq 'mts') {
-        return 'video/mts'; # Non-standard
-    } elsif ($type eq 'nef') {
-        return 'image/nef'; # Non-standard
-    } elsif ($type eq 'png') {
-        return 'image/png'; 
-    } elsif ($type eq 'psb') {
-        return 'image/psb'; # Non-standard
-    } elsif ($type eq 'psd') {
-        return 'image/photoshop';
-    } elsif ($type eq 'raf') {
-        return 'image/raf'; # Non-standard
-    } elsif ($type eq 'tif' or $type eq 'tiff') {
-        return 'image/tiff';
+    
+    my $type = uc $1;
+    if (exists $fileTypes{$type}) {
+        return $fileTypes{$type}->{MIMETYPE};
+    } else {
+        confess "Unexpected file type $type for $path";        
     }
-
-    confess "Unexpected file type $type for $path";
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -2043,9 +2102,9 @@ sub getSidecarPaths {
         # Using extension as a key, look up associated sidecar types (if any)
         my ($base, $ext) = splitExt($path);
         my $key = uc $ext;
-        if (exists $sidecarTypes{$key}) {
+        if (exists $fileTypes{$key}) {
             # Return the other types which exist
-            my @sidecars = map { "$base.$_" } @{$sidecarTypes{$key}};
+            my @sidecars = map { "$base.$_" } @{$fileTypes{$key}->{SIDECARS}};
             @sidecars = grep { -e } @sidecars;
             return @sidecars;
         } else {
