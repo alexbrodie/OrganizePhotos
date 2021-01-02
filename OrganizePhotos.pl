@@ -4,6 +4,7 @@
 #   pod2markdown OrganizePhotos.pl > README.md
 #
 # TODO LIST
+#  * !! Fix bug where onsecutive sidecar MOV files for iPhone live photos in burst are recognized as content match
 #  * !! when trashing a dupe, make sure not to trash sidecars that don't match
 #  * glob in friendly sort order
 #  * add prefix/coloring to operations output to differntate (move, trash, etc)
@@ -1422,7 +1423,7 @@ sub appendMetadata {
         
     while (my ($name, $value) = each %keywordTypes) {
         my $old = $value->{OLD};
-        my $new = join ', ', sort keys $value->{NEW};
+        my $new = join ', ', sort keys %{$value->{NEW}};
         if (($old || '') ne $new) {
             print "$name: ",
                 defined $old ? "\"$old\"" : "(null)",
