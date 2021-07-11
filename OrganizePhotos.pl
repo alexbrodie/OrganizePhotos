@@ -977,6 +977,19 @@ sub doFindDupeFiles {
             }
         }
         
+        # See if we can use some heuristics to guess what should be
+        # done in this case
+        my $autoCommand;
+        for (my $i = 0; $i < @group; $i++) {
+            my $elt = $group[$i];
+
+            my $path = $elt->{path};
+            if ($path =~ /\/ToImport\//) {
+                $autoCommand .= ';' if $autoCommand;
+                $autoCommand .= "t$i";
+            }
+        }
+        
         # Build base of prompt - indexed paths
         my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, ' ', $reco, "\n");
         for (my $i = 0; $i < @group; $i++) {
@@ -1007,6 +1020,14 @@ sub doFindDupeFiles {
         # previously specified
         # TODO: is this actually useful?
         print @prompt and next if $all;
+        
+        # Default command is what happens if you hit enter with an empty string
+        my $defaultCommand;
+        if ($autoCommand) {
+            $defaultCommand = $autoCommand;
+        } elsif ($defaultLastAction) {
+            $defaultCommand = $lastCommand;            
+        }
 
         # Add input options to prompt
         push @prompt, "Diff, Continue, Always continue, Trash Number, Open Number (d/c/a";
@@ -1014,7 +1035,7 @@ sub doFindDupeFiles {
             push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#group);
         }
         push @prompt, ")? ";
-        push @prompt, "[$lastCommand] " if $defaultLastAction and $lastCommand;
+        push @prompt, "[$defaultCommand] " if $defaultCommand;
 
         # TODO: somehow determine whether one is a superset of one or
         # TODO: more of the others (hopefully for auto-delete) 
@@ -1022,16 +1043,7 @@ sub doFindDupeFiles {
 
         my $command;
         
-        # TODO: Prototype
-        for (my $i = 0; $i < @group; $i++) {
-            my $elt = $group[$i];
-
-            my $path = $elt->{path};
-            if ($path =~ /\/ToImport\//) {
-                print colored("I suggest you t$i, sir", 'bold black on_red'), "\n";
-                $command = "t$i";
-            }
-        }
+        print colored("I suggest you $autoCommand", 'bold black on_red'), "\n" if $autoCommand;
         
         # Get input until something sticks...
         PROMPT: while (1) {
@@ -1047,8 +1059,13 @@ sub doFindDupeFiles {
             # Prompt for action
             unless ($command) {
                 chomp($command = lc <STDIN>);
-                $command = $lastCommand if $defaultLastAction and $command eq '';
-                $lastCommand = $command;
+                
+                # If the user provided something, save that for next 
+                # conflict's default
+                $lastCommand = $command unless $command eq '';
+
+                # Enter with empty string uses $defaultCommand
+                $command = $defaultCommand if $defaultCommand and $command eq '';
             }
             
             # something like if -l turn on $defaultLastAction and next PROMPT
