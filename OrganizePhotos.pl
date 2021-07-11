@@ -990,6 +990,11 @@ sub doFindDupeFiles {
             }
         }
         
+        # If it's a short mov file next to a jpg or heic that's an iPhone,
+        # then it's probably the live video portion from a burst shot. We
+        # should just continue
+        # Todo: ^^^^ that
+        
         # Build base of prompt - indexed paths
         my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, ' ', $reco, "\n");
         for (my $i = 0; $i < @group; $i++) {
@@ -1041,6 +1046,8 @@ sub doFindDupeFiles {
         # TODO: more of the others (hopefully for auto-delete) 
         metadataDiff(undef, map { $_->{path} } @group) if $autoDiff;
 
+        # If you want t automate something (e.g. do $autoCommand without
+        # user confirmation), set that action here: 
         my $command;
         
         print colored("I suggest you $autoCommand", 'bold black on_red'), "\n" if $autoCommand;
@@ -1066,6 +1073,8 @@ sub doFindDupeFiles {
 
                 # Enter with empty string uses $defaultCommand
                 $command = $defaultCommand if $defaultCommand and $command eq '';
+            } else {
+                print "\n";
             }
             
             # something like if -l turn on $defaultLastAction and next PROMPT
