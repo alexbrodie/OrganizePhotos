@@ -722,28 +722,33 @@ sub doCheckMd5 {
 sub doCollectTrash {
     my (@globPatterns) = @_;
     
-    traverseGlobPatterns(sub {
-        my ($fileName, $root) = @_;
-        
-        if (-d $fileName and lc $fileName eq '.trash') {
-            # Convert $root/bunch/of/dirs/.Trash to $root/.Trash/bunch/of/dirs
-            my $oldFullPath = File::Spec->rel2abs($fileName);
-            my $oldRelPath = File::Spec->abs2rel($oldFullPath, $root);
-            my @dirs = File::Spec->splitdir($oldRelPath);
-            @dirs = ('.Trash', (grep { lc ne '.trash' } @dirs));
-            my $newRelPath = File::Spec->catdir(@dirs);
-            my $newFullPath = File::Spec->rel2abs($newRelPath, $root);
+    traverseGlobPatterns(
+        sub { # isWanted
+            return -d;
+        },
+        sub { # callback
+            my ($fileName, $root) = @_;
+            
+            if (lc $fileName eq '.trash') {
+                # Convert $root/bunch/of/dirs/.Trash to $root/.Trash/bunch/of/dirs
+                my $oldFullPath = File::Spec->rel2abs($fileName);
+                my $oldRelPath = File::Spec->abs2rel($oldFullPath, $root);
+                my @dirs = File::Spec->splitdir($oldRelPath);
+                @dirs = ('.Trash', (grep { lc ne '.trash' } @dirs));
+                my $newRelPath = File::Spec->catdir(@dirs);
+                my $newFullPath = File::Spec->rel2abs($newRelPath, $root);
 
-            if ($oldFullPath ne $newFullPath) {
-                # BUGBUG - this should probably strip out any extra .Trash
-                # right now occasionally seeing things like
-                # .Trash/foo/.Trash/bar.jpg
-                moveDir($oldFullPath, $newFullPath);
-            } else {
-                #print "Noop for path $oldRelPath\n";
+                if ($oldFullPath ne $newFullPath) {
+                    # BUGBUG - this should probably strip out any extra .Trash
+                    # right now occasionally seeing things like
+                    # .Trash/foo/.Trash/bar.jpg
+                    moveDir($oldFullPath, $newFullPath);
+                } else {
+                    #print "Noop for path $oldRelPath\n";
+                }
             }
-        }
-    }, 0, @globPatterns);
+        },
+        @globPatterns);
 }
 
 # API ==========================================================================
@@ -761,7 +766,9 @@ sub doFindDupeDirs {
 
     my %keyToPaths = ();
     File::Find::find({
-        preprocess => \&preprocessSkipTrash,
+        preprocess => sub {
+            return grep { !-d or lc ne '.trash' } @_; # skip trash
+        },
         wanted => sub {
             if (-d and (/^(\d\d\d\d)-(\d\d)-(\d\d)\b/
                 or /^(\d\d)-(\d\d)-(\d\d)\b/
@@ -794,64 +801,69 @@ sub doFindDupeFiles {
     my %keyToPaths = ();
     if ($byName) {
         # Make hash from filename components to files that have that base name
-        traverseGlobPatterns(sub {
-            if (-f and /$mediaType/) { 
-                my $path = File::Spec->rel2abs($_);
-                my @splitPath = deepSplitPath($path);
-                my ($name, $ext) = pop(@splitPath) =~ /^(.*)\.([^.]*)/;
-                
-                #print join('%', @splitPath), ";name=$name;ext=$ext;\n";
+        traverseGlobPatterns(
+            sub { # isWanted
+                return (!-d or lc ne '.trash'); # skip trash
+            },
+            sub { # callback
+                if (-f and /$mediaType/) { 
+                    my $path = File::Spec->rel2abs($_);
+                    my @splitPath = deepSplitPath($path);
+                    my ($name, $ext) = pop(@splitPath) =~ /^(.*)\.([^.]*)/;
+                    
+                    #print join('%', @splitPath), ";name=$name;ext=$ext;\n";
 
-                # Start with extension
-                #my $key = lc ($path =~ /\.([^\/\\.]*)$/)[0];
-                my $key = lc $ext . ';';
+                    # Start with extension
+                    #my $key = lc ($path =~ /\.([^\/\\.]*)$/)[0];
+                    my $key = lc $ext . ';';
 
-                # Add basename
-                my $nameRegex = qr/^
-                    (
-                        # things like DCF_1234
-                        [a-zA-Z\d_]{4} \d{4} |
-                        # things like 2009-08-11 12_31_45
-                        \d{4} [-_] \d{2} [-_] \d{2} [-_\s] 
-                        \d{2} [-_] \d{2} [-_] \d{2}
-                    ) \b /x;
+                    # Add basename
+                    my $nameRegex = qr/^
+                        (
+                            # things like DCF_1234
+                            [a-zA-Z\d_]{4} \d{4} |
+                            # things like 2009-08-11 12_31_45
+                            \d{4} [-_] \d{2} [-_] \d{2} [-_\s] 
+                            \d{2} [-_] \d{2} [-_] \d{2}
+                        ) \b /x;
 
-                if ($name =~ /$nameRegex/) {
-                    $key .= lc $1 . ';';
-                } else {
-                    # Unknown file format, just use filename?
-                    warn "Unknown filename format: $name";
-                    $key .= lc $name . ';';
-                }
+                    if ($name =~ /$nameRegex/) {
+                        $key .= lc $1 . ';';
+                    } else {
+                        # Unknown file format, just use filename?
+                        warn "Unknown filename format: $name";
+                        $key .= lc $name . ';';
+                    }
 
-                
-                my $nameKeyIncludesDir = 1;
-                if ($nameKeyIncludesDir) {
-                    # parent dir should be similar (based on date format)
-                    my $dirRegex = qr/^
-                        # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
-                        (?:19|20)?(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
-                        /x;
+                    
+                    my $nameKeyIncludesDir = 1;
+                    if ($nameKeyIncludesDir) {
+                        # parent dir should be similar (based on date format)
+                        my $dirRegex = qr/^
+                            # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
+                            (?:19|20)?(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
+                            /x;
 
-                    my $dirKey = '';
-                    for (reverse @splitPath) {
-                        if (/$dirRegex/) {
-                            $dirKey = lc "$1$2$3;";
-                            last;
+                        my $dirKey = '';
+                        for (reverse @splitPath) {
+                            if (/$dirRegex/) {
+                                $dirKey = lc "$1$2$3;";
+                                last;
+                            }
+                        }
+                    
+                        if ($dirKey) {
+                            $key .= $dirKey;
+                        } else {
+                            warn "Unknown directory format: $path\n";
                         }
                     }
-                
-                    if ($dirKey) {
-                        $key .= $dirKey;
-                    } else {
-                        warn "Unknown directory format: $path\n";
-                    }
-                }
 
-                #print "KEY($key) = VALUE($path);\n";
-                push @{$keyToPaths{$key}}, $path;
-            }
-        }, 1, @globPatterns);
+                    #print "KEY($key) = VALUE($path);\n";
+                    push @{$keyToPaths{$key}}, $path;
+                }
+            },
+            @globPatterns);
         
     } else {
         # Make hash from MD5 to files with that MD5
@@ -1162,14 +1174,19 @@ sub doRemoveEmpties {
     my (@globPatterns) = @_;
     
     my %dirContentsMap = ();
-    traverseGlobPatterns(sub {
-        my $path = File::Spec->rel2abs($_);
-        my ($volume, $dir, $name) = File::Spec->splitpath($path);
-        my $vd = File::Spec->catpath($volume, $dir, undef);
-        s/[\\\/]*$// for ($path, $vd);
-        push @{$dirContentsMap{$vd}}, $name;
-        push @{$dirContentsMap{$path}}, '.' if -d;
-    }, 1, @globPatterns);
+    traverseGlobPatterns(
+        sub { # isWanted
+            return (!-d or lc ne '.trash'); # skip trash
+        },
+        sub { # callback
+            my $path = File::Spec->rel2abs($_);
+            my ($volume, $dir, $name) = File::Spec->splitpath($path);
+            my $vd = File::Spec->catpath($volume, $dir, undef);
+            s/[\\\/]*$// for ($path, $vd);
+            push @{$dirContentsMap{$vd}}, $name;
+            push @{$dirContentsMap{$path}}, '.' if -d;
+        },
+        @globPatterns);
 
     #for (sort keys %dirContentsMap) {
     #    my ($k, $v) = ($_, $dirContentsMap{$_});
@@ -1187,6 +1204,30 @@ sub doRemoveEmpties {
 # API ==========================================================================
 # Execute test verb
 sub doTest {
+    traverseGlobPatterns(
+        sub { # isWanted
+            print <<EOM;
+-- isWanted
+   \@_                 { @{[ join(', ', @_) ]} }
+   \$File::Find::dir   $File::Find::dir
+   \$_                 $_
+EOM
+            return 1;
+        },
+        sub { # callback
+            print <<EOM;
+-- callback
+   \@_                 { @{[ join(', ', @_) ]} }
+   \$File::Find::name  $File::Find::name
+   \$File::Find::dir   $File::Find::dir
+   \$_                 $_
+EOM
+        },
+        @ARGV);
+#@{[ expr ]}
+}
+
+sub doTest2 {
     my $filename = $ARGV[0];
     -s $filename or confess "$filename doesn't exist";
     
@@ -1247,7 +1288,7 @@ sub doTest {
         my $days = ($diff->is_negative ? -1 : 1) * 
             ($diff->days + ($diff->hours + ($diff->minutes + $diff->seconds / 60) / 60) / 24);
 
-        print <<EOM
+        print <<EOM;
 Make            : $info->{Make}
 Model           : $info->{Model}
 SerialNumber    : $info->{SerialNumber}
@@ -1308,17 +1349,22 @@ sub doVerifyMd5 {
 sub verifyOrGenerateMd5ForGlob {
     my ($addOnly, $omitSkipMessage, @globPatterns) = @_;
 
-    traverseGlobPatterns(sub {
-        if (-f) {
-            if (/$mediaType/) {
-                verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
-            } elsif (lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' and !/\.(?:thm|xmp)$/i) {
-                if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
-                    print colored("Skipping    MD5 for $_", 'yellow'), " (unknown file)\n";
+    traverseGlobPatterns(
+        sub { # isWanted
+            return (!-d or lc ne '.trash'); # skip trash
+        },
+        sub { # callback
+            if (-f) {
+                if (/$mediaType/) {
+                    verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
+                } elsif (lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' and !/\.(?:thm|xmp)$/i) {
+                    if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
+                        print colored("Skipping    MD5 for $_", 'yellow'), " (unknown file)\n";
+                    }
                 }
             }
-        }
-    }, 1, @globPatterns);
+        },
+        @globPatterns);
 }
 
 #-------------------------------------------------------------------------------
@@ -1647,21 +1693,26 @@ sub findMd5s {
     
     print colored(join("\n\t", "Looking for md5.txt in", @globPatterns), 'yellow'), "\n" if $verbosity >= VERBOSITY_2; 
 
-    traverseGlobPatterns(sub {
-        if (-f and lc eq 'md5.txt') {
-            my $path = File::Spec->rel2abs($_);
-            print colored("Found $path\n", 'yellow') if $verbosity >= VERBOSITY_2;
-            open(my $fh, '<:crlf', $path)
-                or confess "Couldn't open $path: $!";
-        
-            my $md5s = readMd5FileFromHandle($fh);
+    traverseGlobPatterns(
+        sub { # isWanted
+            return (!-d or lc ne '.trash'); # skip trash
+        },
+        sub { # callback
+            if (-f and lc eq 'md5.txt') {
+                my $path = File::Spec->rel2abs($_);
+                print colored("Found $path\n", 'yellow') if $verbosity >= VERBOSITY_2;
+                open(my $fh, '<:crlf', $path)
+                    or confess "Couldn't open $path: $!";
             
-            my ($volume, $dir, undef) = File::Spec->splitpath($path);
-            for (sort keys %$md5s) {
-                $callback->(File::Spec->catpath($volume, $dir, $_), $md5s->{$_}->{md5});
+                my $md5s = readMd5FileFromHandle($fh);
+                
+                my ($volume, $dir, undef) = File::Spec->splitpath($path);
+                for (sort keys %$md5s) {
+                    $callback->(File::Spec->catpath($volume, $dir, $_), $md5s->{$_}->{md5});
+                }
             }
-        }
-    }, 1, @globPatterns);
+        },
+        @globPatterns);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -2232,12 +2283,46 @@ sub splitExt {
 }
 
 # MODEL (File Operations) ------------------------------------------------------
-# Unrolls globs and traverses directories recursively calling
+# Unrolls globs and traverses directories and files recursively for everything
+# that yields a truthy call to
+#   $isWanted->(...)
+# and then calls calling
 #   $callback->($fileName, $rootDirOfSearch);
 # with current directory set to $fileName's dir before calling
 # and $_ set to $fileName.
+#
+# So, if you wanted to print out all the names of all files that aren't in
+# a .Trash directory, you'd do:
+#   traverseGlobPatterns(sub { return !-d or lc ne '.trash'; },
+#                        sub { print "$_\n"; });
+#
+# TODO: standardize on params for callback and isWanted, and remove
+# the global param passing via $File::Find::name, $File::Find::dir, $_
+# (including implicit params for lc, re, etc)
+#
+# TODO: make sure the uses of $isWanted and $callback is standardized
+# across different forks, including state of and use of $File::Find::name,
+# $File::Find::dir, $_
 sub traverseGlobPatterns {
-    my ($callback, $skipTrash, @globPatterns) = @_;
+    my ($isWanted, $callback, @globPatterns) = @_;
+
+    # Method to be called for each directory found in globPatterns
+    my $helper = sub {
+        my ($dir) = @_;
+        
+        $dir = File::Spec->rel2abs($dir);
+        File::Find::find({
+            bydepth => 1,
+            preprocess => !$isWanted ? undef : sub {
+                # Return only the members of the filenames in @_ from directory 
+                # $File::Find::dir that should be processed.
+                return grep { $isWanted->() } @_;
+            },
+            wanted => sub {
+                $callback->($_, $dir);
+            }
+        }, $dir);
+    };
 
     if (@globPatterns) {
         for my $globPattern (@globPatterns) {
@@ -2246,36 +2331,16 @@ sub traverseGlobPatterns {
             $globPattern = "'$globPattern'";
             for (glob $globPattern) {
                 if (-d) {
-                    traverseGlobPatternsHelper($callback, $skipTrash, $_);
-                } else {
+                    $helper->($_);
+                } elsif ($isWanted->()) {
                     $callback->($_, undef);
                 }
             }
         }
     } else {
         # If no glob patterns are provided, just search current directory
-        traverseGlobPatternsHelper($callback, $skipTrash, '.');
+        $helper->('.');
     }
-}
-
-# MODEL (File Operations) ------------------------------------------------------
-sub traverseGlobPatternsHelper {
-    my ($callback, $skipTrash, $dir) = @_;
-    
-    $dir = File::Spec->rel2abs($dir);
-    File::Find::find({
-        bydepth => 1,
-        preprocess => $skipTrash ? \&preprocessSkipTrash : undef,
-        wanted => sub {
-            $callback->($_, $dir);
-        }
-    }, $dir);
-}
-
-# MODEL (File Operations ) -----------------------------------------------------
-# 'preprocess' callback for find of File::Find which skips .Trash dirs
-sub preprocessSkipTrash  {
-    return grep { !-d or lc ne '.trash' } @_;
 }
 
 # MODEL (File Operations) ------------------------------------------------------
