@@ -40,6 +40,11 @@
 #    on Windows), and treat them sort of like sidecars (except, that we want
 #    the resource fork of each sidecar in some cases - maybe it should be lower
 #    level like moveFile, traverseGlobPatterns, etc)
+#  * Make sure all file-system/path stuff goes through File:: stuff, not the perlfunc
+#    stuff like: -X, glob, stat
+#  * Get rid of relative paths more and clean up use of rel2abs/abs2rel, and make
+#    File::Find::find callbacks take arguments rather than using File::Find::name
+#    and $_ (including using -X and regexp without implicit $_ argument)
 =pod
 
 =head1 NAME
@@ -451,17 +456,17 @@ use strict;
 use warnings;
 
 use Carp qw(confess);
-use Data::Compare;
-use Data::Dumper;
+use Data::Compare ();
+use Data::Dumper ();
 use DateTime::Format::HTTP;
 use Digest::MD5;
-use File::Compare;
-use File::Copy;
-use File::Find;
+#use File::Compare;
+use File::Copy ();
+use File::Find ();
 use File::Glob qw(:globally :nocase);
-use File::Path qw(make_path);
-use File::Spec::Functions qw(:ALL);
-use File::stat;
+use File::Path ();
+use File::Spec ();
+use File::stat ();
 use Getopt::Long;
 use Image::ExifTool;
 use JSON;
@@ -469,6 +474,7 @@ use Pod::Usage;
 if ($^O eq 'MSWin32') {
     use Win32::Console::ANSI; # must come before Term::ANSIColor
 }
+# TODO: be explicit with this and move usage to view layer
 use Term::ANSIColor;
 
 # Implementation version of getMd5 (useful when comparing older serialized
@@ -612,7 +618,7 @@ my $mediaType = qr/
     $/x;
 
 # For extra output
-my $verbosity = 0;
+my $verbosity = 1000000;
 use constant VERBOSITY_2 => 2;
 use constant VERBOSITY_DEBUG => 999;
 
@@ -716,12 +722,12 @@ sub doCollectTrash {
         
         if (-d $fileName and lc $fileName eq '.trash') {
             # Convert $root/bunch/of/dirs/.Trash to $root/.Trash/bunch/of/dirs
-            my $oldFullPath = rel2abs($fileName);
-            my $oldRelPath = abs2rel($oldFullPath, $root);
-            my @dirs = splitdir($oldRelPath);
+            my $oldFullPath = File::Spec->rel2abs($fileName);
+            my $oldRelPath = File::Spec->abs2rel($oldFullPath, $root);
+            my @dirs = File::Spec->splitdir($oldRelPath);
             @dirs = ('.Trash', (grep { lc ne '.trash' } @dirs));
-            my $newRelPath = catdir(@dirs);
-            my $newFullPath = rel2abs($newRelPath, $root);
+            my $newRelPath = File::Spec->catdir(@dirs);
+            my $newFullPath = File::Spec->rel2abs($newRelPath, $root);
 
             if ($oldFullPath ne $newFullPath) {
                 # BUGBUG - this should probably strip out any extra .Trash
@@ -746,8 +752,10 @@ sub doConsolodateMetadata {
 # Execute find-dupe-dirs verb
 sub doFindDupeDirs {
 
+    # TODO: clean this up
+
     my %keyToPaths = ();
-    find({
+    File::Find::find({
         preprocess => \&preprocessSkipTrash,
         wanted => sub {
             if (-d and (/^(\d\d\d\d)-(\d\d)-(\d\d)\b/
@@ -755,7 +763,7 @@ sub doFindDupeDirs {
                 or /^(\d\d)(\d\d)(\d\d)\b/)) {
                     
                 my $y = $1 < 20 ? $1 + 2000 : $1 < 100 ? $1 + 1900 : $1;                
-                push @{$keyToPaths{lc "$y-$2-$3"}}, rel2abs($_);
+                push @{$keyToPaths{lc "$y-$2-$3"}}, File::Spec->rel2abs($_);
             }
         }
     }, '.');
@@ -783,7 +791,7 @@ sub doFindDupeFiles {
         # Make hash from filename components to files that have that base name
         traverseGlobPatterns(sub {
             if (-f and /$mediaType/) { 
-                my $path = rel2abs($_);
+                my $path = File::Spec->rel2abs($_);
                 my @splitPath = deepSplitPath($path);
                 my ($name, $ext) = pop(@splitPath) =~ /^(.*)\.([^.]*)/;
                 
@@ -1150,9 +1158,9 @@ sub doRemoveEmpties {
     
     my %dirContentsMap = ();
     traverseGlobPatterns(sub {
-        my $path = rel2abs($_);
-        my ($volume, $dir, $name) = splitpath($path);
-        my $vd = catpath($volume, $dir, undef);
+        my $path = File::Spec->rel2abs($_);
+        my ($volume, $dir, $name) = File::Spec->splitpath($path);
+        my $vd = File::Spec->catpath($volume, $dir, undef);
         s/[\\\/]*$// for ($path, $vd);
         push @{$dirContentsMap{$vd}}, $name;
         push @{$dirContentsMap{$path}}, '.' if -d;
@@ -1179,7 +1187,7 @@ sub doTest {
     
     # Look for a QR code
     my @results = `qrscan '$filename'`;
-    print "qrscan: ", Dumper(@results) if $verbosity >= VERBOSITY_DEBUG;
+    print "qrscan: ", Data::Dumper::Dumper(@results) if $verbosity >= VERBOSITY_DEBUG;
 
     # Parse QR codes
     my $messageDate;
@@ -1188,7 +1196,7 @@ sub doTest {
             or confess "Unexpected qrscan output: $_";
         
         my $message = decode_json($1);
-        print "message: ", Dumper($message) if $verbosity >= VERBOSITY_DEBUG;
+        print "message: ", Data::Dumper::Dumper($message) if $verbosity >= VERBOSITY_DEBUG;
     
         if (exists $message->{date}) {
             my $date = $message->{date};
@@ -1206,7 +1214,7 @@ sub doTest {
         my $info = $et->GetInfo(qw(
             DateTimeOriginal TimeZone TimeZoneCity DaylightSavings 
             Make Model SerialNumber));
-        print "$filename: ", Dumper($info) if $verbosity >= VERBOSITY_DEBUG;
+        print "$filename: ", Data::Dumper::Dumper($info) if $verbosity >= VERBOSITY_DEBUG;
     
         my $metadataDate = $info->{DateTimeOriginal};
         print "$messageDate vs $metadataDate\n" if $verbosity >= VERBOSITY_DEBUG;
@@ -1229,7 +1237,7 @@ sub doTest {
     
         my $diff = $messageDate->subtract_datetime($metadataDate);
     
-        print "$messageDate - $messageDate = ", Dumper($diff), "\n" if $verbosity >= VERBOSITY_DEBUG;
+        print "$messageDate - $messageDate = ", Data::Dumper::Dumper($diff), "\n" if $verbosity >= VERBOSITY_DEBUG;
     
         my $days = ($diff->is_negative ? -1 : 1) * 
             ($diff->days + ($diff->hours + ($diff->minutes + $diff->seconds / 60) / 60) / 24);
@@ -1301,7 +1309,7 @@ sub verifyOrGenerateMd5ForGlob {
                 verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
             } elsif (lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' and !/\.(?:thm|xmp)$/i) {
                 if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
-                    print colored("Skipping    MD5 for " . rel2abs($_), 'yellow'), " (unknown file)\n";
+                    print colored("Skipping    MD5 for $_", 'yellow'), " (unknown file)\n";
                 }
             }
         }
@@ -1317,12 +1325,12 @@ sub verifyOrGenerateMd5ForGlob {
 sub verifyOrGenerateMd5ForFile {
     my ($addOnly, $omitSkipMessage, $path) = @_;
 
-    $path = rel2abs($path);
+    $path = File::Spec->rel2abs($path);
     my ($md5Path, $md5Key) = getMd5PathAndKey($path);
     
     # Get file stats for the file we're evaluating to reference and/or
     # update MD5.txt
-    my $stats = stat($path) 
+    my $stats = File::stat::stat($path) 
         or die "Couldn't stat $path: $!";
 
     # Add stats metadata to be persisted to md5.txt
@@ -1386,7 +1394,7 @@ sub verifyOrGenerateMd5ForFile {
             # If the MD5 data is a full match, then we don't have anything
             # else to do. If not (probably missing or updated metadata 
             # fields), then continue on where we'll re-write md5.txt.
-            return if Compare($expectedMd5, $actualMd5);
+            return if Data::Compare::Compare($expectedMd5, $actualMd5);
         } elsif ($expectedMd5->{full_md5} eq $actualMd5->{full_md5}) {
             # Full MD5 match and content mismatch. This should only be
             # expected when we change how to calculate content MD5s.
@@ -1499,7 +1507,7 @@ sub appendMetadata {
     # Extract current metadata in target
     my $etTarget = extractInfo($target);
     my $infoTarget = $etTarget->GetInfo(@properties);
-    print "$target: ", Dumper($infoTarget) if $verbosity >= VERBOSITY_DEBUG;
+    print "$target: ", Data::Dumper::Dumper($infoTarget) if $verbosity >= VERBOSITY_DEBUG;
     
     my $rating = $infoTarget->{Rating};
     my $oldRating = $rating;
@@ -1517,7 +1525,7 @@ sub appendMetadata {
         # Extract metadata in source to merge in
         my $etSource = extractInfo($source);            
         my $infoSource = $etSource->GetInfo(@properties);
-        print "$source: ", Dumper($infoSource) if $verbosity >= VERBOSITY_DEBUG;
+        print "$source: ", Data::Dumper::Dumper($infoSource) if $verbosity >= VERBOSITY_DEBUG;
         
         # Add rating if we don't already have one
         unless (defined $rating) {
@@ -1567,7 +1575,7 @@ sub appendMetadata {
         }
     
         # Make backup
-        copy $target, $backup
+        File::Copy::copy($target, $backup)
             or confess "Couldn't copy $target to $backup: $!";
 
         # Update metadata in target file
@@ -1613,7 +1621,7 @@ sub getDirectoryError {
 
     my $yyyy = substr $date, 0, 4;
     my $date2 = join '', $date =~ /^..(..)-(..)-(..)$/;
-    my @dirs = splitdir((splitpath($path))[1]);
+    my @dirs = File::Spec->splitdir((File::Spec->splitpath($path))[1]);
     if ($dirs[-3] eq $yyyy and
         $dirs[-2] =~ /^(?:$date|$date2)/) {
         # Falsy empty string when path is correct
@@ -1636,16 +1644,16 @@ sub findMd5s {
 
     traverseGlobPatterns(sub {
         if (-f and lc eq 'md5.txt') {
-            my $path = rel2abs($_);
+            my $path = File::Spec->rel2abs($_);
             print colored("Found $path\n", 'yellow') if $verbosity >= VERBOSITY_2;
             open(my $fh, '<:crlf', $path)
                 or confess "Couldn't open $path: $!";
         
             my $md5s = readMd5FileFromHandle($fh);
             
-            my ($volume, $dir, undef) = splitpath($path);
+            my ($volume, $dir, undef) = File::Spec->splitpath($path);
             for (sort keys %$md5s) {
-                $callback->(catpath($volume, $dir, $_), $md5s->{$_}->{md5});
+                $callback->(File::Spec->catpath($volume, $dir, $_), $md5s->{$_}->{md5});
             }
         }
     }, 1, @globPatterns);
@@ -1657,9 +1665,9 @@ sub findMd5s {
 sub getMd5PathAndKey {
     my ($path) = @_;
 
-    $path = rel2abs($path);
-    my ($volume, $dir, $name) = splitpath($path);
-    my $md5Path = catpath($volume, $dir, 'md5.txt');
+    $path = File::Spec->rel2abs($path);
+    my ($volume, $dir, $name) = File::Spec->splitpath($path);
+    my $md5Path = File::Spec->catpath($volume, $dir, 'md5.txt');
     my $md5Key = lc $name;
     
     return ($md5Path, $md5Key);
@@ -1872,10 +1880,11 @@ sub getMd5 {
     # *** IMPORTANT NOTE ***
     # $getMd5Version should be incremented whenever the output of
     # this method changes in such a way that old values need to be
-    # recalculated.
+    # recalculated, and isMd5VersionUpToDate should be updated
+    # accordingly.
     
     our %md5Cache;
-    my $cacheKey = rel2abs($path);
+    my $cacheKey = File::Spec->rel2abs($path);
     if ($useCache) {
         my $cacheResult = $md5Cache{$cacheKey};
         return $cacheResult if defined $cacheResult;
@@ -2042,7 +2051,7 @@ sub getPngContentDataMd5 {
 
     # All PNGs start with this
     my @pngHeader = ( 137, 80, 78, 71, 13, 10, 26, 10 );
-    Compare(\@actualHeader, \@pngHeader)
+    Data::Compare::Compare(\@actualHeader, \@pngHeader)
         or confess "PNG file didn't start with correct header: $path";
 
     my $md5 = new Digest::MD5;
@@ -2199,8 +2208,8 @@ sub extractInfo {
 sub deepSplitPath {
     my ($path) = @_;
 
-    my ($volume, $dir, $name) = splitpath($path);
-    my @dirs = splitdir($dir);
+    my ($volume, $dir, $name) = File::Spec->splitpath($path);
+    my @dirs = File::Spec->splitdir($dir);
     pop @dirs unless $dirs[-1];
 
     return ($volume, @dirs, $name);
@@ -2226,6 +2235,9 @@ sub traverseGlobPatterns {
     my ($callback, $skipTrash, @globPatterns) = @_;
 
     if (@globPatterns) {
+        for my $globPattern (@globPatterns) {
+
+        }
         for (sort map { glob } @globPatterns) {
             if (-d) {
                 traverseGlobPatternsHelper($callback, $skipTrash, $_);
@@ -2234,6 +2246,7 @@ sub traverseGlobPatterns {
             }
         }
     } else {
+        # If no glob patterns are provided, just search current directory
         traverseGlobPatternsHelper($callback, $skipTrash, '.');
     }
 }
@@ -2242,8 +2255,8 @@ sub traverseGlobPatterns {
 sub traverseGlobPatternsHelper {
     my ($callback, $skipTrash, $dir) = @_;
     
-    $dir = rel2abs($dir);
-    find({
+    $dir = File::Spec->rel2abs($dir);
+    File::Find::find({
         bydepth => 1,
         preprocess => $skipTrash ? \&preprocessSkipTrash : undef,
         wanted => sub {
@@ -2265,9 +2278,9 @@ sub trashPath {
     my ($path) = @_;
     #print "trashPath('$path');\n";
 
-    my ($volume, $dir, $name) = splitpath($path);
-    my $trashDir = catpath($volume, $dir, '.Trash');
-    my $trashPath = catfile($trashDir, $name);
+    my ($volume, $dir, $name) = File::Spec->splitpath($path);
+    my $trashDir = File::Spec->catpath($volume, $dir, '.Trash');
+    my $trashPath = File::Spec->catfile($trashDir, $name);
 
     moveFile($path, $trashPath);
     removeMd5ForPath($path);
@@ -2295,12 +2308,12 @@ sub moveFile {
         and confess "I can't overwrite files ($oldPath => $newPath)";
 
     # Create parent folder if it doesn't exist
-    my $newParentDir = catpath((splitpath($newPath))[0,1]);
-    -d $newParentDir or make_path($newParentDir)
+    my $newParentDir = File::Spec->catpath((File::Spec->splitpath($newPath))[0,1]);
+    -d $newParentDir or File::Path::make_path($newParentDir)
         or confess "Failed to make directory $newParentDir: $!";
 
     # Do the real move
-    move($oldPath, $newPath)
+    File::Copy::move($oldPath, $newPath)
         or confess "Failed to move $oldPath to $newPath: $!";
 
     print colored("! Moved $oldPath\n!    to $newPath\n", 'bright_cyan');
@@ -2323,11 +2336,11 @@ sub moveDir {
             or confess "Can't move a directory - file already exists at destination ($oldPath => $newPath)";
 
         # Walk through all the sub-items in the dir $oldPath
-        find({
+        File::Find::find({
             wanted => sub {
                 if ($_ ne '.') {
                     my $oldSubItemPath = $File::Find::name;
-                    my $newSubItemPath = catfile($newPath, $_);
+                    my $newSubItemPath = File::Spec->catfile($newPath, $_);
                 
                     if (-d) {
                         # Subitem is a dir, so just recurse
