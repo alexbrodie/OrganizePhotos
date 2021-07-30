@@ -35,6 +35,11 @@
 #  * something much better than the (i/o/q) prompty for MD5 conflicts
 #  * restore trash
 #  * dedupe IMG_XXXX.HEIC and IMG_EXXXX.JPG
+#  * ignore "resource fork" segments (files starting with "._" which can show
+#    up when data is copied from HFS on MacOS to shared exFAT drive and viewed 
+#    on Windows), and treat them sort of like sidecars (except, that we want
+#    the resource fork of each sidecar in some cases - maybe it should be lower
+#    level like moveFile, traverseGlobPatterns, etc)
 =pod
 
 =head1 NAME
@@ -461,6 +466,9 @@ use Getopt::Long;
 use Image::ExifTool;
 use JSON;
 use Pod::Usage;
+if ($^O eq 'MSWin32') {
+    use Win32::Console::ANSI; # must come before Term::ANSIColor
+}
 use Term::ANSIColor;
 
 # Implementation version of getMd5 (useful when comparing older serialized
