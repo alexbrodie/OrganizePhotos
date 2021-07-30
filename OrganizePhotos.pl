@@ -623,7 +623,7 @@ my $mediaType = qr/
     $/x;
 
 # For extra output
-my $verbosity = 1000000;
+my $verbosity = 0;
 use constant VERBOSITY_2 => 2;
 use constant VERBOSITY_DEBUG => 999;
 
@@ -2241,6 +2241,9 @@ sub traverseGlobPatterns {
 
     if (@globPatterns) {
         for my $globPattern (@globPatterns) {
+            # TODO: Is this workaround to handle globbing with spaces for
+            # Windows compatible with MacOS (with and without spaces)?
+            $globPattern = "'$globPattern'";
             for (glob $globPattern) {
                 if (-d) {
                     traverseGlobPatternsHelper($callback, $skipTrash, $_);
