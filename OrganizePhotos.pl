@@ -45,6 +45,11 @@
 #  * Get rid of relative paths more and clean up use of rel2abs/abs2rel, and make
 #    File::Find::find callbacks take arguments rather than using File::Find::name
 #    and $_ (including using -X and regexp without implicit $_ argument)
+#  * Fix globbing on Windows. Currently at least spaces are delimiters, and surely
+#    there are other characters. This causes arguments like
+#    > perl OrganizePhotos.pl "Foo *.jpg"
+#    to be treated as <Foo *.jpg> which is the same as (<Foo>, <*.jpg>) rather than
+#    doing the cmd.exe shell expansion which would produce 'Foo 1.jpg', 'Foo 2.jpg', etc.
 =pod
 
 =head1 NAME
@@ -2236,13 +2241,12 @@ sub traverseGlobPatterns {
 
     if (@globPatterns) {
         for my $globPattern (@globPatterns) {
-
-        }
-        for (sort map { glob } @globPatterns) {
-            if (-d) {
-                traverseGlobPatternsHelper($callback, $skipTrash, $_);
-            } else {
-                $callback->($_, undef);
+            for (glob $globPattern) {
+                if (-d) {
+                    traverseGlobPatternsHelper($callback, $skipTrash, $_);
+                } else {
+                    $callback->($_, undef);
+                }
             }
         }
     } else {
