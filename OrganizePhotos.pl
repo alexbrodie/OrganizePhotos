@@ -50,6 +50,7 @@
 #    > perl OrganizePhotos.pl "Foo *.jpg"
 #    to be treated as <Foo *.jpg> which is the same as (<Foo>, <*.jpg>) rather than
 #    doing the cmd.exe shell expansion which would produce 'Foo 1.jpg', 'Foo 2.jpg', etc.
+#  * Replace some hashes whose key sets never change with Class::Struct
 =pod
 
 =head1 NAME
@@ -737,6 +738,7 @@ sub doCollectTrash {
             if (lc $filename eq '.trash') {
                 # Convert $root/bunch/of/dirs/.Trash to $root/.Trash/bunch/of/dirs
                 # TODO: fix for traverseGlobPatterns refactor
+                my $root = undef; # BUGBUG
                 my $oldFullPath = File::Spec->rel2abs($filename);
                 my $oldRelPath = File::Spec->abs2rel($oldFullPath, $root);
                 my @dirs = File::Spec->splitdir($oldRelPath);
@@ -768,7 +770,7 @@ sub doConsolodateMetadata {
 # Execute find-dupe-dirs verb
 sub doFindDupeDirs {
 
-    # TODO: clean this up
+    # TODO: clean this up and use traverseGlobPatterns
 
     my %keyToPaths = ();
     File::Find::find({
@@ -811,7 +813,7 @@ sub doFindDupeFiles {
             sub { # isWanted
                 my ($filename, $absPath, $relPath) = @_;
                 
-                return !(-d $absPath) or (lc $filename ne '.trash'); # skip trash
+                return (!(-d $absPath) or (lc $filename ne '.trash')); # skip trash
             },
             sub { # callback
                 my ($filename, $absPath, $relPath) = @_;
@@ -1189,7 +1191,7 @@ sub doRemoveEmpties {
         sub { # isWanted
             my ($filename, $absPath, $relPath) = @_;
 
-            return !(-d $absPath) or (lc $filename ne '.trash'); # skip trash
+            return (!(-d $absPath) or (lc $filename ne '.trash')); # skip trash
         },
         sub { # callback
             my ($filename, $absPath, $relPath) = @_;
@@ -1224,35 +1226,16 @@ sub doTest {
         sub { # isWanted
             my ($filename, $absPath, $relPath) = @_;
 
-            printf "isWanted: %-15s, %-35s, %-20s\n", @_;
+            print colored(sprintf('isWanted: %-15s %-35s %-20s', @_), 'red'), "\n";
 
-            print <<EOM if 0;
--- isWanted
-   \@_                              @{[ join("\n" . ' ' x 35, @_) ]}
-   \$File::Find::dir                $File::Find::dir
-   \$_                              $_
-   cwd                             @{[ File::Spec->rel2abs('.') ]}
-   rel2abs(\$_)                     @{[ File::Spec->rel2abs($_) ]}
-EOM
             return 1;
         },
         sub { # callback
             my ($filename, $absPath, $relPath) = @_;
 
-            printf "callback: %-15s, %-35s, %-20s\n", @_;
-
-            print <<EOM if 0;
--- callback
-   \@_                              @{[ join("\n" . ' ' x 35, @_) ]}
-   \$File::Find::name               $File::Find::name
-   \$File::Find::dir                $File::Find::dir
-   \$_                              $_
-   cwd                             @{[ File::Spec->rel2abs('.') ]}
-   rel2abs(\$_)                     @{[ File::Spec->rel2abs($_) ]}
-EOM
+            print colored(sprintf('callback: %-15s %-35s %-20s', @_), 'green'), "\n";
         },
         @ARGV);
-#@{[ expr ]}
 }
 
 sub doTest2 {
@@ -1383,11 +1366,12 @@ sub verifyOrGenerateMd5ForGlob {
         sub { # isWanted
             my ($filename, $absPath, $relPath) = @_;
 
-            return !(-d $absPath) or (lc $filename ne '.trash'); # skip trash
+            return (!(-d $absPath) or (lc $filename ne '.trash')); # skip trash
         },
         sub { # callback
             my ($filename, $absPath, $relPath) = @_;
             
+            # TODO: fix for traverseGlobPatterns refactor
             if (-f) {
                 if (/$mediaType/) {
                     verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
@@ -1731,11 +1715,12 @@ sub findMd5s {
         sub { # isWanted
             my ($filename, $absPath, $relPath) = @_;
 
-            return !(-d $absPath) or (lc $filename ne '.trash'); # skip trash
+            return (!(-d $absPath) or (lc $filename ne '.trash')); # skip trash
         },
         sub { # callback
             my ($filename, $absPath, $relPath) = @_;
             
+            # TODO: fix for traverseGlobPatterns refactor
             if (-f and lc eq 'md5.txt') {
                 my $path = File::Spec->rel2abs($_);
                 print colored("Found $path\n", 'yellow') if $verbosity >= VERBOSITY_2;
@@ -2337,17 +2322,9 @@ sub splitExt {
 #           return !(-d $absPath) or (lc $filename ne '.trash');
 #       },
 #       sub {
-#           my (undef, undef, $relPath) = @_; 
-#           print "$relPath\n"; 
+#           my (undef, $absPath, $relPath) = @_; 
+#           print("$relPath\n") if -f $absPath; 
 #       });
-#
-# TODO: standardize on params for callback and isWanted, and remove
-# the global param passing via $File::Find::name, $File::Find::dir, $_
-# (including implicit params for lc, re, etc)
-#
-# TODO: make sure the uses of $isWanted and $callback is standardized
-# across different forks, including state of and use of $File::Find::name,
-# $File::Find::dir, $_
 sub traverseGlobPatterns {
     my ($isWanted, $callback, @globPatterns) = @_;
 
@@ -2359,6 +2336,7 @@ sub traverseGlobPatterns {
     my $makeArgs = sub {
         my ($relPath) = @_;
 
+        $relPath = File::Spec->canonpath($relPath);
         my $absPath = File::Spec->rel2abs($relPath, $base);
         my ($volume, $directories, $filename) = File::Spec->splitpath($absPath);
 
@@ -2371,39 +2349,50 @@ sub traverseGlobPatterns {
     my $helper = sub {
         my ($rootDir) = @_;
 
-        File::Find::find({
-            bydepth => 1,
-            no_chdir => 1,
-            preprocess => !$isWanted ? undef : sub {
-                # Return only the members of the filenames in @_ from directory 
-                # $File::Find::dir that should be processed.
-                return grep {
-                        # Skip .. because it doesn't matter what we do, this
-                        # isn't going to get passed to wanted, and it doesn't
-                        # really make sense to traverse up in a recursive down
-                        # enumeration. Also, skip '.' because we would otherwise
-                        # process each dir twice, and $rootDir once. This makes
-                        # subdirs once and $rootDir not at all.
-                        ($_ ne '.') and ($_ ne '..') and
+        # The final wanted call for $rootDir doesn't have a matching preprocess call,
+        # so force one up front for symetry with all other pairs.
+        if (!$isWanted or $isWanted->($makeArgs->($rootDir))) {
+            File::Find::find({
+                bydepth => 1,
+                no_chdir => 1,
+                preprocess => !$isWanted ? undef : sub {
+                    return grep {
+                            # Skip .. because it doesn't matter what we do, this
+                            # isn't going to get passed to wanted, and it doesn't
+                            # really make sense to traverse up in a recursive down
+                            # enumeration. Also, skip '.' because we would otherwise
+                            # process each dir twice, and $rootDir once. This makes
+                            # subdirs once and $rootDir not at all.
+                            if (($_ ne '.') and ($_ ne '..')) {
+                                # The values used here to compute the full path to the file
+                                # relative to $base matches the values of wanted's implementation, 
+                                # and both work the same whether no_chdir is set or not, i.e. they 
+                                # only use values that are unaffected by no_chdir. 
+                                my @args = $makeArgs->(File::Spec->catfile($File::Find::dir, $_));
 
-                        # The values used here to compute the full path to the file
-                        # relative to $base matches the values of wanted's implementation, 
-                        # and both work the same whether no_chdir is set or not, i.e. they 
-                        # only use values that are unaffected by no_chdir. 
-                        $isWanted->($makeArgs->(File::Spec->catfile($File::Find::dir, $_)))
-                    } @_;
-            },
-            wanted => sub {
-                # Match preprocess' grep
-                #($_ ne '.') and ($_ ne '..') and
+                                # prevent accedental use via implicit args in isWanted
+                                local $_ = undef;
+                                
+                                $isWanted->(@args);
+                            } else {
+                                undef;
+                            }
+                        } @_;
+                },
+                wanted => sub {
+                    # The values used here to compute the full path to the file
+                    # relative to $base matches the values of preprocess' implementation, 
+                    # and both work the same whether no_chdir is set or not, i.e. they 
+                    # only use values that are unaffected by no_chdir.
+                    my @args =  $makeArgs->($File::Find::name);
 
-                # The values used here to compute the full path to the file
-                # relative to $base matches the values of preprocess' implementation, 
-                # and both work the same whether no_chdir is set or not, i.e. they 
-                # only use values that are unaffected by no_chdir. 
-                $callback->($makeArgs->($File::Find::name));
-            }
-        }, $rootDir);
+                    # prevent accedental use via implicit args in callback
+                    local $_ = undef;
+
+                    $callback->(@args);
+                }
+            }, $rootDir);
+        }
     };
 
     if (@globPatterns) {
@@ -2416,11 +2405,12 @@ sub traverseGlobPatterns {
                 if (-d) {
                     $helper->($_);
                 } elsif (-f) {
-                    # TODO: correct params for callbacks
-                    my @argsForCallbacks = $makeArgs->($_);
-                    if ($isWanted->(@argsForCallbacks)) {
-                        $callback->(@argsForCallbacks);
-                    }
+                    my @args = $makeArgs->($_);
+
+                    # prevent accedental use via implicit args in isWanted/callback
+                    local $_ = undef;
+
+                    $callback->(@args) if !$isWanted or $isWanted->(@args);
                 } else {
                     confess "Don't know how to deal with glob result '$_'";
                 }
