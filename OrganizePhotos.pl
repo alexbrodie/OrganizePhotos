@@ -724,14 +724,20 @@ sub doCollectTrash {
     
     traverseGlobPatterns(
         sub { # isWanted
-            return -d;
+            my ($filename, $absPath, $relPath) = @_;
+            
+            # Look at each directory (ignoring everything else). If it's .Trash,
+            # then callback will process the dir, else, we'll recurse looking
+            # for more .Trash subdirs.
+            return -d $absPath;
         },
         sub { # callback
-            my ($fileName, $root) = @_;
+            my ($filename, $absPath, $relPath) = @_;
             
-            if (lc $fileName eq '.trash') {
+            if (lc $filename eq '.trash') {
                 # Convert $root/bunch/of/dirs/.Trash to $root/.Trash/bunch/of/dirs
-                my $oldFullPath = File::Spec->rel2abs($fileName);
+                # TODO: fix for traverseGlobPatterns refactor
+                my $oldFullPath = File::Spec->rel2abs($filename);
                 my $oldRelPath = File::Spec->abs2rel($oldFullPath, $root);
                 my @dirs = File::Spec->splitdir($oldRelPath);
                 @dirs = ('.Trash', (grep { lc ne '.trash' } @dirs));
@@ -803,9 +809,14 @@ sub doFindDupeFiles {
         # Make hash from filename components to files that have that base name
         traverseGlobPatterns(
             sub { # isWanted
-                return (!-d or lc ne '.trash'); # skip trash
+                my ($filename, $absPath, $relPath) = @_;
+                
+                return !(-d $absPath) or (lc $filename ne '.trash'); # skip trash
             },
             sub { # callback
+                my ($filename, $absPath, $relPath) = @_;
+                
+                # TODO: fix for traverseGlobPatterns refactor
                 if (-f and /$mediaType/) { 
                     my $path = File::Spec->rel2abs($_);
                     my @splitPath = deepSplitPath($path);
@@ -1176,9 +1187,14 @@ sub doRemoveEmpties {
     my %dirContentsMap = ();
     traverseGlobPatterns(
         sub { # isWanted
-            return (!-d or lc ne '.trash'); # skip trash
+            my ($filename, $absPath, $relPath) = @_;
+
+            return !(-d $absPath) or (lc $filename ne '.trash'); # skip trash
         },
         sub { # callback
+            my ($filename, $absPath, $relPath) = @_;
+
+            # TODO: fix for traverseGlobPatterns refactor
             my $path = File::Spec->rel2abs($_);
             my ($volume, $dir, $name) = File::Spec->splitpath($path);
             my $vd = File::Spec->catpath($volume, $dir, undef);
@@ -1206,21 +1222,33 @@ sub doRemoveEmpties {
 sub doTest {
     traverseGlobPatterns(
         sub { # isWanted
-            print <<EOM;
+            my ($filename, $absPath, $relPath) = @_;
+
+            printf "isWanted: %-15s, %-35s, %-20s\n", @_;
+
+            print <<EOM if 0;
 -- isWanted
-   \@_                 { @{[ join(', ', @_) ]} }
-   \$File::Find::dir   $File::Find::dir
-   \$_                 $_
+   \@_                              @{[ join("\n" . ' ' x 35, @_) ]}
+   \$File::Find::dir                $File::Find::dir
+   \$_                              $_
+   cwd                             @{[ File::Spec->rel2abs('.') ]}
+   rel2abs(\$_)                     @{[ File::Spec->rel2abs($_) ]}
 EOM
             return 1;
         },
         sub { # callback
-            print <<EOM;
+            my ($filename, $absPath, $relPath) = @_;
+
+            printf "callback: %-15s, %-35s, %-20s\n", @_;
+
+            print <<EOM if 0;
 -- callback
-   \@_                 { @{[ join(', ', @_) ]} }
-   \$File::Find::name  $File::Find::name
-   \$File::Find::dir   $File::Find::dir
-   \$_                 $_
+   \@_                              @{[ join("\n" . ' ' x 35, @_) ]}
+   \$File::Find::name               $File::Find::name
+   \$File::Find::dir                $File::Find::dir
+   \$_                              $_
+   cwd                             @{[ File::Spec->rel2abs('.') ]}
+   rel2abs(\$_)                     @{[ File::Spec->rel2abs($_) ]}
 EOM
         },
         @ARGV);
@@ -1229,7 +1257,9 @@ EOM
 
 sub doTest2 {
     my $filename = $ARGV[0];
-    -s $filename or confess "$filename doesn't exist";
+
+    -s $filename
+        or confess "$filename doesn't exist";
     
     # Look for a QR code
     my @results = `qrscan '$filename'`;
@@ -1351,9 +1381,13 @@ sub verifyOrGenerateMd5ForGlob {
 
     traverseGlobPatterns(
         sub { # isWanted
-            return (!-d or lc ne '.trash'); # skip trash
+            my ($filename, $absPath, $relPath) = @_;
+
+            return !(-d $absPath) or (lc $filename ne '.trash'); # skip trash
         },
         sub { # callback
+            my ($filename, $absPath, $relPath) = @_;
+            
             if (-f) {
                 if (/$mediaType/) {
                     verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
@@ -1695,9 +1729,13 @@ sub findMd5s {
 
     traverseGlobPatterns(
         sub { # isWanted
-            return (!-d or lc ne '.trash'); # skip trash
+            my ($filename, $absPath, $relPath) = @_;
+
+            return !(-d $absPath) or (lc $filename ne '.trash'); # skip trash
         },
         sub { # callback
+            my ($filename, $absPath, $relPath) = @_;
+            
             if (-f and lc eq 'md5.txt') {
                 my $path = File::Spec->rel2abs($_);
                 print colored("Found $path\n", 'yellow') if $verbosity >= VERBOSITY_2;
@@ -2291,10 +2329,17 @@ sub splitExt {
 # with current directory set to $fileName's dir before calling
 # and $_ set to $fileName.
 #
-# So, if you wanted to print out all the names of all files that aren't in
-# a .Trash directory, you'd do:
-#   traverseGlobPatterns(sub { return !-d or lc ne '.trash'; },
-#                        sub { print "$_\n"; });
+# So, if you wanted to print out all the friendly names of all files that 
+# aren't in a .Trash directory, you'd do:
+#   traverseGlobPatterns(
+#       sub {
+#           my ($filename, $absPath, undef) = @_; 
+#           return !(-d $absPath) or (lc $filename ne '.trash');
+#       },
+#       sub {
+#           my (undef, undef, $relPath) = @_; 
+#           print "$relPath\n"; 
+#       });
 #
 # TODO: standardize on params for callback and isWanted, and remove
 # the global param passing via $File::Find::name, $File::Find::dir, $_
@@ -2306,34 +2351,78 @@ sub splitExt {
 sub traverseGlobPatterns {
     my ($isWanted, $callback, @globPatterns) = @_;
 
+    # Record base now so that no_chdir doesn't affect rel2abs/abs2rel below
+    my $base = File::Spec->rel2abs('.');
+    
+    # the isWanted and callback methods take the same params, that share
+    # the following computations
+    my $makeArgs = sub {
+        my ($relPath) = @_;
+
+        my $absPath = File::Spec->rel2abs($relPath, $base);
+        my ($volume, $directories, $filename) = File::Spec->splitpath($absPath);
+
+        -e $absPath or die "Programmer Error: incorrect absPath calculation: $absPath";
+
+        return ($filename, $absPath, $relPath);
+    };
+
     # Method to be called for each directory found in globPatterns
     my $helper = sub {
-        my ($dir) = @_;
-        
-        $dir = File::Spec->rel2abs($dir);
+        my ($rootDir) = @_;
+
         File::Find::find({
             bydepth => 1,
+            no_chdir => 1,
             preprocess => !$isWanted ? undef : sub {
                 # Return only the members of the filenames in @_ from directory 
                 # $File::Find::dir that should be processed.
-                return grep { $isWanted->() } @_;
+                return grep {
+                        # Skip .. because it doesn't matter what we do, this
+                        # isn't going to get passed to wanted, and it doesn't
+                        # really make sense to traverse up in a recursive down
+                        # enumeration. Also, skip '.' because we would otherwise
+                        # process each dir twice, and $rootDir once. This makes
+                        # subdirs once and $rootDir not at all.
+                        ($_ ne '.') and ($_ ne '..') and
+
+                        # The values used here to compute the full path to the file
+                        # relative to $base matches the values of wanted's implementation, 
+                        # and both work the same whether no_chdir is set or not, i.e. they 
+                        # only use values that are unaffected by no_chdir. 
+                        $isWanted->($makeArgs->(File::Spec->catfile($File::Find::dir, $_)))
+                    } @_;
             },
             wanted => sub {
-                $callback->($_, $dir);
+                # Match preprocess' grep
+                #($_ ne '.') and ($_ ne '..') and
+
+                # The values used here to compute the full path to the file
+                # relative to $base matches the values of preprocess' implementation, 
+                # and both work the same whether no_chdir is set or not, i.e. they 
+                # only use values that are unaffected by no_chdir. 
+                $callback->($makeArgs->($File::Find::name));
             }
-        }, $dir);
+        }, $rootDir);
     };
 
     if (@globPatterns) {
         for my $globPattern (@globPatterns) {
             # TODO: Is this workaround to handle globbing with spaces for
-            # Windows compatible with MacOS (with and without spaces)?
+            # Windows compatible with MacOS (with and without spaces)? Does it
+            # work okay with single quotes in file/dir names on each platform?
             $globPattern = "'$globPattern'";
             for (glob $globPattern) {
                 if (-d) {
                     $helper->($_);
-                } elsif ($isWanted->()) {
-                    $callback->($_, undef);
+                } elsif (-f) {
+                    # TODO: correct params for callbacks
+                    my @argsForCallbacks = $makeArgs->($_);
+                    if ($isWanted->(@argsForCallbacks)) {
+                        $callback->(@argsForCallbacks);
+                    }
+                } else {
+                    confess "Don't know how to deal with glob result '$_'";
                 }
             }
         }
