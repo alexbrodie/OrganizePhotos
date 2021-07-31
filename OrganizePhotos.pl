@@ -458,8 +458,9 @@ L<Image::ExifTool>
 # ★★☆☆☆
 # ★☆☆☆☆
 
-use strict;
+use strict; 
 use warnings;
+use warnings FATAL => qw(uninitialized);
 
 use Carp qw(confess);
 use Data::Compare ();
@@ -624,7 +625,7 @@ my $mediaType = qr/
     $/x;
 
 # For extra output
-my $verbosity = 0;
+my $verbosity = 1000;
 use constant VERBOSITY_2 => 2;
 use constant VERBOSITY_DEBUG => 999;
 
@@ -1246,7 +1247,8 @@ sub doTest2 {
     
     # Look for a QR code
     my @results = `qrscan '$filename'`;
-    print "qrscan: ", Data::Dumper::Dumper(@results) if $verbosity >= VERBOSITY_DEBUG;
+    print "qrscan: ", Data::Dumper::Dumper(@results)
+        if $verbosity >= VERBOSITY_DEBUG;
 
     # Parse QR codes
     my $messageDate;
@@ -1255,7 +1257,8 @@ sub doTest2 {
             or confess "Unexpected qrscan output: $_";
         
         my $message = decode_json($1);
-        print "message: ", Data::Dumper::Dumper($message) if $verbosity >= VERBOSITY_DEBUG;
+        print "message: ", Data::Dumper::Dumper($message) 
+            if $verbosity >= VERBOSITY_DEBUG;
     
         if (exists $message->{date}) {
             my $date = $message->{date};
@@ -1273,10 +1276,12 @@ sub doTest2 {
         my $info = $et->GetInfo(qw(
             DateTimeOriginal TimeZone TimeZoneCity DaylightSavings 
             Make Model SerialNumber));
-        print "$filename: ", Data::Dumper::Dumper($info) if $verbosity >= VERBOSITY_DEBUG;
+        print "$filename: ", Data::Dumper::Dumper($info) 
+            if $verbosity >= VERBOSITY_DEBUG;
     
         my $metadataDate = $info->{DateTimeOriginal};
-        print "$messageDate vs $metadataDate\n" if $verbosity >= VERBOSITY_DEBUG;
+        print "$messageDate vs $metadataDate\n"
+            if $verbosity >= VERBOSITY_DEBUG;
     
         # The metadata date is an absolute time (the local time where
         # it was taken without any time zone information). The message
@@ -1289,14 +1294,16 @@ sub doTest2 {
         # time zone.
         $messageDate =~ s/([+-][\d:]*)$/Z/;
         my $messageTimeZone = $1;
-        print "$messageDate vs $metadataDate\n" if $verbosity >= VERBOSITY_DEBUG;
+        print "$messageDate vs $metadataDate\n"
+            if $verbosity >= VERBOSITY_DEBUG;
     
         $messageDate = DateTime::Format::HTTP->parse_datetime($messageDate);
         $metadataDate = DateTime::Format::HTTP->parse_datetime($metadataDate);
     
         my $diff = $messageDate->subtract_datetime($metadataDate);
     
-        print "$messageDate - $messageDate = ", Data::Dumper::Dumper($diff), "\n" if $verbosity >= VERBOSITY_DEBUG;
+        print "$messageDate - $messageDate = ", Data::Dumper::Dumper($diff), "\n" 
+            if $verbosity >= VERBOSITY_DEBUG;
     
         my $days = ($diff->is_negative ? -1 : 1) * 
             ($diff->days + ($diff->hours + ($diff->minutes + $diff->seconds / 60) / 60) / 24);
@@ -1360,26 +1367,42 @@ sub doVerifyMd5 {
 #-------------------------------------------------------------------------------
 # Call verifyOrGenerateMd5ForFile for each media file in the glob patterns
 sub verifyOrGenerateMd5ForGlob {
-    my ($addOnly, $omitSkipMessage, @globPatterns) = @_;
+    my ($addOnly, $ , @globPatterns) = @_;
 
     traverseGlobPatterns(
         sub { # isWanted
             my ($filename, $absPath, $relPath) = @_;
 
-            return (!(-d $absPath) or (lc $filename ne '.trash')); # skip trash
+            if (-d $absPath) {
+                return (lc $filename ne '.trash'); # silently skip trash, traverse everything else
+            } elsif (-f $absPath) {
+                if ($filename =~ /$mediaType/) {
+                    return 1; # process media files
+                } else {
+                    # Show skipping file message if necessary
+                    if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
+                        # Don't show message for types that aren't meaningful in this
+                        # context, occur a lot, and would just be a lot of noisy output
+                        my $lowerName = lc $filename;
+                        if (($lowerName ne 'md5.txt') and 
+                            ($lowerName ne '.ds_store') and 
+                            ($lowerName ne 'thumbs.db') and 
+                            ($lowerName !~ /\.(?:thm|xmp)$/)) {
+                            print colored("Skipping    MD5 for '$absPath'", 'yellow'), " (non-media file)\n";
+                        }
+                    }
+
+                    return 0; # don't process non-media files
+                }
+            } else {
+                die "Programmer Error: unknown object type for '$absPath'";
+            }
         },
         sub { # callback
             my ($filename, $absPath, $relPath) = @_;
             
-            # TODO: fix for traverseGlobPatterns refactor
-            if (-f) {
-                if (/$mediaType/) {
-                    verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $_);
-                } elsif (lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' and !/\.(?:thm|xmp)$/i) {
-                    if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
-                        print colored("Skipping    MD5 for $_", 'yellow'), " (unknown file)\n";
-                    }
-                }
+            if (-f $absPath) {
+                verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $absPath);
             }
         },
         @globPatterns);
@@ -1576,7 +1599,9 @@ sub appendMetadata {
     # Extract current metadata in target
     my $etTarget = extractInfo($target);
     my $infoTarget = $etTarget->GetInfo(@properties);
-    print "$target: ", Data::Dumper::Dumper($infoTarget) if $verbosity >= VERBOSITY_DEBUG;
+
+    print "$target: ", Data::Dumper::Dumper($infoTarget)
+        if $verbosity >= VERBOSITY_DEBUG;
     
     my $rating = $infoTarget->{Rating};
     my $oldRating = $rating;
@@ -1594,7 +1619,9 @@ sub appendMetadata {
         # Extract metadata in source to merge in
         my $etSource = extractInfo($source);            
         my $infoSource = $etSource->GetInfo(@properties);
-        print "$source: ", Data::Dumper::Dumper($infoSource) if $verbosity >= VERBOSITY_DEBUG;
+
+        print "$source: ", Data::Dumper::Dumper($infoSource)
+            if $verbosity >= VERBOSITY_DEBUG;
         
         # Add rating if we don't already have one
         unless (defined $rating) {
@@ -1709,7 +1736,8 @@ sub getDirectoryError {
 sub findMd5s {
     my ($callback, @globPatterns) = @_;
     
-    print colored(join("\n\t", "Looking for md5.txt in", @globPatterns), 'yellow'), "\n" if $verbosity >= VERBOSITY_2; 
+    print colored(join("\n\t", "Looking for md5.txt in", @globPatterns), 'yellow'), "\n"
+        if $verbosity >= VERBOSITY_2; 
 
     traverseGlobPatterns(
         sub { # isWanted
@@ -1723,7 +1751,8 @@ sub findMd5s {
             # TODO: fix for traverseGlobPatterns refactor
             if (-f and lc eq 'md5.txt') {
                 my $path = File::Spec->rel2abs($_);
-                print colored("Found $path\n", 'yellow') if $verbosity >= VERBOSITY_2;
+                print colored("Found $path\n", 'yellow') 
+                    if $verbosity >= VERBOSITY_2;
                 open(my $fh, '<:crlf', $path)
                     or confess "Couldn't open $path: $!";
             
@@ -1863,7 +1892,8 @@ sub readMd5FileFromHandle {
 sub writeMd5FileToHandle {
     my ($fh, $md5s) = @_;
     
-    print "Writing     MD5.txt\n" if $verbosity >= VERBOSITY_DEBUG;
+    print "Writing     MD5.txt\n" 
+        if $verbosity >= VERBOSITY_DEBUG;
     
     # Clear MD5 file
     seek($fh, 0, 0)
@@ -1953,7 +1983,7 @@ sub isMd5VersionUpToDate {
 sub getMd5 {
     my ($path, $useCache) = @_;
     
-    print "Generating MD5 for $path\n"
+    print "Generating  MD5 for $path\n"
         if $verbosity >= VERBOSITY_DEBUG;
     
     # *** IMPORTANT NOTE ***
@@ -2453,7 +2483,9 @@ sub trashMedia {
 # [newPath] - desired target path for the file
 sub moveFile {
     my ($oldPath, $newPath) = @_;
-    print "moveFile('$oldPath', '$newPath');\n" if $verbosity >= VERBOSITY_DEBUG;
+
+    print "moveFile('$oldPath', '$newPath');\n"
+        if $verbosity >= VERBOSITY_DEBUG;
 
     -e $newPath
         and confess "I can't overwrite files ($oldPath => $newPath)";
@@ -2475,7 +2507,8 @@ sub moveFile {
 # already exists
 sub moveDir {
     my ($oldPath, $newPath) = @_;
-    print "moveDir('$oldPath', '$newPath');\n" if $verbosity >= VERBOSITY_DEBUG;
+    print "moveDir('$oldPath', '$newPath');\n"
+        if $verbosity >= VERBOSITY_DEBUG;
 
     -d $oldPath
         or confess "Can't move a non-directory ($oldPath => $newPath)";
