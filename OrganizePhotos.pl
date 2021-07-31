@@ -627,7 +627,7 @@ my $mediaType = qr/
 # For extra output
 my $verbosity = 1000;
 use constant VERBOSITY_2 => 2;
-use constant VERBOSITY_DEBUG => 999;
+use constant VERBOSITY_DEBUG => 99;
 
 main();
 exit 0;
@@ -887,8 +887,7 @@ sub doFindDupeFiles {
         }, @globPatterns);
     }
     
-    print "Found @{[scalar keys %keyToPaths]} initial duplicate groups\n"
-        if $verbosity >= VERBOSITY_DEBUG;
+    trace(VERBOSITY_DEBUG, sub { "Found @{[scalar keys %keyToPaths]} initial duplicate groups" });
 
     # Put everthing that has dupes in an array for sorting
     my @dupes = ();
@@ -1223,6 +1222,21 @@ sub doRemoveEmpties {
 # API ==========================================================================
 # Execute test verb
 sub doTest {
+    my @colors = qw(black red green yellow blue magenta cyan white);
+    my @colorLabels = qw(Blk Red Grn Yel Blu Mag Cyn Wht);
+    #@colors = map { $_, "bright_$_" } @colors;
+    @colors = (@colors, map { "bright_$_" } @colors);
+
+    print "\n", ' ' x 38, '_' x 13, 'Bright', '_' x 13, "\n      ", (map { "$_ "} @colorLabels) x 2, "\n";
+    for (my $i = 0; $i < @colors; $i++) {
+        print(' ', ($i < @colorLabels ? '  ' : substr(' Bright ', $i - @colorLabels, 1) . '|'), $colorLabels[$i % @colorLabels]);
+        for my $bg (@colors) {
+            print colored(' XO ', $colors[$i % @colors] . ' on_' . $bg);
+        }
+        print "\n";
+    }
+}
+sub doTest3 {
     traverseGlobPatterns(
         sub { # isWanted
             my ($filename, $absPath, $relPath) = @_;
@@ -1238,7 +1252,6 @@ sub doTest {
         },
         @ARGV);
 }
-
 sub doTest2 {
     my $filename = $ARGV[0];
 
@@ -1367,7 +1380,7 @@ sub doVerifyMd5 {
 #-------------------------------------------------------------------------------
 # Call verifyOrGenerateMd5ForFile for each media file in the glob patterns
 sub verifyOrGenerateMd5ForGlob {
-    my ($addOnly, $ , @globPatterns) = @_;
+    my ($addOnly, $omitSkipMessage, @globPatterns) = @_;
 
     traverseGlobPatterns(
         sub { # isWanted
@@ -1379,17 +1392,19 @@ sub verifyOrGenerateMd5ForGlob {
                 if ($filename =~ /$mediaType/) {
                     return 1; # process media files
                 } else {
-                    # Show skipping file message if necessary
-                    if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
-                        # Don't show message for types that aren't meaningful in this
-                        # context, occur a lot, and would just be a lot of noisy output
-                        my $lowerName = lc $filename;
-                        if (($lowerName ne 'md5.txt') and 
-                            ($lowerName ne '.ds_store') and 
-                            ($lowerName ne 'thumbs.db') and 
-                            ($lowerName !~ /\.(?:thm|xmp)$/)) {
-                            print colored("Skipping    MD5 for '$absPath'", 'yellow'), " (non-media file)\n";
-                        }
+                    if (!$omitSkipMessage) {
+                        trace(VERBOSITY_2, sub {
+                            # Don't show message for types that aren't meaningful in this
+                            # context, occur a lot, and would just be a lot of noisy output
+                            my $lowerName = lc $filename;
+                            if (($lowerName ne 'md5.txt') and 
+                                ($lowerName ne '.ds_store') and 
+                                ($lowerName ne 'thumbs.db') and 
+                                ($lowerName !~ /\.(?:thm|xmp)$/)) {
+                                return (colored("Skipping    MD5 for '$absPath'", 'yellow'), " (non-media file)");
+                            }
+                            return ();
+                        });
                     }
 
                     return 0; # don't process non-media files
@@ -1841,8 +1856,7 @@ sub moveMd5ForPath {
 sub readMd5FileFromHandle {
     my ($fh) = @_;
     
-    print "Reading     MD5.txt\n" 
-        if $verbosity >= VERBOSITY_DEBUG;
+    trace(VERBOSITY_DEBUG, sub { "Reading     MD5.txt" });
     
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple name: md5 format parsing
@@ -1922,8 +1936,8 @@ sub canMakeMd5MetadataShortcut {
     
     if (defined $expectedMd5) {
         if ($addOnly) {
-            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
-                print colored("Skipping    MD5 for $path", 'yellow'), "(add-only)\n";
+            if (!$omitSkipMessage) {
+                trace(VERBOSITY_2, sub { colored("Skipping    MD5 for $path", 'yellow'), ' (add-only)' });
             }
             return 1;
         }
@@ -1933,8 +1947,8 @@ sub canMakeMd5MetadataShortcut {
             $actualMd5->{size} == $expectedMd5->{size} and
             defined $expectedMd5->{mtime} and 
             $actualMd5->{mtime} == $expectedMd5->{mtime}) {
-            if (!$omitSkipMessage and $verbosity >= VERBOSITY_2) {
-                print colored("Skipping    MD5 for $path", 'yellow'), " (same size/date-modified)\n";
+            if (!$omitSkipMessage) {
+                trace(VERBOSITY_2, sub { colored("Skipping    MD5 for $path", 'yellow'), ' (same size/date-modified)' });
             }
             return 1;
         }
@@ -2577,4 +2591,14 @@ sub colorByIndex {
 
     my @colors = ('green', 'red', 'blue', 'yellow', 'magenta', 'cyan');
     return $colors[$colorIndex % scalar @colors];
+}
+
+# VIEW -------------------------------------------------------------------------
+sub trace {
+    my ($level, $expr) = @_;
+
+    if ($level <= $verbosity) {
+        my @data = $expr->();
+        print(colored(sprintf("T%02d", $level), 'faint white on_bright_black'), ' ', @data, "\n") if @data;
+    }
 }
