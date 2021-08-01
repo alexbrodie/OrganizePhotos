@@ -62,6 +62,9 @@
 # * Namespace somehow for view/model/API/etc?
 # * Add param types to sub declaration? 
 # * Switch File::Find::find to traverseGlobPatterns
+# * Replace '.' with File::Spec->curdir()?
+# * Cleanup print/trace/warn/die/confess including final endlines
+#
 =pod
 
 =head1 NAME
@@ -86,16 +89,17 @@ managed by Adobe Lightroom. This helps with tasks not covered by
 Lightroom such as: backup/archive, integrity checks, consolidation,
 and other OCD metadata organization.
 
-MD5 hashes are stored in a md5.txt file in the file's one line per file
-with the pattern:
-
-    filename: hash
+Metadata this program needs to persist are stored in md5.txt files in
+the same directory as the files that data was generated for. If they 
+are separated, the metadata will no longer be associated and the separated
+media files will be treated as new. The expectation is that if files move,
+the md5.txt file is also moved or copied.
 
 Metadata operations are powered by Image::ExifTool.
 
 The calling pattern for each command follows the pattern:
 
-    OrganizePhotos.pl <verb> [options...]
+    OrganizePhotos <verb> [options...]
 
 The following verbs are available:
 
@@ -103,7 +107,7 @@ The following verbs are available:
 
 =item B<add-md5> [glob patterns...]
 
-=item B<append-metadata> <target file> <source files...>
+=item Experimental: B<append-metadata> <target file> <source files...>
 
 =item B<check-md5> [glob patterns...]
 
@@ -111,9 +115,9 @@ The following verbs are available:
 
 =item B<collect-trash> [glob patterns...]
 
-=item B<consolodate-metadata> <dir>
+=item Experimental: B<consolodate-metadata> <dir>
 
-=item B<find-dupe-dirs>
+=item Experimental: B<find-dupe-dirs>
 
 =item B<find-dupe-files> [-a] [-d] [-l] [-n] [glob patterns...]
 
@@ -145,6 +149,12 @@ Rather than operate on files under the current directory, operate on
 the specified glob pattern.
 
 =back
+
+=head2 append-metadata <dir>
+
+I<Alias: am>
+
+Not yet implemented
 
 =head2 check-md5 [glob patterns...]
 
@@ -474,18 +484,18 @@ use warnings;
 use warnings FATAL => qw(uninitialized);
 
 use Carp qw(confess);
+use Class::Struct qw(struct);
 use Data::Compare ();
 use Data::Dumper ();
 use DateTime::Format::HTTP;
 use Digest::MD5;
-#use File::Compare;
 use File::Copy ();
 use File::Find ();
 use File::Glob qw(:globally :nocase);
 use File::Path ();
 use File::Spec ();
 use File::stat ();
-use Getopt::Long;
+use Getopt::Long ();
 use Image::ExifTool;
 use JSON;
 use Pod::Usage;
@@ -494,6 +504,40 @@ if ($^O eq 'MSWin32') {
 }
 # TODO: be explicit with this and move usage to view layer
 use Term::ANSIColor;
+
+# Data structure that holds various details about a path
+# to a file or directory
+# TODO: these properties should probably be read-only. Might
+# require writing our own class instead of using Class::Struct.
+struct(PathDetails => [
+    # The full absolute path which should be used for
+    # most things except potentially display purposes.
+    absPath => '$',
+    # The cwd that was the context when this was created,
+    # which was used with rel2abs and abs2rel in creation
+    # of absPath or relPath.
+    # TODO: can we remove this and change relPath to disPath?
+    base => '$',
+    # The "friendly" relative path based on the context
+    # in which this was created (see base). This should be
+    # used primarily for display purposes, and absPath
+    # for any actual file operations. This may be the
+    # same as absPath in some cases (e.g. if base and
+    # absPath are on different volumes).
+    relPath => '$',
+    # The file or directory's volume which is equivalent
+    # to splitpath(absPath)[0]. It is useful for catpath.
+    volume => '$',
+    # The file or directory's volume which is equivalent
+    # to splitpath(absPath)[1]. It is useful for catpath
+    # and splitdir.
+    directories => '$',
+    # The file or directory's name, including extension,
+    # which is equivalent to splitpath(absPath)[2].  It is 
+    # useful for catpath, and for basename and extension
+    # checks.
+    filename => '$',
+]);
 
 # Implementation version of getMd5 (useful when comparing older serialized
 # results, such as canMakeMd5MetadataShortcut and isMd5VersionUpToDate)
@@ -657,57 +701,57 @@ sub main {
         my $rawVerb = shift @ARGV;
         my $verb = lc $rawVerb;
         if ($verb eq 'add-md5' or $verb eq 'a5') {
-            GetOptions();
+            Getopt::Long::GetOptions();
             doAddMd5(@ARGV);
         } elsif ($verb eq 'append-metadata' or $verb eq 'am') {
-            GetOptions();
+            Getopt::Long::GetOptions();
             doAppendMetadata(@ARGV);
         } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
-            GetOptions();
+            Getopt::Long::GetOptions();
             doCheckMd5(@ARGV);
         } elsif ($verb eq 'checkup' or $verb eq 'c') {
             my ($all, $autoDiff, $byName, $defaultLastAction);
-            GetOptions('always-continue|a' => \$all,
-                       'auto-diff|d' => \$autoDiff,
-                       'by-name|n' => \$byName,
-                       'default-last-action|l' => \$defaultLastAction);
+            Getopt::Long::GetOptions('always-continue|a' => \$all,
+                                     'auto-diff|d' => \$autoDiff,
+                                     'by-name|n' => \$byName,
+                                     'default-last-action|l' => \$defaultLastAction);
             doCheckMd5(@ARGV);
             doFindDupeFiles($all, $byName, $autoDiff, 
                             $defaultLastAction, @ARGV);
             doRemoveEmpties(@ARGV);
             doCollectTrash(@ARGV);
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
-            GetOptions();
+            Getopt::Long::GetOptions();
             doCollectTrash(@ARGV);
         } elsif ($verb eq 'consolodate-metadata' or $verb eq 'cm') {
-            GetOptions();
+            Getopt::Long::GetOptions();
             doConsolodateMetadata(@ARGV);
         } elsif ($verb eq 'find-dupe-dirs' or $verb eq 'fdd') {
-            GetOptions();
+            Getopt::Long::GetOptions();
             @ARGV and die "Unexpected parameters: @ARGV";
             doFindDupeDirs();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
             my ($all, $autoDiff, $byName, $defaultLastAction);
-            GetOptions('always-continue|a' => \$all,
-                       'auto-diff|d' => \$autoDiff,
-                       'by-name|n' => \$byName,
-                       'default-last-action|l' => \$defaultLastAction);
+            Getopt::Long::GetOptions('always-continue|a' => \$all,
+                                     'auto-diff|d' => \$autoDiff,
+                                     'by-name|n' => \$byName,
+                                     'default-last-action|l' => \$defaultLastAction);
             doFindDupeFiles($all, $byName, $autoDiff, 
                             $defaultLastAction, @ARGV);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             my ($excludeSidecars);
-            GetOptions('exclude-sidecars|x' => \$excludeSidecars);
+            Getopt::Long::GetOptions('exclude-sidecars|x' => \$excludeSidecars);
             doMetadataDiff($excludeSidecars, @ARGV);
         } elsif ($verb eq 'remove-empties' or $verb eq 're') {
-            GetOptions();
+            Getopt::Long::GetOptions();
             doRemoveEmpties(@ARGV);
         } elsif ($verb eq 'test') {
             doTest();
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
-            GetOptions();
+            Getopt::Long::GetOptions();
             doVerifyMd5(@ARGV);
         } else {
-            die "Unknown verb: $rawVerb\n";
+            die "Unknown verb: '$rawVerb'\n";
         }
     }
 }
@@ -715,7 +759,7 @@ sub main {
 # API ==========================================================================
 # Execute add-md5 verb
 sub doAddMd5 {
-    verifyOrGenerateMd5ForGlob(1, 1, @_);
+    verifyOrGenerateMd5ForGlob(1, @_);
 }
 
 # API ==========================================================================
@@ -727,7 +771,7 @@ sub doAppendMetadata {
 # API ==========================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
-    verifyOrGenerateMd5ForGlob(0, 0, @_);
+    verifyOrGenerateMd5ForGlob(0, @_);
 }
 
 # API ==========================================================================
@@ -737,21 +781,23 @@ sub doCollectTrash {
     
     traverseGlobPatterns(
         sub { # isWanted
-            my ($filename, $absPath, $relPath) = @_;
+            my ($pathDetails) = @_;
             
-            # Look at each directory (ignoring everything else). If it's .Trash,
+            # Look at each directory (ignoring everything else). If it's .Trash
             # then callback will process the dir, else, we'll recurse looking
             # for more .Trash subdirs.
-            return -d $absPath;
+            return -d $pathDetails->absPath;
         },
         sub { # callback
-            my ($filename, $absPath, $relPath) = @_;
+            my ($pathDetails) = @_;
             
-            if (lc $filename eq '.trash') {
+            if (lc $pathDetails->filename eq '.trash') {
+                trace(VERBOSITY_2, sub { "xxxx" });
+
                 # Convert $root/bunch/of/dirs/.Trash to $root/.Trash/bunch/of/dirs
                 # TODO: fix for traverseGlobPatterns refactor
                 my $root = undef; # BUGBUG
-                my $oldFullPath = File::Spec->rel2abs($filename);
+                my $oldFullPath = File::Spec->rel2abs($pathDetails->filename);
                 my $oldRelPath = File::Spec->abs2rel($oldFullPath, $root);
                 my @dirs = File::Spec->splitdir($oldRelPath);
                 @dirs = ('.Trash', (grep { lc ne '.trash' } @dirs));
@@ -823,23 +869,23 @@ sub doFindDupeFiles {
         # Make hash from filename components to files that have that base name
         traverseGlobPatterns(
             sub { # isWanted
-                my ($filename, $absPath, $relPath) = @_;
+                my ($pathDetails) = @_;
                 
-                return (!(-d $absPath) or (lc $filename ne '.trash')); # skip trash
+                if (-d $pathDetails->absPath) {
+                    return (lc $pathDetails->filename ne '.trash'); # silently skip trash, traverse other dirs
+                } elsif (-f $pathDetails->absPath) {
+                    return ($pathDetails->filename =~ /$mediaType/); # process media files
+                }
+                
+                die "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
             },
             sub { # callback
-                my ($filename, $absPath, $relPath) = @_;
+                my ($pathDetails) = @_;
                 
-                # TODO: fix for traverseGlobPatterns refactor
-                if (-f and /$mediaType/) { 
-                    my $path = File::Spec->rel2abs($_);
-                    my @splitPath = deepSplitPath($path);
-                    my ($name, $ext) = pop(@splitPath) =~ /^(.*)\.([^.]*)/;
+                if (-f $pathDetails->absPath) { 
+                    my ($basename, $ext) = splitExt($pathDetails->filename);
                     
-                    #print join('%', @splitPath), ";name=$name;ext=$ext;\n";
-
                     # Start with extension
-                    #my $key = lc ($path =~ /\.([^\/\\.]*)$/)[0];
                     my $key = lc $ext . ';';
 
                     # Add basename
@@ -852,15 +898,18 @@ sub doFindDupeFiles {
                             \d{2} [-_] \d{2} [-_] \d{2}
                         ) \b /x;
 
-                    if ($name =~ /$nameRegex/) {
+                    if ($basename =~ /$nameRegex/) {
+                        # This is an understood filename format, so just take
+                        # the root so that we can ignore things like "Copy (2)"
                         $key .= lc $1 . ';';
                     } else {
-                        # Unknown file format, just use filename?
-                        warn "Unknown filename format: $name";
-                        $key .= lc $name . ';';
+                        # Unknown file format, just use all of basename? It's not
+                        # nothing, but will only work with exact filename matches
+                        warn "Unknown filename format for '$basename' in '${\$pathDetails->relPath}'";
+                        $key .= lc $basename . ';';
                     }
-
                     
+                # TODO: fix for traverseGlobPatterns refactor
                     my $nameKeyIncludesDir = 1;
                     if ($nameKeyIncludesDir) {
                         # parent dir should be similar (based on date format)
@@ -870,7 +919,7 @@ sub doFindDupeFiles {
                             /x;
 
                         my $dirKey = '';
-                        for (reverse @splitPath) {
+                        for (reverse File::Spec->splitdir($pathDetails->directories)) {
                             if (/$dirRegex/) {
                                 $dirKey = lc "$1$2$3;";
                                 last;
@@ -880,12 +929,11 @@ sub doFindDupeFiles {
                         if ($dirKey) {
                             $key .= $dirKey;
                         } else {
-                            warn "Unknown directory format: $path\n";
+                            warn "Unknown directory format in '${\$pathDetails->relPath}'";
                         }
                     }
 
-                    #print "KEY($key) = VALUE($path);\n";
-                    push @{$keyToPaths{$key}}, $path;
+                    push @{$keyToPaths{$key}}, $pathDetails->absPath;
                 }
             },
             @globPatterns);
@@ -894,11 +942,15 @@ sub doFindDupeFiles {
         # Make hash from MD5 to files with that MD5
         findMd5s(sub {
             my ($path, $md5) = @_;
-            push(@{$keyToPaths{$md5}}, $path) if -e $path;
+            if (-e $path) {
+                push @{$keyToPaths{$md5}}, $path;
+            } else {
+                trace(VERBOSITY_2, "Path for MD5 is missing: '$path'");
+            }
         }, @globPatterns);
     }
     
-    trace(VERBOSITY_DEBUG, sub { "Found @{[scalar keys %keyToPaths]} initial duplicate groups" });
+    trace(VERBOSITY_DEBUG, "Found @{[scalar keys %keyToPaths]} initial groups");
 
     # Put everthing that has dupes in an array for sorting
     my @dupes = ();
@@ -949,8 +1001,7 @@ sub doFindDupeFiles {
         }
     }
     
-    print "Found @{[scalar @dupes]} duplicate groups with multiple files\n"
-        if $verbosity >= VERBOSITY_DEBUG;
+    trace(VERBOSITY_DEBUG, "Found @{[scalar @dupes]} groups with multiple files");
 
     # Sort groups by first element with with primary files first
     @dupes = sort { 
@@ -1200,20 +1251,24 @@ sub doRemoveEmpties {
     my %dirContentsMap = ();
     traverseGlobPatterns(
         sub { # isWanted
-            my ($filename, $absPath, $relPath) = @_;
+            my ($pathDetails) = @_;
 
-            return (!(-d $absPath) or (lc $filename ne '.trash')); # skip trash
+            # Skip trash and all its descendants, and process everything else
+            TODO
+            return !((-d $pathDetails->absPath) and (lc $pathDetails->filename eq '.trash'));
+            # TODO: fix for traverseGlobPatterns refactor
         },
         sub { # callback
-            my ($filename, $absPath, $relPath) = @_;
+            my ($pathDetails) = @_;
 
             # TODO: fix for traverseGlobPatterns refactor
-            my $path = File::Spec->rel2abs($_);
-            my ($volume, $dir, $name) = File::Spec->splitpath($path);
-            my $vd = File::Spec->catpath($volume, $dir, undef);
-            s/[\\\/]*$// for ($path, $vd);
-            push @{$dirContentsMap{$vd}}, $name;
-            push @{$dirContentsMap{$path}}, '.' if -d;
+            if (-d $pathDetails->absPath) {
+                push @{$dirContentsMap{$pathDetails->absPath}}, '.';
+            } else {
+            # TODO: fix for traverseGlobPatterns refactor
+                my $dir = File::Spec->catpath($pathDetails->volume, $pathDetails->directories, undef);
+                push @{$dirContentsMap{$dir}}, $pathDetails->filename;
+            }
         },
         @globPatterns);
 
@@ -1223,9 +1278,9 @@ sub doRemoveEmpties {
     #}
     
     while (my ($dir, $contents) = each %dirContentsMap) {
-        unless (grep { $_ ne '.' and lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' } @$contents) {
-            print "Trashing $dir\n";
-            trashPath($dir);
+        unless (grep { lc ne '.' and lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' } @$contents) {
+            print "Trashing '$dir'\n";
+            #trashPath($dir);
         }
     }
 }
@@ -1238,6 +1293,16 @@ sub doTest {
     #@colors = map { $_, "bright_$_" } @colors;
     @colors = (@colors, map { "bright_$_" } @colors);
 
+    # Windows cmd.exe behavior:
+    #   bold: makes foreground bright (e.g. converts blue to bright_blue)
+    #   dard=faint: no effect (like many systems)
+    #   italic: no effect (like many systems)
+    #   underline=underscore: makes background bright (e.g. converts on_blue to on_bright_blue)
+    #   blink: no effect (like many systems)
+    #   reverse: flips foreground and background colors
+    #   concealed: text doesn't render
+    # So none of that really matters here
+
     print "\n", ' ' x 38, '_' x 13, 'Bright', '_' x 13, "\n      ", (map { "$_ "} @colorLabels) x 2, "\n";
     for (my $i = 0; $i < @colors; $i++) {
         print(' ', ($i < @colorLabels ? '  ' : substr(' Bright ', $i - @colorLabels, 1) . '|'), $colorLabels[$i % @colorLabels]);
@@ -1246,22 +1311,6 @@ sub doTest {
         }
         print "\n";
     }
-}
-sub doTest3 {
-    traverseGlobPatterns(
-        sub { # isWanted
-            my ($filename, $absPath, $relPath) = @_;
-
-            print colored(sprintf('isWanted: %-15s %-35s %-20s', @_), 'red'), "\n";
-
-            return 1;
-        },
-        sub { # callback
-            my ($filename, $absPath, $relPath) = @_;
-
-            print colored(sprintf('callback: %-15s %-35s %-20s', @_), 'green'), "\n";
-        },
-        @ARGV);
 }
 sub doTest2 {
     my $filename = $ARGV[0];
@@ -1359,10 +1408,11 @@ sub doVerifyMd5 {
             my $actualMd5 = getMd5($path)->{md5};
             if ($actualMd5 eq $expectedMd5) {
                 # Hash match
-                print "Verified MD5 for $path\n";
+                # TODO: use ${\$pathDetails->relPath}
+                print "Verified MD5 for '$path'\n";
             } else {
                 # Has MIS-match, needs input
-                warn "ERROR: MD5 mismatch for $path ($actualMd5 != $expectedMd5)\n";
+                warn "ERROR: MD5 mismatch for '$path' ($actualMd5 != $expectedMd5)";
                 unless ($all) {
                     while (1) {
                         print "Ignore, ignore All, Quit (i/a/q)? ";
@@ -1374,7 +1424,8 @@ sub doVerifyMd5 {
                             $all = 1;
                             last;
                         } elsif ($in eq 'q') {
-                            confess "MD5 mismatch for $path";
+                            # TODO: use ${\$pathDetails->relPath}
+                            confess "MD5 mismatch for '$path'";
                         }
                     }
                 }
@@ -1382,7 +1433,8 @@ sub doVerifyMd5 {
         } else {
             # File doesn't exist
             # TODO: prompt to see if we should remove this via removeMd5ForPath
-            warn "Missing file: $path\n";
+            # TODO: use ${\$pathDetails->relPath}
+            warn "Missing file: '$path'";
         }
     }, @globPatterns);
 }
@@ -1391,44 +1443,42 @@ sub doVerifyMd5 {
 #-------------------------------------------------------------------------------
 # Call verifyOrGenerateMd5ForFile for each media file in the glob patterns
 sub verifyOrGenerateMd5ForGlob {
-    my ($addOnly, $omitSkipMessage, @globPatterns) = @_;
+    my ($addOnly, @globPatterns) = @_;
 
     traverseGlobPatterns(
         sub { # isWanted
-            my ($filename, $absPath, $relPath) = @_;
+            my ($pathDetails) = @_;
 
-            if (-d $absPath) {
-                return (lc $filename ne '.trash'); # silently skip trash, traverse other dirs
-            } elsif (-f $absPath) {
-                if ($filename =~ /$mediaType/) {
+            if (-d $pathDetails->absPath) {
+                return (lc $pathDetails->filename ne '.trash'); # silently skip trash, traverse other dirs
+            } elsif (-f $pathDetails->absPath) {
+                if ($pathDetails->filename =~ /$mediaType/) {
                     return 1; # process media files
                 } else {
-                    if (!$omitSkipMessage) {
-                        trace(VERBOSITY_2, sub {
-                            # Don't show message for types that aren't meaningful in this
-                            # context, occur a lot, and would just be a lot of noisy output
-                            my $lowerName = lc $filename;
-                            if (($lowerName ne 'md5.txt') and 
-                                ($lowerName ne '.ds_store') and 
-                                ($lowerName ne 'thumbs.db') and 
-                                ($lowerName !~ /\.(?:thm|xmp)$/)) {
-                                return (colored("Skipping    MD5 for '$absPath'", 'yellow'), " (non-media file)");
-                            }
-                            return ();
-                        });
-                    }
+                    trace(VERBOSITY_2, sub {
+                        # Don't show message for types that aren't meaningful in this
+                        # context, occur a lot, and would just be a lot of noisy output
+                        my $lowerName = lc $pathDetails->filename;
+                        if (($lowerName ne 'md5.txt') and 
+                            ($lowerName ne '.ds_store') and 
+                            ($lowerName ne 'thumbs.db') and 
+                            ($lowerName !~ /\.(?:thm|xmp)$/)) {
+                            return "Skipping MD5 calculation for '${\$pathDetails->relPath}' (non-media file)";
+                        }
+                        return ();
+                    });
 
                     return 0; # don't process non-media files
                 }
-            } else {
-                die "Programmer Error: unknown object type for '$absPath'";
             }
+            
+            die "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
         },
         sub { # callback
-            my ($filename, $absPath, $relPath) = @_;
+            my ($pathDetails) = @_;
             
-            if (-f $absPath) {
-                verifyOrGenerateMd5ForFile($addOnly, $omitSkipMessage, $absPath);
+            if (-f $pathDetails->absPath) {
+                verifyOrGenerateMd5ForFile($addOnly, $pathDetails->absPath);
             }
         },
         @globPatterns);
@@ -1441,7 +1491,7 @@ sub verifyOrGenerateMd5ForGlob {
 # If the file's md5.txt file doesn't have a MD5 for the specified [path],
 # this adds the [path]'s current MD5 to it.
 sub verifyOrGenerateMd5ForFile {
-    my ($addOnly, $omitSkipMessage, $path) = @_;
+    my ($addOnly, $path) = @_;
 
     $path = File::Spec->rel2abs($path);
     my ($md5Path, $md5Key) = getMd5PathAndKey($path);
@@ -1449,7 +1499,7 @@ sub verifyOrGenerateMd5ForFile {
     # Get file stats for the file we're evaluating to reference and/or
     # update MD5.txt
     my $stats = File::stat::stat($path) 
-        or die "Couldn't stat $path: $!";
+        or die "Couldn't stat '$path': $!";
 
     # Add stats metadata to be persisted to md5.txt
     my $actualMd5 = {
@@ -1464,7 +1514,7 @@ sub verifyOrGenerateMd5ForFile {
     if ($lastMd5Path and $md5Path eq $lastMd5Path) {
         # Skip files whose date modified and file size haven't changed
         # TODO: unless force override if specified
-        return if canMakeMd5MetadataShortcut($addOnly, $omitSkipMessage, $path, $lastMd5Set->{$md5Key}, $actualMd5);
+        return if canMakeMd5MetadataShortcut($addOnly, $path, $lastMd5Set->{$md5Key}, $actualMd5);
     }
         
     # Read MD5.txt file to consult
@@ -1488,7 +1538,7 @@ sub verifyOrGenerateMd5ForFile {
         
     # Skip files whose date modified and file size haven't changed
     # TODO: unless force override if specified
-    return if canMakeMd5MetadataShortcut($addOnly, $omitSkipMessage, $path, $expectedMd5, $actualMd5);
+    return if canMakeMd5MetadataShortcut($addOnly, $path, $expectedMd5, $actualMd5);
 
     # We can't skip this, so compute MD5 now
     eval {
@@ -1498,7 +1548,8 @@ sub verifyOrGenerateMd5ForFile {
     if ($@) {
         # Can't get the MD5
         # TODO: for now, skip but we'll want something better in the future
-        warn colored("UNAVAILABLE MD5 for $path with error:", 'red'), "\n\t$@";
+        # TODO: use ${\$pathDetails->relPath}
+        warn colored("UNAVAILABLE MD5 for '$path' with error:", 'red'), "\n\t$@";
         return;
     }
     
@@ -1506,8 +1557,9 @@ sub verifyOrGenerateMd5ForFile {
     # ready for comparison
     if (defined $expectedMd5) {
         if ($expectedMd5->{md5} eq $actualMd5->{md5}) {
-            # Matches last recorded hash, nothing to do
-            print colored("Verified    MD5 for $path", 'green'), "\n";
+            # Matches last recorded hash, nothing to do'
+            # TODO: use ${\$pathDetails->relPath}
+            print colored("Verified    MD5 for '$path", 'green'), "\n";
 
             # If the MD5 data is a full match, then we don't have anything
             # else to do. If not (probably missing or updated metadata 
@@ -1532,6 +1584,7 @@ EOM
             }
         } else {
             # Mismatch and we can update MD5, needs resolving...
+            # TODO: use ${\$pathDetails->relPath}
             warn colored("MISMATCH OF MD5 for $path", 'red'), 
                  " [$expectedMd5->{md5} vs $actualMd5->{md5}]\n";
 
@@ -1548,16 +1601,18 @@ EOM
                     last;
                 } elsif ($in eq 'q') {
                     # User requested to terminate
-                    die "MD5 mismatch for $path";
+                    die "MD5 mismatch for '$path'";
                 }
             }
         }
         
         # Write MD5
-        print colored("UPDATING    MD5 for $path", 'magenta'), "\n";
+        # TODO: use ${\$pathDetails->relPath}
+        print colored("UPDATING    MD5 for '$path'", 'magenta'), "\n";
     } else {
         # It wasn't there, it's a new file, we'll add that
-        print colored("ADDING      MD5 for $path", 'blue'), "\n";
+        # TODO: use ${\$pathDetails->relPath}
+        print colored("ADDING      MD5 for '$path'", 'blue'), "\n";
     }
 
     # Add/update MD5
@@ -1737,7 +1792,8 @@ sub getDirectoryError {
     }
 
     if (!defined $date) {
-        warn "Couldn't find date for $path";
+        # TODO: use ${\$pathDetails->relPath}
+        warn "Couldn't find date for '$path'";
         return '';
     }
 
@@ -1762,39 +1818,39 @@ sub getDirectoryError {
 sub findMd5s {
     my ($callback, @globPatterns) = @_;
     
-    print colored(join("\n\t", "Looking for md5.txt in", @globPatterns), 'yellow'), "\n"
-        if $verbosity >= VERBOSITY_2; 
+    trace(VERBOSITY_2, 'Looking for md5.txt in', 
+          (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (unspecified)'));
 
     traverseGlobPatterns(
         sub { # isWanted
-            my ($filename, $absPath, $relPath) = @_;
+            my ($pathDetails) = @_;
 
-            if (-d $absPath) {
-                return (lc $filename ne '.trash'); # silently skip trash, traverse other dirs
-            } elsif (-f $absPath) {
-                return (lc $filename eq 'md5.txt'); # only process md5.txt files
-            } else {
-                die "Programmer Error: unknown object type for '$absPath'";
+            if (-d $pathDetails->absPath) {
+                return (lc $pathDetails->filename ne '.trash'); # silently skip trash, traverse other dirs
+            } elsif (-f $pathDetails->absPath) {
+                return (lc $pathDetails->filename eq 'md5.txt'); # only process md5.txt files
             }
-
-            return (!(-d $absPath) or (lc $filename ne '.trash')); # skip trash
+            
+            die "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
         },
         sub { # callback
-            my ($filename, $absPath, $relPath) = @_;
+            my ($pathDetails) = @_;
             
-            # TODO: fix for traverseGlobPatterns refactor
-            if (-f $absPath) {
-                trace(VERBOSITY_2, sub { colored("Found $relPath\n", 'yellow') });
+            if (-f $pathDetails->absPath) {
+                trace(VERBOSITY_2, "Found '${\$pathDetails->relPath}'");
                 
-                open(my $fh, '<:crlf', $absPath)
-                    or confess "Couldn't open $absPath: $!";
+                # Open the md5.txt file
+                open(my $fh, '<:crlf', $pathDetails->absPath)
+                    or confess "Couldn't open $pathDetails->absPath: $!";
             
+                # Parse the file to get all the filename -> file info hash
                 my $md5s = readMd5FileFromHandle($fh);
-                
-                # TODO: some of this has already been computed, and just has been
-                my ($volume, $dir, undef) = File::Spec->splitpath($absPath);
+
                 for (sort keys %$md5s) {
-                    $callback->(File::Spec->catpath($volume, $dir, $_), $md5s->{$_}->{md5});
+                    my $path = File::Spec->catpath($pathDetails->volume, $pathDetails->directories, $_);
+                    my $md5 = $md5s->{$_}->{md5};
+                    # TODO: Make new PathDetails object and pass it to callback instead of $path
+                    $callback->($path, $md5);
                 }
             }
         },
@@ -1875,7 +1931,7 @@ sub moveMd5ForPath {
 sub readMd5FileFromHandle {
     my ($fh) = @_;
     
-    trace(VERBOSITY_DEBUG, sub { "Reading     MD5.txt" });
+    trace(VERBOSITY_DEBUG, 'Parsing md5.txt');
     
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple name: md5 format parsing
@@ -1950,14 +2006,14 @@ sub writeMd5FileToHandle {
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Check if we can shortcut based on metadata without evaluating MD5s
+# TODO: should this be a nested function?
 sub canMakeMd5MetadataShortcut {
-    my ($addOnly, $omitSkipMessage, $path, $expectedMd5, $actualMd5) = @_;
+    my ($addOnly, $path, $expectedMd5, $actualMd5) = @_;
     
     if (defined $expectedMd5) {
         if ($addOnly) {
-            if (!$omitSkipMessage) {
-                trace(VERBOSITY_2, sub { colored("Skipping    MD5 for $path", 'yellow'), ' (add-only)' });
-            }
+            # TODO: use ${\$pathDetails->relPath} instead of $path (which is absPath)
+            trace(VERBOSITY_2, "Skipping MD5 recalculation for '$path' (add-only mode)");
             return 1;
         }
     
@@ -1966,9 +2022,8 @@ sub canMakeMd5MetadataShortcut {
             $actualMd5->{size} == $expectedMd5->{size} and
             defined $expectedMd5->{mtime} and 
             $actualMd5->{mtime} == $expectedMd5->{mtime}) {
-            if (!$omitSkipMessage) {
-                trace(VERBOSITY_2, sub { colored("Skipping    MD5 for $path", 'yellow'), ' (same size/date-modified)' });
-            }
+            # TODO: use ${\$pathDetails->relPath} instead of $path (which is absPath)
+            trace(VERBOSITY_2, "Skipping MD5 recalculation for '$path' (same size/date-modified)");
             return 1;
         }
     }
@@ -1998,7 +2053,6 @@ sub isMd5VersionUpToDate {
         # MOV is unchanged since version 4
         return ($version >= 4) ? 1 : 0;
     } elsif ($type eq 'image/tiff') {
-        # TODO
     } elsif ($type eq 'image/png') {
         # PNG is unchanged since version 3
         return ($version >= 3) ? 1 : 0;
@@ -2016,8 +2070,8 @@ sub isMd5VersionUpToDate {
 sub getMd5 {
     my ($path, $useCache) = @_;
     
-    print "Generating  MD5 for $path\n"
-        if $verbosity >= VERBOSITY_DEBUG;
+    # TODO: use ${\$pathDetails->relPath} instead of $path (which is absPath)
+    trace(VERBOSITY_DEBUG, "Calculating MD5 for '$path'");
     
     # *** IMPORTANT NOTE ***
     # $getMd5Version should be incremented whenever the output of
@@ -2065,6 +2119,7 @@ sub getMd5 {
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Gets the mime type from a path for all types supported by $mediaType
+# TODO: Should this be categorized as MP5 sub? Seems more generic like Metadata.
 sub getMimeType {
     my ($path) = @_;
 
@@ -2073,6 +2128,7 @@ sub getMimeType {
     $path =~ s/$backupSuffix$//;
     
     # Take the extension
+    # TODO: use helper method to splitExt
     unless ($path =~ /\.([^.]*)$/) {
         return 'unknown';
     }
@@ -2081,7 +2137,7 @@ sub getMimeType {
     if (exists $fileTypes{$type}) {
         return $fileTypes{$type}->{MIMETYPE};
     } else {
-        confess "Unexpected file type $type for $path";        
+        confess "Unexpected file type $type for '$path'";        
     }
 }
 
@@ -2093,18 +2149,18 @@ sub getJpgContentDataMd5 {
 
     # Read Start of Image [SOI]
     seek($fh, 0, 0)
-        or confess "Failed to reset seek for $path: $!";
+        or confess "Failed to reset seek for '$path': $!";
     read($fh, my $fileData, 2)
-        or confess "Failed to read SOI from $path: $!";
+        or confess "Failed to read SOI from '$path': $!";
     my ($soi) = unpack('n', $fileData);
     $soi == 0xffd8
-        or confess "JPG file didn't start with SOI marker: $path";
+        or confess "JPG file didn't start with SOI marker: '$path'";
 
     # Read blobs until SOS
     my $tags = '';
     while (1) {
         read($fh, my $fileData, 4)
-            or confess "Failed to read from $path at @{[tell $fh]} after $tags: $!";
+            or confess "Failed to read from '$path' at @{[tell $fh]} after $tags: $!";
 
         my ($tag, $size) = unpack('nn', $fileData);
         
@@ -2116,7 +2172,7 @@ sub getJpgContentDataMd5 {
 
         my $address = tell($fh) + $size - 2;
         seek($fh, $address, 0)
-            or confess "Failed to seek $path to $address: $!";
+            or confess "Failed to seek '$path' to $address: $!";
     }
 }
 
@@ -2131,7 +2187,7 @@ sub getMp4ContentDataMd5 {
     my ($path, $fh) = @_;
     
     seek($fh, 0, 0)
-        or confess "Failed to reset seek for $path: $!";
+        or confess "Failed to reset seek for '$path': $!";
         
     # TODO: should we verify the first atom is ftyp? Do we care?
     
@@ -2145,7 +2201,7 @@ sub getMp4ContentDataMd5 {
         
         # Read atom header
         read($fh, my $fileData, 8)
-            or confess "Failed to read MP4 atom from $path: $!";
+            or confess "Failed to read MP4 atom from '$path' at @{[tell $fh]}: $!";
         my ($atomSize, $atomType) = unpack('NA4', $fileData);
             
         if ($atomSize == 0) {
@@ -2161,12 +2217,13 @@ sub getMp4ContentDataMd5 {
             if ($atomSize == 1) {
                 # 1 means it's 64 bit size
                 read($fh, $fileData, 8)
-                    or confess "Failed to read MP4 atom from $path: $!";
+                    or confess "Failed to read MP4 atom from '$path': $!";
                 $atomSize = unpack('Q>', $fileData);
                 $dataSize = $atomSize - 16;
             }
             
-            $dataSize >= 0 or confess "Unexpected size for MP4 atom '$atomType': $atomSize";
+            $dataSize >= 0 
+                or confess "Unexpected size for MP4 atom '$atomType': $atomSize";
         
             # I think we want to take all the the mdat atom data?
             return getMd5Digest($path, $fh, $dataSize) if $atomType eq 'mdat'; 
@@ -2174,7 +2231,7 @@ sub getMp4ContentDataMd5 {
             # Seek to start of next atom
             my $address = $seekStartOfAtom + $atomSize;
             seek($fh, $address, 0)
-                or confess "Failed to seek $path to $address: $!";
+                or confess "Failed to seek '$path' to $address: $!";
         }
     }
         
@@ -2186,22 +2243,22 @@ sub getPngContentDataMd5 {
     my ($path, $fh) = @_;
     
     seek($fh, 0, 0)
-        or confess "Failed to reset seek for $path: $!";
+        or confess "Failed to reset seek for '$path': $!";
     read($fh, my $fileData, 8)
-        or confess "Failed to read PNG header from $path: $!";
+        or confess "Failed to read PNG header from '$path': $!";
     my @actualHeader = unpack('C8', $fileData);
 
     # All PNGs start with this
     my @pngHeader = ( 137, 80, 78, 71, 13, 10, 26, 10 );
     Data::Compare::Compare(\@actualHeader, \@pngHeader)
-        or confess "PNG file didn't start with correct header: $path";
+        or confess "PNG file didn't start with correct header: '$path'";
 
     my $md5 = new Digest::MD5;
         
     while (!eof($fh)) {
         # Read chunk header
         read($fh, $fileData, 8)
-            or confess "Failed to read PNG chunk from $path: $!";
+            or confess "Failed to read PNG chunk from '$path' at @{[tell $fh]}: $!";
         my ($size, $type) = unpack('NA4', $fileData);
         
         my $seekStartOfData = tell($fh);
@@ -2214,6 +2271,11 @@ sub getPngContentDataMd5 {
             # 'XML:com.adobe.xmp'? 
         } else {
             # The type and data should be enough - don't need size or CRC
+            # BUGBUG - this seems slightly wrong in that if things move around
+            # and mean the same thing the MD5s will change even though the
+            # contents haven't meaningfully changed, and can result in us
+            # falsely reporting that there have been non-metadata changes
+            # (i.e. pixel data) changes to the file.
             $md5->add($type);
             addToMd5Digest($md5, $path, $fh, $size);
         }
@@ -2221,7 +2283,7 @@ sub getPngContentDataMd5 {
         # Seek to start of next chunk (past header, data, and CRC)
         my $address = $seekStartOfData + $size + 4;
         seek($fh, $address, 0)
-            or confess "Failed to seek $path to $address: $!";
+            or confess "Failed to seek '$path' to $address: $!";
     }
 
     return resolveMd5Digest($md5);
@@ -2251,7 +2313,7 @@ sub addToMd5Digest {
         for (my $remaining = $size; $remaining > 0; $remaining -= $chunkSize) {
             my $readSize = $chunkSize < $remaining ? $chunkSize : $remaining;
             read($fh, my $fileData, $readSize)
-                or confess "Failed to read from $path: $!";
+                or confess "Failed to read from '$path' at @{[tell $fh]}: $!";
             $md5->add($fileData);
         }
     }
@@ -2263,7 +2325,7 @@ sub resolveMd5Digest {
     
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$md5pattern/
-        or confess "unexpected MD5: $hexdigest";
+        or confess "Unexpected MD5: $hexdigest";
 
     return $hexdigest;
 }
@@ -2289,12 +2351,14 @@ sub getSidecarPaths {
         my $key = uc $ext;
         if (exists $fileTypes{$key}) {
             # Return the other types which exist
+            # TODO: use path functions (do we need to add a catExt as reciprocal of splitExt
+            # like we have splitpath and catpath)
             my @sidecars = map { "$base.$_" } @{$fileTypes{$key}->{SIDECARS}};
             @sidecars = grep { -e } @sidecars;
             return @sidecars;
         } else {
             # Unknown file type (based on extension)
-            confess "Unknown type $key to determine sidecars for $path"; 
+            confess "Unknown type '$key' to determine sidecars for '$path'"; 
         }
     }
 }
@@ -2317,7 +2381,10 @@ sub readMetadata {
         #       by the XMP sidecar? read it first? exclude fields somehow (eg
         #       by "file" group)?
         #       (FileSize, FileModifyDate, FileAccessDate, FilePermissions)
+        # TODO: move this logic to the $fileTypes structure (add a 
+        # useXmpSidecarForMetadata property or something)
         if ($path !~ /\.(jpeg|jpg|tif|tiff|xmp)$/i) {
+            # TODO: use path functions
             (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
             if (-s $xmpPath) {
                 $et = extractInfo($xmpPath, $et);
@@ -2340,13 +2407,14 @@ sub extractInfo {
     $et = new Image::ExifTool unless $et;
     
     $et->ExtractInfo($path)
-        or confess "Couldn't ExtractInfo for $path: " . $et->GetValue('Error');
+        or confess "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
         
     return $et;
 }
 
 # MODEL (Path Operations) ------------------------------------------------------
 # Split a [path] into ($volume, @dirs, $name)
+# TODO: do we need this anymore???
 sub deepSplitPath {
     my ($path) = @_;
 
@@ -2363,7 +2431,7 @@ sub splitExt {
     my ($path) = @_;
     
     my ($filename, $ext) = $path =~ /^(.*)\.([^.]*)/;
-    # TODO: handle case without extension
+    # TODO: handle case without extension - if no re match then just return ($path, '')
     
     return ($filename, $ext);
 }
@@ -2406,11 +2474,20 @@ sub traverseGlobPatterns {
 
         $relPath = File::Spec->canonpath($relPath);
         my $absPath = File::Spec->rel2abs($relPath, $base);
-        my ($volume, $directories, $filename) = File::Spec->splitpath($absPath);
 
         -e $absPath or die "Programmer Error: incorrect absPath calculation: $absPath";
 
-        return ($filename, $absPath, $relPath);
+        # TODO: see if we can delay this calculation until needed. Might require
+        # writing our own class instead of using Class::Struct.
+        my ($volume, $directories, $filename) = File::Spec->splitpath($absPath);
+
+        return PathDetails->new(
+            absPath => $absPath,
+            base => $base,
+            relPath => $relPath,
+            volume => $volume,
+            directories => $directories,
+            filename => $filename);
     };
 
     # Method to be called for each directory found in globPatterns
@@ -2495,7 +2572,9 @@ sub traverseGlobPatterns {
 # its entry from the md5.txt file
 sub trashPath {
     my ($path) = @_;
-    #print "trashPath('$path');\n";
+
+    # TODO: use ${\$pathDetails->relPath} instead of $path (which is absPath)
+    trace(VERBOSITY_2, "Trashing '$path'");
 
     my ($volume, $dir, $name) = File::Spec->splitpath($path);
     my $trashDir = File::Spec->catpath($volume, $dir, '.Trash');
@@ -2505,37 +2584,37 @@ sub trashPath {
     removeMd5ForPath($path);
 }
 
-# MODEL (File Operations ) -----------------------------------------------------
+# MODEL (File Operations) ------------------------------------------------------
 # Trash the specified path and any sidecars (anything with the same path
 # except for extension)
 sub trashMedia {
     my ($path) = @_;
-    #print colored("trashMedia($path)", 'black on_white'), "\n";
 
+    # TODO: check all for existance before performing any operations to
+    # make file+sidecar opererations more atomic
     trashPath($_) for ($path, getSidecarPaths($path));
 }
 
-# MODEL (File Operations ) -----------------------------------------------------
+# MODEL (File Operations) ------------------------------------------------------
 # Move [oldPath] to [newPath] in a convinient and safe manner
 # [oldPath] - original path of file
 # [newPath] - desired target path for the file
 sub moveFile {
     my ($oldPath, $newPath) = @_;
 
-    print "moveFile('$oldPath', '$newPath');\n"
-        if $verbosity >= VERBOSITY_DEBUG;
+    trace(VERBOSITY_DEBUG, "moveFile('$oldPath', '$newPath');");
 
     -e $newPath
-        and confess "I can't overwrite files ($oldPath => $newPath)";
+        and confess "I can't overwrite files moving '$oldPath' to '$newPath')";
 
     # Create parent folder if it doesn't exist
     my $newParentDir = File::Spec->catpath((File::Spec->splitpath($newPath))[0,1]);
     -d $newParentDir or File::Path::make_path($newParentDir)
-        or confess "Failed to make directory $newParentDir: $!";
+        or confess "Failed to make directory '$newParentDir': $!";
 
     # Do the real move
     File::Copy::move($oldPath, $newPath)
-        or confess "Failed to move $oldPath to $newPath: $!";
+        or confess "Failed to move '$oldPath' to '$newPath': $!";
 
     print colored("! Moved $oldPath\n!    to $newPath\n", 'bright_cyan');
 }
@@ -2618,11 +2697,21 @@ sub colorByIndex {
 }
 
 # VIEW -------------------------------------------------------------------------
-sub trace {
-    my ($level, $expr) = @_;
+sub trace($@) {
+    my ($level, @args) = @_;
 
     if ($level <= $verbosity) {
-        my @data = $expr->();
-        print(colored(sprintf("T%02d", $level), 'faint white on_bright_black'), ' ', @data, "\n") if @data;
+        if (@args == 1 and ref $args[0] eq 'CODE') {
+            print "xxx\n";
+            @args = $args[0]->();
+        }
+
+        if (@args) {
+            my ($package, $filename, $line) = caller;
+            print colored(sprintf("T%02d@%04d", $level, $line), 'bold white on_bright_black'), 
+                  join("\n" . (' ' x 8), map { colored(' ' . $_, 'bold bright_black') } split /\n/, join '', @args),
+                  "\n";
+        }
     }
 }
+
