@@ -51,6 +51,17 @@
 #    to be treated as <Foo *.jpg> which is the same as (<Foo>, <*.jpg>) rather than
 #    doing the cmd.exe shell expansion which would produce 'Foo 1.jpg', 'Foo 2.jpg', etc.
 #  * Replace some hashes whose key sets never change with Class::Struct
+#  * Standardize on naming for path pieces, e.g. have prefixes absPath (full absolute path),
+#    relPath (full friendly relative path ... from somewhere, but maybe not to CWD),
+#    volume (per splitpath), directories ($ per splitpath, and @ per splitdir), filename
+#    (the name of the file or directory excluding volume or directory information but
+#    including extenaion, and without trailing slash for directories except at root),
+#    ext (the extension only of the file including the period, or the empty string if
+#    no extension is present)
+# * Switch from print to trace where appropriate
+# * Namespace somehow for view/model/API/etc?
+# * Add param types to sub declaration? 
+# * Switch File::Find::find to traverseGlobPatterns
 =pod
 
 =head1 NAME
@@ -1387,7 +1398,7 @@ sub verifyOrGenerateMd5ForGlob {
             my ($filename, $absPath, $relPath) = @_;
 
             if (-d $absPath) {
-                return (lc $filename ne '.trash'); # silently skip trash, traverse everything else
+                return (lc $filename ne '.trash'); # silently skip trash, traverse other dirs
             } elsif (-f $absPath) {
                 if ($filename =~ /$mediaType/) {
                     return 1; # process media files
@@ -1758,22 +1769,30 @@ sub findMd5s {
         sub { # isWanted
             my ($filename, $absPath, $relPath) = @_;
 
+            if (-d $absPath) {
+                return (lc $filename ne '.trash'); # silently skip trash, traverse other dirs
+            } elsif (-f $absPath) {
+                return (lc $filename eq 'md5.txt'); # only process md5.txt files
+            } else {
+                die "Programmer Error: unknown object type for '$absPath'";
+            }
+
             return (!(-d $absPath) or (lc $filename ne '.trash')); # skip trash
         },
         sub { # callback
             my ($filename, $absPath, $relPath) = @_;
             
             # TODO: fix for traverseGlobPatterns refactor
-            if (-f and lc eq 'md5.txt') {
-                my $path = File::Spec->rel2abs($_);
-                print colored("Found $path\n", 'yellow') 
-                    if $verbosity >= VERBOSITY_2;
-                open(my $fh, '<:crlf', $path)
-                    or confess "Couldn't open $path: $!";
+            if (-f $absPath) {
+                trace(VERBOSITY_2, sub { colored("Found $relPath\n", 'yellow') });
+                
+                open(my $fh, '<:crlf', $absPath)
+                    or confess "Couldn't open $absPath: $!";
             
                 my $md5s = readMd5FileFromHandle($fh);
                 
-                my ($volume, $dir, undef) = File::Spec->splitpath($path);
+                # TODO: some of this has already been computed, and just has been
+                my ($volume, $dir, undef) = File::Spec->splitpath($absPath);
                 for (sort keys %$md5s) {
                     $callback->(File::Spec->catpath($volume, $dir, $_), $md5s->{$_}->{md5});
                 }
@@ -2352,13 +2371,18 @@ sub splitExt {
 # MODEL (File Operations) ------------------------------------------------------
 # Unrolls globs and traverses directories and files recursively for everything
 # that yields a truthy call to
-#   $isWanted->(...)
+#   $isWanted->($filename, $absPath, $relPath)
 # and then calls calling
-#   $callback->($fileName, $rootDirOfSearch);
+#   $callback->($filename, $absPath, $relPath);
 # with current directory set to $fileName's dir before calling
 # and $_ set to $fileName.
 #
-# So, if you wanted to print out all the friendly names of all files that 
+# Note that if glob patterns overlap, then some files might invoke the 
+# callbacks more than once. For example, 
+#   traverseGlobPatterns(sub { ... }, sub {...}, 'Al*.jpg', '*ex.jpg');
+# would match Alex.jpg twice, and invoke isWanted/callback twice as well.
+#
+# Example: if you wanted to print out all the friendly names of all files that 
 # aren't in a .Trash directory, you'd do:
 #   traverseGlobPatterns(
 #       sub {
