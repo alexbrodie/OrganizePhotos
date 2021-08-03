@@ -498,6 +498,7 @@ use File::stat ();
 use Getopt::Long ();
 use Image::ExifTool;
 use JSON;
+use List::Util qw(any all);
 use Pod::Usage;
 if ($^O eq 'MSWin32') {
     use Win32::Console::ANSI; # must come before Term::ANSIColor
@@ -856,6 +857,62 @@ sub doFindDupeDirs {
     }
 }
 
+# TODO: Move this elsewhere in the file/package (Model?)
+sub computeFileHashKeyByName {
+    my ($pathDetails) = @_;
+
+    my ($basename, $ext) = splitExt($pathDetails->filename);
+    
+    # Start with extension
+    my $key = lc $ext . ';';
+
+    # Add basename
+    my $nameRegex = qr/^
+        (
+            # things like DCF_1234
+            [a-zA-Z\d_]{4} \d{4} |
+            # things like 2009-08-11 12_31_45
+            \d{4} [-_] \d{2} [-_] \d{2} [-_\s] 
+            \d{2} [-_] \d{2} [-_] \d{2}
+        ) \b /x;
+
+    if ($basename =~ /$nameRegex/) {
+        # This is an understood filename format, so just take
+        # the root so that we can ignore things like "Copy (2)"
+        $key .= lc $1 . ';';
+    } else {
+        # Unknown file format, just use all of basename? It's not
+        # nothing, but will only work with exact filename matches
+        warn "Unknown filename format for '$basename' in '${\$pathDetails->relPath}'";
+        $key .= lc $basename . ';';
+    }
+    
+    my $nameKeyIncludesDir = 1;
+    if ($nameKeyIncludesDir) {
+        # parent dir should be similar (based on date format)
+        my $dirRegex = qr/^
+            # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
+            (?:19|20)?(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
+            /x;
+
+        my $dirKey = '';
+        for (reverse File::Spec->splitdir($pathDetails->directories)) {
+            if (/$dirRegex/) {
+                $dirKey = lc "$1$2$3;";
+                last;
+            }
+        }
+    
+        if ($dirKey) {
+            $key .= $dirKey;
+        } else {
+            warn "Unknown directory format in '${\$pathDetails->relPath}'";
+        }
+    }
+
+    return $key;
+}
+
 # API ==========================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
@@ -866,15 +923,17 @@ sub doFindDupeFiles {
     # Create the initial groups
     my %keyToPaths = ();
     if ($byName) {
-        # Make hash from filename components to files that have that base name
+        # Make hash to list of like files with hash key based on file/dir name
         traverseGlobPatterns(
             sub { # isWanted
                 my ($pathDetails) = @_;
                 
                 if (-d $pathDetails->absPath) {
-                    return (lc $pathDetails->filename ne '.trash'); # silently skip trash, traverse other dirs
+                    # silently skip trash, traverse other dirs
+                    return (lc $pathDetails->filename ne '.trash');
                 } elsif (-f $pathDetails->absPath) {
-                    return ($pathDetails->filename =~ /$mediaType/); # process media files
+                    # process media files
+                    return ($pathDetails->filename =~ /$mediaType/);
                 }
                 
                 die "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
@@ -883,63 +942,14 @@ sub doFindDupeFiles {
                 my ($pathDetails) = @_;
                 
                 if (-f $pathDetails->absPath) { 
-                    my ($basename, $ext) = splitExt($pathDetails->filename);
-                    
-                    # Start with extension
-                    my $key = lc $ext . ';';
-
-                    # Add basename
-                    my $nameRegex = qr/^
-                        (
-                            # things like DCF_1234
-                            [a-zA-Z\d_]{4} \d{4} |
-                            # things like 2009-08-11 12_31_45
-                            \d{4} [-_] \d{2} [-_] \d{2} [-_\s] 
-                            \d{2} [-_] \d{2} [-_] \d{2}
-                        ) \b /x;
-
-                    if ($basename =~ /$nameRegex/) {
-                        # This is an understood filename format, so just take
-                        # the root so that we can ignore things like "Copy (2)"
-                        $key .= lc $1 . ';';
-                    } else {
-                        # Unknown file format, just use all of basename? It's not
-                        # nothing, but will only work with exact filename matches
-                        warn "Unknown filename format for '$basename' in '${\$pathDetails->relPath}'";
-                        $key .= lc $basename . ';';
-                    }
-                    
-                # TODO: fix for traverseGlobPatterns refactor
-                    my $nameKeyIncludesDir = 1;
-                    if ($nameKeyIncludesDir) {
-                        # parent dir should be similar (based on date format)
-                        my $dirRegex = qr/^
-                            # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
-                            (?:19|20)?(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
-                            /x;
-
-                        my $dirKey = '';
-                        for (reverse File::Spec->splitdir($pathDetails->directories)) {
-                            if (/$dirRegex/) {
-                                $dirKey = lc "$1$2$3;";
-                                last;
-                            }
-                        }
-                    
-                        if ($dirKey) {
-                            $key .= $dirKey;
-                        } else {
-                            warn "Unknown directory format in '${\$pathDetails->relPath}'";
-                        }
-                    }
-
+                    my $key = computeFileHashKeyByName($pathDetails);
                     push @{$keyToPaths{$key}}, $pathDetails->absPath;
                 }
             },
             @globPatterns);
         
     } else {
-        # Make hash from MD5 to files with that MD5
+        # Make hash to list of like files with MD5 as hash key
         findMd5s(sub {
             my ($path, $md5) = @_;
             if (-e $path) {
@@ -1253,22 +1263,32 @@ sub doRemoveEmpties {
         sub { # isWanted
             my ($pathDetails) = @_;
 
-            # Skip trash and all its descendants, and process everything else
-            TODO
-            return !((-d $pathDetails->absPath) and (lc $pathDetails->filename eq '.trash'));
-            # TODO: fix for traverseGlobPatterns refactor
+            if (-d $pathDetails->absPath) {
+                # silently skip trash, traverse other dirs
+                return (lc $pathDetails->filename ne '.trash');
+            } elsif (-f $pathDetails->absPath) {
+                # These files don't count, ignore them by not processing
+                my $name = lc $pathDetails->filename;
+                return 0 if any { $name eq $_ } ('.ds_store', 'thumbs.db', 'md5.txt');
+
+                # TODO: exclude zero byte files as well?
+
+                # Other files count
+                return 1;
+            }
+            
+            die "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
         },
-        sub { # callback
+        sub { # callback 
             my ($pathDetails) = @_;
 
-            # TODO: fix for traverseGlobPatterns refactor
-            if (-d $pathDetails->absPath) {
-                push @{$dirContentsMap{$pathDetails->absPath}}, '.';
-            } else {
-            # TODO: fix for traverseGlobPatterns refactor
+                if (-d $pathDetails->absPath) {
+                    push @{$dirContentsMap{$pathDetails->absPath}}, '.';
+                }
+                
                 my $dir = File::Spec->catpath($pathDetails->volume, $pathDetails->directories, undef);
+                $dir = File::Spec->canonpath($dir);
                 push @{$dirContentsMap{$dir}}, $pathDetails->filename;
-            }
         },
         @globPatterns);
 
@@ -1276,9 +1296,15 @@ sub doRemoveEmpties {
     #    my ($k, $v) = ($_, $dirContentsMap{$_});
     #    print join(';', $k, @$v), "\n";
     #}
+
+    # TODO: This won't correctly handle folders that only contain empty folders. The parent
+    # dir should be moved to trash rather than each individual subdir and leaving the parent.
+    # Can the callback above do some of the trashing, or figure out that a dir is going to be
+    # trashed and mark it as so (might just don't add it to the parent dir's child array in
+    # @{$dirContentsMap{$dir}})
     
     while (my ($dir, $contents) = each %dirContentsMap) {
-        unless (grep { lc ne '.' and lc ne 'md5.txt' and lc ne '.ds_store' and lc ne 'thumbs.db' } @$contents) {
+        if (all { $_ eq '.' } @$contents) {
             print "Trashing '$dir'\n";
             #trashPath($dir);
         }
@@ -1450,26 +1476,27 @@ sub verifyOrGenerateMd5ForGlob {
             my ($pathDetails) = @_;
 
             if (-d $pathDetails->absPath) {
-                return (lc $pathDetails->filename ne '.trash'); # silently skip trash, traverse other dirs
+                # silently skip trash, traverse other dirs
+                return (lc $pathDetails->filename ne '.trash');
             } elsif (-f $pathDetails->absPath) {
-                if ($pathDetails->filename =~ /$mediaType/) {
-                    return 1; # process media files
-                } else {
-                    trace(VERBOSITY_2, sub {
-                        # Don't show message for types that aren't meaningful in this
-                        # context, occur a lot, and would just be a lot of noisy output
-                        my $lowerName = lc $pathDetails->filename;
-                        if (($lowerName ne 'md5.txt') and 
-                            ($lowerName ne '.ds_store') and 
-                            ($lowerName ne 'thumbs.db') and 
-                            ($lowerName !~ /\.(?:thm|xmp)$/)) {
-                            return "Skipping MD5 calculation for '${\$pathDetails->relPath}' (non-media file)";
-                        }
-                        return ();
-                    });
+                # process media files
+                return 1 if ($pathDetails->filename =~ /$mediaType/);
+                
+                trace(VERBOSITY_2, sub {
+                    # Don't show message for types that aren't meaningful in this
+                    # context, occur a lot, and would just be a lot of noisy output
+                    my $lowerName = lc $pathDetails->filename;
+                    if (($lowerName ne 'md5.txt') and 
+                        ($lowerName ne '.ds_store') and 
+                        ($lowerName ne 'thumbs.db') and 
+                        ($lowerName !~ /\.(?:thm|xmp)$/)) {
+                        return "Skipping MD5 calculation for '${\$pathDetails->relPath}' (non-media file)";
+                    }
+                    return ();
+                });
 
-                    return 0; # don't process non-media files
-                }
+                # don't process non-media files
+                return 0;
             }
             
             die "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
@@ -1644,6 +1671,7 @@ sub metadataDiff {
     my %keys = ();
     for (my $i = 0; $i < @items; $i++) {
         while (my ($key, $value) = each %{$items[$i]}) {
+            # TODO: switch to List::Util::any { $key eq $_ } @tagsToSkip or something like that
             no warnings 'experimental::smartmatch';
             unless ($key ~~ @tagsToSkip) {
                 for (my $j = 0; $j < @items; $j++) {
@@ -1826,9 +1854,11 @@ sub findMd5s {
             my ($pathDetails) = @_;
 
             if (-d $pathDetails->absPath) {
-                return (lc $pathDetails->filename ne '.trash'); # silently skip trash, traverse other dirs
+                # silently skip trash, traverse other dirs
+                return (lc $pathDetails->filename ne '.trash');
             } elsif (-f $pathDetails->absPath) {
-                return (lc $pathDetails->filename eq 'md5.txt'); # only process md5.txt files
+                # only process md5.txt files
+                return (lc $pathDetails->filename eq 'md5.txt');
             }
             
             die "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
@@ -2438,29 +2468,36 @@ sub splitExt {
 
 # MODEL (File Operations) ------------------------------------------------------
 # Unrolls globs and traverses directories and files recursively for everything
-# that yields a truthy call to
-#   $isWanted->($filename, $absPath, $relPath)
-# and then calls calling
-#   $callback->($filename, $absPath, $relPath);
-# with current directory set to $fileName's dir before calling
-# and $_ set to $fileName.
+# that yields a truthy call to isWanted, and calls callback for each file or
+# directory that is to be processed.
 #
-# Note that if glob patterns overlap, then some files might invoke the 
-# callbacks more than once. For example, 
-#   traverseGlobPatterns(sub { ... }, sub {...}, 'Al*.jpg', '*ex.jpg');
-# would match Alex.jpg twice, and invoke isWanted/callback twice as well.
+# Returning false from isWanted for a file prevents callback from being called.
+# Returning false from isWanted for a directory prevents callback from being
+# called on that directory and prevents further traversal such that descendants
+# won't have calls to isWanted or callback.
+#
+# Don't do anything in isWanted other than return 0 or 1 to specify whether 
+# these dirs or files should be processed. That method is called breadth first,
+# such that traversal of a subtree can be short circuited. Then process is
+# called depth first such that the process of a dir doesn't occur until all
+# the subitems have been processed. 
 #
 # Example: if you wanted to print out all the friendly names of all files that 
 # aren't in a .Trash directory, you'd do:
 #   traverseGlobPatterns(
 #       sub {
-#           my ($filename, $absPath, undef) = @_; 
-#           return !(-d $absPath) or (lc $filename ne '.trash');
+#           my ($pathDetails) = @_; 
+#           return !(-d $pathDetails->absPath) or (lc $pathDetails->filename ne '.trash');
 #       },
 #       sub {
-#           my (undef, $absPath, $relPath) = @_; 
-#           print("$relPath\n") if -f $absPath; 
+#           my ($pathDetails) = @_; 
+#           print("$pathDetails->relPath\n") if -f $absPath; 
 #       });
+#
+# Note that if glob patterns overlap, then some files might invoke the 
+# callbacks more than once. For example, 
+#   traverseGlobPatterns(sub { ... }, sub {...}, 'Al*.jpg', '*ex.jpg');
+# would match Alex.jpg twice, and invoke isWanted/callback twice as well.
 sub traverseGlobPatterns {
     my ($isWanted, $callback, @globPatterns) = @_;
 
