@@ -681,7 +681,7 @@ my $mediaType = qr/
     $/x;
 
 # For extra output
-my $verbosity = 1000;
+my $verbosity = 0;
 use constant VERBOSITY_2 => 2;
 use constant VERBOSITY_DEBUG => 99;
 
@@ -692,6 +692,11 @@ exit 0;
 # Main entrypoint that parses command line a bit and routes to the 
 # subroutines starting with "do"
 sub main {
+    sub myGetOptions {
+        Getopt::Long::GetOptions('verbosity|v=i', \$verbosity)
+            or die "Error in command line, aborting.";
+    }
+
     # Parse args (using GetOptions) and delegate to the doVerb methods...
     if ($#ARGV == -1) {
         pod2usage();        
@@ -702,54 +707,54 @@ sub main {
         my $rawVerb = shift @ARGV;
         my $verb = lc $rawVerb;
         if ($verb eq 'add-md5' or $verb eq 'a5') {
-            Getopt::Long::GetOptions();
+            myGetOptions();
             doAddMd5(@ARGV);
         } elsif ($verb eq 'append-metadata' or $verb eq 'am') {
-            Getopt::Long::GetOptions();
+            myGetOptions();
             doAppendMetadata(@ARGV);
         } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
-            Getopt::Long::GetOptions();
+            myGetOptions();
             doCheckMd5(@ARGV);
         } elsif ($verb eq 'checkup' or $verb eq 'c') {
             my ($all, $autoDiff, $byName, $defaultLastAction);
-            Getopt::Long::GetOptions('always-continue|a' => \$all,
-                                     'auto-diff|d' => \$autoDiff,
-                                     'by-name|n' => \$byName,
-                                     'default-last-action|l' => \$defaultLastAction);
+            myGetOptions('always-continue|a' => \$all,
+                         'auto-diff|d' => \$autoDiff,
+                         'by-name|n' => \$byName,
+                         'default-last-action|l' => \$defaultLastAction);
             doCheckMd5(@ARGV);
             doFindDupeFiles($all, $byName, $autoDiff, 
                             $defaultLastAction, @ARGV);
             doRemoveEmpties(@ARGV);
             doCollectTrash(@ARGV);
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
-            Getopt::Long::GetOptions();
+            myGetOptions();
             doCollectTrash(@ARGV);
         } elsif ($verb eq 'consolodate-metadata' or $verb eq 'cm') {
-            Getopt::Long::GetOptions();
+            myGetOptions();
             doConsolodateMetadata(@ARGV);
         } elsif ($verb eq 'find-dupe-dirs' or $verb eq 'fdd') {
-            Getopt::Long::GetOptions();
+            myGetOptions();
             @ARGV and die "Unexpected parameters: @ARGV";
             doFindDupeDirs();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
             my ($all, $autoDiff, $byName, $defaultLastAction);
-            Getopt::Long::GetOptions('always-continue|a' => \$all,
-                                     'auto-diff|d' => \$autoDiff,
-                                     'by-name|n' => \$byName,
-                                     'default-last-action|l' => \$defaultLastAction);
+            myGetOptions('always-continue|a' => \$all,
+                         'auto-diff|d' => \$autoDiff,
+                         'by-name|n' => \$byName,
+                         'default-last-action|l' => \$defaultLastAction);
             doFindDupeFiles($all, $byName, $autoDiff, 
                             $defaultLastAction, @ARGV);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             my ($excludeSidecars);
-            Getopt::Long::GetOptions('exclude-sidecars|x' => \$excludeSidecars);
+            myGetOptions('exclude-sidecars|x' => \$excludeSidecars);
             doMetadataDiff($excludeSidecars, @ARGV);
         } elsif ($verb eq 'remove-empties' or $verb eq 're') {
-            Getopt::Long::GetOptions();
+            myGetOptions();
             doRemoveEmpties(@ARGV);
         } elsif ($verb eq 'test') {
             doTest();
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
-            Getopt::Long::GetOptions();
+            myGetOptions();
             doVerifyMd5(@ARGV);
         } else {
             die "Unknown verb: '$rawVerb'\n";
@@ -1258,7 +1263,9 @@ sub doMetadataDiff {
 sub doRemoveEmpties {
     my (@globPatterns) = @_;
     
-    my %dirContentsMap = ();
+    # Map from directory absolute path to sub-item count
+    my %dirSubItemsMap = ();
+
     traverseGlobPatterns(
         sub { # isWanted
             my ($pathDetails) = @_;
@@ -1267,7 +1274,10 @@ sub doRemoveEmpties {
                 # silently skip trash, traverse other dirs
                 return (lc $pathDetails->filename ne '.trash');
             } elsif (-f $pathDetails->absPath) {
-                # These files don't count, ignore them by not processing
+                # These files don't count - they're trashible, ignore them (by 
+                # not processing) as if they didn't exist and let them get
+                # cleaned up if the folder
+                 
                 my $name = lc $pathDetails->filename;
                 return 0 if any { $name eq $_ } ('.ds_store', 'thumbs.db', 'md5.txt');
 
@@ -1283,32 +1293,35 @@ sub doRemoveEmpties {
             my ($pathDetails) = @_;
 
                 if (-d $pathDetails->absPath) {
-                    push @{$dirContentsMap{$pathDetails->absPath}}, '.';
+                    # at this point, all the sub-items should be processed, see how many
+                    my $subItems = $dirSubItemsMap{$pathDetails->absPath};
+                    trace(VERBOSITY_DEBUG, "Directory '${\$pathDetails->relPath}' contains @{[ $subItems || 0 ]} subitems");
+
+                    # As part of a later verification check, we'll remove this dir
+                    # from our map. Then if other sub-items are added after we process
+                    # this parent dir right now, then we could have accidentally trashed
+                    # a non-trashable dir. 
+                    # TODO: remove from map or make ++ operator at end of this method crash
+                    # if called on already processed dir, then at end, make sure there's
+                    # no unprocessed dirs which could signal a hash key miscalculation
+                    # that leads to a mismatch (e.g. non-canonicalized paths).
+                    
+                    # If this dir is empty, then we'll want to trash it and have the
+                    # parent dir ignore it like trashable files (e.g. md5.txt). If
+                    # it's not trashable, then fall through to add this to its parent
+                    # dir's list.
+                    unless ($subItems) {
+                        print "Trashing ${\$pathDetails->relPath}\n"; 
+                        trashPath($pathDetails->absPath);
+                        return;
+                    }
                 }
                 
                 my $dir = File::Spec->catpath($pathDetails->volume, $pathDetails->directories, undef);
                 $dir = File::Spec->canonpath($dir);
-                push @{$dirContentsMap{$dir}}, $pathDetails->filename;
+                $dirSubItemsMap{$dir}++;
         },
         @globPatterns);
-
-    #for (sort keys %dirContentsMap) {
-    #    my ($k, $v) = ($_, $dirContentsMap{$_});
-    #    print join(';', $k, @$v), "\n";
-    #}
-
-    # TODO: This won't correctly handle folders that only contain empty folders. The parent
-    # dir should be moved to trash rather than each individual subdir and leaving the parent.
-    # Can the callback above do some of the trashing, or figure out that a dir is going to be
-    # trashed and mark it as so (might just don't add it to the parent dir's child array in
-    # @{$dirContentsMap{$dir}})
-    
-    while (my ($dir, $contents) = each %dirContentsMap) {
-        if (all { $_ eq '.' } @$contents) {
-            print "Trashing '$dir'\n";
-            #trashPath($dir);
-        }
-    }
 }
 
 # API ==========================================================================
@@ -2467,6 +2480,13 @@ sub splitExt {
 }
 
 # MODEL (File Operations) ------------------------------------------------------
+# This is a wrapper over File::Find::find that offers a few benefits:
+#  * Provides some common functionality such as glob handling
+#  * Standardizes on bydepth and no_chdir which seems to be the best context
+#    for authoring the callbacks
+#  * Provide consistent and type safe path object to callback, and eliminate
+#    the params via nonhomogeneous globals pattern
+#
 # Unrolls globs and traverses directories and files recursively for everything
 # that yields a truthy call to isWanted, and calls callback for each file or
 # directory that is to be processed.
@@ -2502,7 +2522,7 @@ sub traverseGlobPatterns {
     my ($isWanted, $callback, @globPatterns) = @_;
 
     # Record base now so that no_chdir doesn't affect rel2abs/abs2rel below
-    my $base = File::Spec->rel2abs('.');
+    my $base = File::Spec->rel2abs(File::Spec->curdir());
     
     # the isWanted and callback methods take the same params, that share
     # the following computations
@@ -2600,7 +2620,7 @@ sub traverseGlobPatterns {
         }
     } else {
         # If no glob patterns are provided, just search current directory
-        $helper->('.');
+        $helper->(File::Spec->curdir());
     }
 }
 
@@ -2609,6 +2629,7 @@ sub traverseGlobPatterns {
 # its entry from the md5.txt file
 sub trashPath {
     my ($path) = @_;
+    trace(VERBOSITY_DEBUG, "trashPath('$path');");
 
     # TODO: use ${\$pathDetails->relPath} instead of $path (which is absPath)
     trace(VERBOSITY_2, "Trashing '$path'");
@@ -2617,8 +2638,7 @@ sub trashPath {
     my $trashDir = File::Spec->catpath($volume, $dir, '.Trash');
     my $trashPath = File::Spec->catfile($trashDir, $name);
 
-    moveFile($path, $trashPath);
-    removeMd5ForPath($path);
+    movePath($path, $trashPath);
 }
 
 # MODEL (File Operations) ------------------------------------------------------
@@ -2626,6 +2646,7 @@ sub trashPath {
 # except for extension)
 sub trashMedia {
     my ($path) = @_;
+    trace(VERBOSITY_DEBUG, "trashMedia('$path');");
 
     # TODO: check all for existance before performing any operations to
     # make file+sidecar opererations more atomic
@@ -2636,9 +2657,25 @@ sub trashMedia {
 # Move [oldPath] to [newPath] in a convinient and safe manner
 # [oldPath] - original path of file
 # [newPath] - desired target path for the file
+sub movePath {
+    my ($oldPath, $newPath) = @_;
+    # Don't bother tracing, it's too verbose since each fork traces immediately
+
+    if (-d $oldPath) {
+        moveDir($oldPath, $newPath);
+    } elsif (-f $oldPath) {
+        moveFile($oldPath, $newPath);
+    } else {
+        die "Programmer Error: unexpected type for object $oldPath";
+    }
+}
+
+# MODEL (File Operations) ------------------------------------------------------
+# Move [oldPath] to [newPath] in a convinient and safe manner
+# [oldPath] - original path of file
+# [newPath] - desired target path for the file
 sub moveFile {
     my ($oldPath, $newPath) = @_;
-
     trace(VERBOSITY_DEBUG, "moveFile('$oldPath', '$newPath');");
 
     -e $newPath
@@ -2650,8 +2687,11 @@ sub moveFile {
         or confess "Failed to make directory '$newParentDir': $!";
 
     # Do the real move
-    File::Copy::move($oldPath, $newPath)
-        or confess "Failed to move '$oldPath' to '$newPath': $!";
+#!!!    File::Copy::move($oldPath, $newPath)
+#!!!        or confess "Failed to move '$oldPath' to '$newPath': $!";
+
+    # TODO: move MD5 data 
+    removeMd5ForPath($oldPath);
 
     print colored("! Moved $oldPath\n!    to $newPath\n", 'bright_cyan');
 }
@@ -2661,35 +2701,38 @@ sub moveFile {
 # already exists
 sub moveDir {
     my ($oldPath, $newPath) = @_;
-    print "moveDir('$oldPath', '$newPath');\n"
-        if $verbosity >= VERBOSITY_DEBUG;
+    trace(VERBOSITY_DEBUG, "moveDir('$oldPath', '$newPath');");
 
     -d $oldPath
         or confess "Can't move a non-directory ($oldPath => $newPath)";
         
     if (-e $newPath) {
-        # Dest dir path already exists, need to move-merge
+        # Dest dir path already exists, need to move-merge. We'll do
+        # a depth first traversal and try to move all subitems into
+        # the existing target until we get to a file conflict
+
+        # TODO: BUGBUG: this needs some cleanup and debugging. 
+        # I'm not sure this actually works for example when doing 
+        # a multi-level move-merge
 
         -d $newPath
             or confess "Can't move a directory - file already exists at destination ($oldPath => $newPath)";
 
-        # Walk through all the sub-items in the dir $oldPath
+        # Walk through all the sub-items in the dir $oldPath breadth first
+        # so that we try to move parent dirs that don't already have something
+        # at the destination before going and trying to move their sub-items
+        # one at a time.
         File::Find::find({
             wanted => sub {
                 if ($_ ne '.') {
-                    my $oldSubItemPath = $File::Find::name;
-                    my $newSubItemPath = File::Spec->catfile($newPath, $_);
-                
-                    if (-d) {
-                        # Subitem is a dir, so just recurse
-                        moveDir($oldSubItemPath, $newSubItemPath);
-                    } else {
-                        # Subitem is a file
-                        moveFile($oldSubItemPath, $newSubItemPath);
-                    }
+                    movePath($File::Find::name,
+                             File::Spec->catfile($newPath, $_));
                 }
             }
         }, $oldPath);
+
+        # TODO: If we've emptied out $oldPath my moving all its contents into
+        # the already existing $newPath, can we safely delete it?
     } else {
         # Dest dir doesn't exist
 
