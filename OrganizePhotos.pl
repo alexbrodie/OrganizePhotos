@@ -65,6 +65,7 @@
 # * Replace '.' with File::Spec->curdir()?
 # * Cleanup print/trace/warn/die/confess including final endlines
 # * Include zip and pdf files too
+# * Tests covering at least the checkup verb code paths
 #
 =pod
 
@@ -466,12 +467,6 @@ L<Image::ExifTool>
 
 =cut
 
-# ★★★★★
-# ★★★★☆
-# ★★★☆☆
-# ★★☆☆☆
-# ★☆☆☆☆
-
 use strict; 
 use warnings;
 use warnings FATAL => qw(uninitialized);
@@ -563,6 +558,7 @@ my $md5pattern = qr/[0-9a-f]{32}/;
 #   based on extension.
 #
 # TODO: flesh this out
+# TODO: convert to Class::Struct
 my %fileTypes = (
     AVI     => {
         SIDECARS => [],
@@ -691,7 +687,7 @@ sub main {
     }
 
     # Parse args (using GetOptions) and delegate to the doVerb methods...
-    if ($#ARGV == -1) {
+    unless (@ARGV) {
         pod2usage();        
     } elsif ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]$/i) {
         pod2usage(-verbose => 2);
@@ -742,7 +738,7 @@ sub main {
             myGetOptions();
             doRemoveEmpties(@ARGV);
         } elsif ($verb eq 'test') {
-            doTest();
+            doTest(@ARGV);
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
             myGetOptions();
             doVerifyMd5(@ARGV);
@@ -759,6 +755,7 @@ sub doAddMd5 {
 }
 
 # API ==========================================================================
+# EXPERIMENTAL
 # Execute append-metadata verb
 sub doAppendMetadata {
     appendMetadata(@_);
@@ -816,6 +813,7 @@ sub doCollectTrash {
 }
 
 # API ==========================================================================
+# EXPERIMENTAL
 # Execute find-dupe-dirs verb
 sub doFindDupeDirs {
 
@@ -848,6 +846,7 @@ sub doFindDupeDirs {
 }
 
 # TODO: Move this elsewhere in the file/package (Model?)
+# ------------------------------------------------------------------------------
 sub computeFileHashKeyByName {
     my ($pathDetails) = @_;
 
@@ -903,6 +902,7 @@ sub computeFileHashKeyByName {
     return $key;
 }
 
+# TODO: break up this nearly 400 line behemoth
 # API ==========================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
@@ -1125,7 +1125,7 @@ sub doFindDupeFiles {
             
             # Collect all sidecars and add to prompt
             for (getSidecarPaths($path)) {
-                push @prompt, '     ', coloredByIndex(coloredFaint($_), $i), "\n";
+                push @prompt, '     ', coloredByIndex(colored($_, 'faint'), $i), "\n";
             }
         }
 
@@ -1310,7 +1310,8 @@ sub doRemoveEmpties {
 }
 
 # API ==========================================================================
-# Execute test verb
+# EXPERIMENTAL
+# Execute test verb - usually just a playground for testing and new ideas
 sub doTest {
     my @colors = qw(black red green yellow blue magenta cyan white);
     my @colorLabels = qw(Blk Red Grn Yel Blu Mag Cyn Wht);
@@ -1337,15 +1338,14 @@ sub doTest {
     }
 }
 sub doTest2 {
-    my $filename = $ARGV[0];
+    my ($filename) = @_;
 
     -s $filename
         or confess "$filename doesn't exist";
     
     # Look for a QR code
     my @results = `qrscan '$filename'`;
-    print "qrscan: ", Data::Dumper::Dumper(@results)
-        if $verbosity >= VERBOSITY_DEBUG;
+    trace(VERBOSITY_DEBUG, "qrscan: ", Data::Dumper::Dumper(@results));
 
     # Parse QR codes
     my $messageDate;
@@ -1354,8 +1354,7 @@ sub doTest2 {
             or confess "Unexpected qrscan output: $_";
         
         my $message = decode_json($1);
-        print "message: ", Data::Dumper::Dumper($message) 
-            if $verbosity >= VERBOSITY_DEBUG;
+        trace(VERBOSITY_DEBUG, "message: ", Data::Dumper::Dumper($message));
     
         if (exists $message->{date}) {
             my $date = $message->{date};
@@ -1373,12 +1372,10 @@ sub doTest2 {
         my $info = $et->GetInfo(qw(
             DateTimeOriginal TimeZone TimeZoneCity DaylightSavings 
             Make Model SerialNumber));
-        print "$filename: ", Data::Dumper::Dumper($info) 
-            if $verbosity >= VERBOSITY_DEBUG;
+        trace(VERBOSITY_DEBUG, "$filename: ", Data::Dumper::Dumper($info));
     
         my $metadataDate = $info->{DateTimeOriginal};
-        print "$messageDate vs $metadataDate\n"
-            if $verbosity >= VERBOSITY_DEBUG;
+        trace(VERBOSITY_DEBUG, "$messageDate vs $metadataDate");
     
         # The metadata date is an absolute time (the local time where
         # it was taken without any time zone information). The message
@@ -1391,16 +1388,14 @@ sub doTest2 {
         # time zone.
         $messageDate =~ s/([+-][\d:]*)$/Z/;
         my $messageTimeZone = $1;
-        print "$messageDate vs $metadataDate\n"
-            if $verbosity >= VERBOSITY_DEBUG;
+        trace(VERBOSITY_DEBUG, "$messageDate vs $metadataDate");
     
         $messageDate = DateTime::Format::HTTP->parse_datetime($messageDate);
         $metadataDate = DateTime::Format::HTTP->parse_datetime($metadataDate);
     
         my $diff = $messageDate->subtract_datetime($metadataDate);
     
-        print "$messageDate - $messageDate = ", Data::Dumper::Dumper($diff), "\n" 
-            if $verbosity >= VERBOSITY_DEBUG;
+        trace(VERBOSITY_DEBUG, "$messageDate - $messageDate = ", Data::Dumper::Dumper($diff));
     
         my $days = ($diff->is_negative ? -1 : 1) * 
             ($diff->days + ($diff->hours + ($diff->minutes + $diff->seconds / 60) / 60) / 24);
@@ -1430,6 +1425,8 @@ sub doVerifyMd5 {
         if (-e $path) {
             # File exists
             my $actualMd5 = getMd5($path)->{md5};
+            # TODO: this verification code is really old (i think it is still
+            # based on V1 md5.txt file, back when it was actually a text file)
             if ($actualMd5 eq $expectedMd5) {
                 # Hash match
                 # TODO: use ${\$pathDetails->relPath}
@@ -1462,7 +1459,6 @@ sub doVerifyMd5 {
         }
     }, @globPatterns);
 }
-
 
 #-------------------------------------------------------------------------------
 # Call verifyOrGenerateMd5ForFile for each media file in the glob patterns
@@ -1689,7 +1685,7 @@ sub metadataDiff {
     for my $key (sort keys %keys) {
         print colored("$key:", 'bold'), ' ' x (29 - length $key);
         for (my $i = 0; $i < @items; $i++) {
-            my $message = $items[$i]->{$key} || coloredFaint('undef');
+            my $message = $items[$i]->{$key} || colored('undef', 'faint');
             print coloredByIndex($message, $i), "\n", ' ' x 30;
         }
         print "\n";
@@ -1697,7 +1693,7 @@ sub metadataDiff {
 }
 
 #-------------------------------------------------------------------------------
-# Work in progress...
+# EXPERIMENTAL
 sub appendMetadata {
     my ($target, @sources) = @_;
     
@@ -1707,8 +1703,7 @@ sub appendMetadata {
     my $etTarget = extractInfo($target);
     my $infoTarget = $etTarget->GetInfo(@properties);
 
-    print "$target: ", Data::Dumper::Dumper($infoTarget)
-        if $verbosity >= VERBOSITY_DEBUG;
+    trace(VERBOSITY_DEBUG, "$target: ", Data::Dumper::Dumper($infoTarget));
     
     my $rating = $infoTarget->{Rating};
     my $oldRating = $rating;
@@ -1727,8 +1722,7 @@ sub appendMetadata {
         my $etSource = extractInfo($source);            
         my $infoSource = $etSource->GetInfo(@properties);
 
-        print "$source: ", Data::Dumper::Dumper($infoSource)
-            if $verbosity >= VERBOSITY_DEBUG;
+        trace(VERBOSITY_DEBUG, "$source: ", Data::Dumper::Dumper($infoSource));
         
         # Add rating if we don't already have one
         unless (defined $rating) {
@@ -1917,12 +1911,10 @@ sub removeMd5ForPath {
 
             print colored("! Removed $md5Key from $md5Path\n", 'bright_cyan');
         } else {
-            print "$md5Key didn't exist in $md5Path\n" 
-                if $verbosity >= VERBOSITY_DEBUG;
+            trace(VERBOSITY_DEBUG, "$md5Key didn't exist in $md5Path");
         }
     } else {
-        print "Couldn't open $md5Path\n"
-            if $verbosity >= VERBOSITY_DEBUG;
+        trace(VERBOSITY_DEBUG, "Couldn't open $md5Path");
     }
 }
 
@@ -2009,8 +2001,7 @@ sub readMd5FileFromHandle {
 sub writeMd5FileToHandle {
     my ($fh, $md5s) = @_;
     
-    print "Writing     MD5.txt\n" 
-        if $verbosity >= VERBOSITY_DEBUG;
+    trace(VERBOSITY_DEBUG, "Writing md5.txt");
     
     # Clear MD5 file
     seek($fh, 0, 0)
@@ -2030,7 +2021,6 @@ sub writeMd5FileToHandle {
         }
     }
 }
-
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Check if we can shortcut based on metadata without evaluating MD5s
@@ -2348,6 +2338,8 @@ sub addToMd5Digest {
 }
     
 # MODEL (MD5) ------------------------------------------------------------------
+# Extracts, verifies, and canonicalizes resulting MD5 digest
+# from a Digest::MD5.
 sub resolveMd5Digest {
     my ($md5) = @_;
     
@@ -2675,7 +2667,7 @@ sub moveFile {
 #!!!    File::Copy::move($oldPath, $newPath)
 #!!!        or confess "Failed to move '$oldPath' to '$newPath': $!";
 
-    # TODO: move MD5 data 
+    # TODO: move MD5 data, not delete (moveMd5ForPath)
     removeMd5ForPath($oldPath);
 
     print colored("! Moved $oldPath\n!    to $newPath\n", 'bright_cyan');
@@ -2732,13 +2724,6 @@ sub formatDate {
     my ($sec, $min, $hour, $day, $mon, $year) = localtime $_[0];
     return sprintf '%04d-%02d-%02dT%02d:%02d:%02d',
         $year + 1900, $mon + 1, $day, $hour, $min, $sec;
-}
-
-# VIEW -------------------------------------------------------------------------
-sub coloredFaint {
-    my ($message) = @_;
-
-    return colored($message, 'faint');
 }
 
 # VIEW -------------------------------------------------------------------------
