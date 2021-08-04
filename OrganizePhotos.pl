@@ -115,8 +115,6 @@ The following verbs are available:
 
 =item B<collect-trash> [glob patterns...]
 
-=item Experimental: B<consolodate-metadata> <dir>
-
 =item Experimental: B<find-dupe-dirs>
 
 =item B<find-dupe-files> [-a] [-d] [-l] [-n] [glob patterns...]
@@ -254,12 +252,6 @@ Rather than operate on files under the current directory, operate on
 the specified glob pattern.
 
 =back
-
-=head2 consolodate-metadata <dir>
-
-I<Alias: cm>
-
-Not yet implemented
 
 =head2 find-dupe-dirs
 
@@ -729,9 +721,6 @@ sub main {
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
             myGetOptions();
             doCollectTrash(@ARGV);
-        } elsif ($verb eq 'consolodate-metadata' or $verb eq 'cm') {
-            myGetOptions();
-            doConsolodateMetadata(@ARGV);
         } elsif ($verb eq 'find-dupe-dirs' or $verb eq 'fdd') {
             myGetOptions();
             @ARGV and die "Unexpected parameters: @ARGV";
@@ -821,13 +810,6 @@ sub doCollectTrash {
             }
         },
         @globPatterns);
-}
-
-# API ==========================================================================
-# Execute consolodate-metadata verb
-sub doConsolodateMetadata {
-    my ($arg1, $arg2, $etc) = @_;
-    # TODO
 }
 
 # API ==========================================================================
