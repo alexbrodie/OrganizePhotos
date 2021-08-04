@@ -64,6 +64,7 @@
 # * Switch File::Find::find to traverseGlobPatterns
 # * Replace '.' with File::Spec->curdir()?
 # * Cleanup print/trace/warn/die/confess including final endlines
+# * Include zip and pdf files too
 #
 =pod
 
@@ -773,6 +774,8 @@ sub doCheckMd5 {
 # Execute collect-trash verb
 sub doCollectTrash {
     my (@globPatterns) = @_;
+
+    die "This method hasn't been debugged yet after refactor";
     
     traverseGlobPatterns(
         sub { # isWanted
@@ -1200,7 +1203,7 @@ sub doFindDupeFiles {
                     # Trash Number
                     if ($1 <= $#group && $group[$1]) {
                         if ($group[$1]->{exists}) {
-                            trashMedia($group[$1]->{path});
+                            trashPathAndSidecars($group[$1]->{path});
                         } else {
                             # File we're trying to trash doesn't exist, 
                             # so just remove its metadata
@@ -2607,6 +2610,18 @@ sub traverseGlobPatterns {
 }
 
 # MODEL (File Operations) ------------------------------------------------------
+# Trash the specified path and any sidecars (anything with the same path
+# except for extension)
+sub trashPathAndSidecars {
+    my ($path) = @_;
+    trace(VERBOSITY_DEBUG, "trashPathAndSidecars('$path');");
+
+    # TODO: check all for existance before performing any operations to
+    # make file+sidecar opererations more atomic
+    trashPath($_) for ($path, getSidecarPaths($path));
+}
+
+# MODEL (File Operations) ------------------------------------------------------
 # Trash the specified path by moving it to a .Trash subdir and removing
 # its entry from the md5.txt file
 sub trashPath {
@@ -2621,18 +2636,6 @@ sub trashPath {
     my $trashPath = File::Spec->catfile($trashDir, $name);
 
     movePath($path, $trashPath);
-}
-
-# MODEL (File Operations) ------------------------------------------------------
-# Trash the specified path and any sidecars (anything with the same path
-# except for extension)
-sub trashMedia {
-    my ($path) = @_;
-    trace(VERBOSITY_DEBUG, "trashMedia('$path');");
-
-    # TODO: check all for existance before performing any operations to
-    # make file+sidecar opererations more atomic
-    trashPath($_) for ($path, getSidecarPaths($path));
 }
 
 # MODEL (File Operations) ------------------------------------------------------
