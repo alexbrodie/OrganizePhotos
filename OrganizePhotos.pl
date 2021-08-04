@@ -686,7 +686,7 @@ exit 0;
 # subroutines starting with "do"
 sub main {
     sub myGetOptions {
-        Getopt::Long::GetOptions('verbosity|v=i', \$verbosity)
+        Getopt::Long::GetOptions('verbosity|v=i' => \$verbosity, @_)
             or die "Error in command line, aborting.";
     }
 
