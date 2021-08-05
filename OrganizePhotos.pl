@@ -1133,7 +1133,7 @@ sub doFindDupeFiles {
             
             # Prompt for action
             unless ($command) {
-                chomp(my $command = lc <STDIN>);
+                chomp($command = lc <STDIN>);
                 
                 # If the user provided something, save that for next 
                 # conflict's default
@@ -1222,11 +1222,10 @@ sub doRemoveEmpties {
                 # These files don't count - they're trashible, ignore them (by 
                 # not processing) as if they didn't exist and let them get
                 # cleaned up if the folder
-                 
-                my $name = lc $pathDetails->filename;
-                return 0 if any { $name eq $_ } ('.ds_store', 'thumbs.db', 'md5.txt');
+                my $lcfn = lc $pathDetails->filename;
+                return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', 'md5.txt');
 
-                # TODO: exclude zero byte files as well?
+                # TODO: exclude zero byte or hidden files as well?
 
                 # Other files count
                 return 1;
@@ -1256,7 +1255,7 @@ sub doRemoveEmpties {
                     # it's not trashable, then fall through to add this to its parent
                     # dir's list.
                     unless ($subItems) {
-                        print "Trashing ${\$pathDetails->relPath}\n"; 
+                        print "Trashing '${\$pathDetails->relPath}'\n"; 
                         trashPath($pathDetails->absPath);
                         return;
                     }
@@ -1267,6 +1266,9 @@ sub doRemoveEmpties {
                 $dirSubItemsMap{$dir}++;
         },
         @globPatterns);
+
+    
+    #print map { "$_ = $dirSubItemsMap{$_}\n" } sort keys %dirSubItemsMap;
 }
 
 # API ==========================================================================
@@ -1498,16 +1500,7 @@ sub verifyOrGenerateMd5ForFile {
     }
         
     # Read MD5.txt file to consult
-    my ($fh, $expectedMd5Set);
-    if (open($fh, '+<:crlf', $md5Path)) {
-        # Read existing contents
-        $expectedMd5Set = readMd5FileFromHandle($fh);
-    } else {
-        # File doesn't exist, open for write
-        open($fh, '>', $md5Path)
-            or croak "Couldn't open $md5Path: $!";
-        $expectedMd5Set = {};
-    }
+    my ($fh, $expectedMd5Set) = openAndReadMd5File($md5Path);
 
     # Update cache
     $lastMd5Path = $md5Path;
@@ -1821,13 +1814,13 @@ sub findMd5s {
                 
                 # Open the md5.txt file
                 open(my $fh, '<:crlf', $pathDetails->absPath)
-                    or croak "Couldn't open $pathDetails->absPath: $!";
+                    or croak "Couldn't open ${\$pathDetails->absPath}: $!";
             
                 # Parse the file to get all the filename -> file info hash
-                my $md5s = readMd5FileFromHandle($fh);
+                my $md5Set = readMd5FileFromHandle($fh);
 
-                for (sort keys %$md5s) {
-                    my $md5 = $md5s->{$_}->{md5};
+                for (sort keys %$md5Set) {
+                    my $md5 = $md5Set->{$_}->{md5};
                     my $otherPathDetails = changeFilename($pathDetails, $_);
                     $callback->($otherPathDetails, $md5);
                 }
@@ -1851,55 +1844,64 @@ sub getMd5PathAndKey {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# Removes the cached MD5 hash for the specified path
+sub addMd5ForPath {
+    my ($path, $md5) = @_;
+    trace(VERBOSITY_DEBUG, "addMd5ForPath('$path', {..});");
+
+    my ($md5Path, $md5Key) = getMd5PathAndKey($path);
+    my ($fh, $md5Set) = openAndReadMd5File($md5Path);
+    $md5Set->{md5Key} = $md5;
+    writeMd5FileToHandle($fh, $md5Set);
+ 
+    printFileOp("Added   $md5Key to   '$md5Path'\n");
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Removes the computed MD5 hash and other file metadata for the specified path.
+# Returns the data that was removed or undef if it wasn't there.
 sub removeMd5ForPath {
     my ($path) = @_;
 
     my ($md5Path, $md5Key) = getMd5PathAndKey($path);
-
     if (open(my $fh, '+<:crlf', $md5Path)) {
-        my $md5s = readMd5FileFromHandle($fh);
+        my $md5Set = readMd5FileFromHandle($fh);
         
-        if (exists $md5s->{$md5Key}) {
-            delete $md5s->{$md5Key};            
-            writeMd5FileToHandle($fh, $md5s);
+        if (exists $md5Set->{$md5Key}) {
+            my $md5 = $md5Set->{$md5Key};
+
+            delete $md5Set->{$md5Key};            
+            writeMd5FileToHandle($fh, $md5Set);
             
             # TODO: update the cache from the validate func?
 
-            print colored("! Removed $md5Key from $md5Path\n", 'bright_cyan');
+            printFileOp("Removed $md5Key from '$md5Path'\n");
+
+            return $md5;
         } else {
             trace(VERBOSITY_DEBUG, "$md5Key didn't exist in $md5Path");
+            return undef;
         }
     } else {
         trace(VERBOSITY_DEBUG, "Couldn't open $md5Path");
+        return undef;
     }
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# TODO
-sub moveMd5ForPath {
-    my ($oldPath, $newPath) = @_;
+# This is a utility for updating MD5 information. It opens the MD5 file R/W,
+# then parses and returns the handle and information in the file. The typical
+# usage is to next modify to the MD5s data and call writeMd5FileToHandle.
+sub openAndReadMd5File {
+    my ($path) = @_;
 
-    my ($oldMd5Path, $oldMd5Key) = getMd5PathAndKey($oldPath);
-    my ($newMd5Path, $newMd5Key) = getMd5PathAndKey($newPath);
-    
-    if (open(my $oldFh, '+<:crlf', $oldMd5Path)) {
-        my $oldMd5s = readMd5FileFromHandle($oldFh);
-    
-        if (open(my $newFh, '+<:crlf', $newMd5Path)) {
-            my $newMd5s = readMd5FileFromHandle($newFh);
-            
-            # TODO - We have both files, so try to move the hash entry from old to new
-            
-        } else {
-            # TODO - write single entry to new file
-            my $newMd5s = { $newMd5Key => $oldMd5s }
-        }   
-
-        delete $oldMd5s->{$oldMd5Key};            
-        writeMd5FileToHandle($oldFh, $oldMd5s);
+    if (open(my $fh, '+<:crlf', $path)) {
+        # Read existing contents
+        return ($fh, readMd5FileFromHandle($fh));
     } else {
-        # TODO - error
+        # File doesn't exist, create RW
+        open($fh, '+>', $path)
+            or croak "Couldn't open $path: $!";
+        return ($fh, {});
     }
 }
 
@@ -1907,8 +1909,7 @@ sub moveMd5ForPath {
 # Deserialize a md5.txt file handle into a OM
 sub readMd5FileFromHandle {
     my ($fh) = @_;
-    
-    trace(VERBOSITY_DEBUG, 'Parsing md5.txt');
+    trace(VERBOSITY_DEBUG, 'readMd5FileFromHandle(<..>)');
     
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple name: md5 format parsing
@@ -1957,8 +1958,7 @@ sub readMd5FileFromHandle {
 # Serialize OM into a md5.txt file handle
 sub writeMd5FileToHandle {
     my ($fh, $md5s) = @_;
-    
-    trace(VERBOSITY_DEBUG, "Writing md5.txt");
+    trace(VERBOSITY_DEBUG, 'writeMd5FileToHandle(<..>, { hash of @{[ scalar keys %$md5s ]} items })');    
     
     # Clear MD5 file
     seek($fh, 0, 0)
@@ -2325,12 +2325,6 @@ sub getSidecarPaths {
         # For backups, we don't associate related files as sidecars
         return ();
     } else {
-        #! This proved very damaging, so finding another way
-        ### Consider everything with the same base name as a sidecar.
-        ### Note that this assumes a proper extension
-        ##(my $query = $path) =~ s/[^.]*$/*/;
-        ##return glob qq("$query");
-        
         # Using extension as a key, look up associated sidecar types (if any)
         my ($base, $ext) = splitExt($path);
         my $key = uc $ext;
@@ -2668,10 +2662,7 @@ sub trashPathAndSidecars {
 # its entry from the md5.txt file
 sub trashPath {
     my ($path) = @_;
-    trace(VERBOSITY_DEBUG, "trashPath('$path');");
-
-    # TODO: use ${\$pathDetails->relPath} instead of $path (which is absPath)
-    trace(VERBOSITY_2, "Trashing '$path'");
+    #trace(VERBOSITY_DEBUG, "trashPath('$path');");
 
     my ($volume, $dir, $name) = File::Spec->splitpath($path);
     my $trashDir = File::Spec->catpath($volume, $dir, '.Trash');
@@ -2681,100 +2672,67 @@ sub trashPath {
 }
 
 # MODEL (File Operations) ------------------------------------------------------
-# Move [oldPath] to [newPath] in a convinient and safe manner
-# [oldPath] - original path of file
-# [newPath] - desired target path for the file
+# Move [oldPath] to [newPath]
 sub movePath {
     my ($oldPath, $newPath) = @_;
-    # Don't bother tracing, it's too verbose since each fork traces immediately
+    trace(VERBOSITY_DEBUG, "movePath('$oldPath', '$newPath');");
 
-    if (-d $oldPath) {
-        moveDir($oldPath, $newPath);
-    } elsif (-f $oldPath) {
-        moveFile($oldPath, $newPath);
+    my $moveInternal = sub {
+        # Ensure parent dir exists
+        my $parent = File::Spec->catpath((File::Spec->splitpath($newPath))[0,1]);
+        -d $parent or File::Path::make_path($parent)
+            or croak "Failed to make directory '$parent': $!";
+
+        # Move the file/dir
+        File::Copy::move($oldPath, $newPath)
+            or croak "Failed to move '$oldPath' to '$newPath': $!";
+    };
+
+    if (-f $oldPath) {
+        -e $newPath
+            and croak "I can't overwrite files moving '$oldPath' to '$newPath')";
+
+        $moveInternal->($oldPath, $newPath);
+        my $md5 = removeMd5ForPath($oldPath);
+        addMd5ForPath($newPath, $md5) if $md5;
+
+        printFileOp("Moved file '$oldPath' => '$newPath'\n");
+    } elsif (-d $oldPath) {
+        if (-e $newPath) {
+            # Dest dir path already exists, need to move-merge.
+
+            # TODO: BUGBUG: this needs some cleanup and debugging. 
+            # I'm not sure this actually works for example when doing 
+            # a multi-level move-merge
+
+            -d $newPath
+                or croak "Can't move a directory - file already exists at destination ('$oldPath' => '$newPath')";
+
+            # Walk through all the sub-items in the dir $oldPath breadth first
+            # so that we try to move parent dirs that don't already have something
+            # at the destination before going and trying to move their sub-items
+            # one at a time.
+            File::Find::find({
+                wanted => sub {
+                    if ($_ ne '.') {
+                        movePath($File::Find::name,
+                                File::Spec->catfile($newPath, $_));
+                    }
+                }
+            }, $oldPath);
+
+            # TODO: If we've emptied out $oldPath my moving all its contents into
+            # the already existing $newPath, can we safely delete it? Or do we
+            # just be conservative and lazy and let doRemoveEmpties handle it?
+        } else {
+            # Dest dir doesn't exist, so we can just move the whole directory
+            $moveInternal->($oldPath, $newPath);
+
+            printFileOp("Moved dir  '$oldPath' => '$newPath'\n");
+        }
     } else {
         croak "Programmer Error: unexpected type for object $oldPath";
     }
-}
-
-# MODEL (File Operations) ------------------------------------------------------
-# Move [oldPath] to [newPath] in a convinient and safe manner
-# [oldPath] - original path of file
-# [newPath] - desired target path for the file
-sub moveFile {
-    my ($oldPath, $newPath) = @_;
-    trace(VERBOSITY_DEBUG, "moveFile('$oldPath', '$newPath');");
-
-    -e $newPath
-        and croak "I can't overwrite files moving '$oldPath' to '$newPath')";
-
-    # Create parent folder if it doesn't exist
-    my $newParentDir = File::Spec->catpath((File::Spec->splitpath($newPath))[0,1]);
-    -d $newParentDir or File::Path::make_path($newParentDir)
-        or croak "Failed to make directory '$newParentDir': $!";
-
-    # Do the real move
-    # BUGBUG
-#!!!    File::Copy::move($oldPath, $newPath)
-#!!!        or croak "Failed to move '$oldPath' to '$newPath': $!";
-
-    # TODO: move MD5 data, not delete (moveMd5ForPath)
-    removeMd5ForPath($oldPath);
-
-    print colored("! Moved $oldPath\n!    to $newPath\n", 'bright_cyan');
-}
-
-# MODEL (File Operations) ------------------------------------------------------
-# Move the [oldPath] directory to [newPath] with merging if [newPath]
-# already exists
-sub moveDir {
-    my ($oldPath, $newPath) = @_;
-    trace(VERBOSITY_DEBUG, "moveDir('$oldPath', '$newPath');");
-
-    -d $oldPath
-        or croak "Can't move a non-directory ($oldPath => $newPath)";
-        
-    if (-e $newPath) {
-        # Dest dir path already exists, need to move-merge. We'll do
-        # a depth first traversal and try to move all subitems into
-        # the existing target until we get to a file conflict
-
-        # TODO: BUGBUG: this needs some cleanup and debugging. 
-        # I'm not sure this actually works for example when doing 
-        # a multi-level move-merge
-
-        -d $newPath
-            or croak "Can't move a directory - file already exists at destination ($oldPath => $newPath)";
-
-        # Walk through all the sub-items in the dir $oldPath breadth first
-        # so that we try to move parent dirs that don't already have something
-        # at the destination before going and trying to move their sub-items
-        # one at a time.
-        File::Find::find({
-            wanted => sub {
-                if ($_ ne '.') {
-                    movePath($File::Find::name,
-                             File::Spec->catfile($newPath, $_));
-                }
-            }
-        }, $oldPath);
-
-        # TODO: If we've emptied out $oldPath my moving all its contents into
-        # the already existing $newPath, can we safely delete it?
-    } else {
-        # Dest dir doesn't exist
-
-        # Move the source to the target
-        moveFile($oldPath, $newPath);
-    }
-}
-
-# VIEW -------------------------------------------------------------------------
-# Format a date (such as that returned by stat) into string form
-sub formatDate {
-    my ($sec, $min, $hour, $day, $mon, $year) = localtime $_[0];
-    return sprintf '%04d-%02d-%02dT%02d:%02d:%02d',
-        $year + 1900, $mon + 1, $day, $hour, $min, $sec;
 }
 
 # VIEW -------------------------------------------------------------------------
@@ -2795,6 +2753,11 @@ sub colorByIndex {
 
     my @colors = ('green', 'red', 'blue', 'yellow', 'magenta', 'cyan');
     return $colors[$colorIndex % scalar @colors];
+}
+
+# VIEW -------------------------------------------------------------------------
+sub printFileOp(@) {
+    print map { colored("! $_", 'bright_cyan'), "\n" } split /\n/, join '', @_;
 }
 
 # VIEW -------------------------------------------------------------------------
