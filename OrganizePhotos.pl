@@ -66,6 +66,7 @@
 # * Cleanup print/trace/warn/die/confess including final endlines
 # * Include zip and pdf files too
 # * Tests covering at least the checkup verb code paths
+# * Add wrapper around warn similar to trace
 #
 =pod
 
@@ -544,12 +545,20 @@ my $md5pattern = qr/[0-9a-f]{32}/;
 #   one set of files has a MOV and the other doesn't. This is a bit different
 #   from JPG sidecars of raw files or THM since those are redunant. Before
 #   adding MOV back, we should update the dupe detection to compare the
-#   sidecars as well rather than just the primary file.
+#   sidecars as well rather than just the primary file. Sidecar associations
+#   can't form cycles such that a sidecar of a sicecar ... of a sidecar is
+#   not the original type.
 #
 # EXTORDER
 #   Defines the sort order when displaying a group of duplicate files with
 #   the lower values coming first. Typically the "primary" files are displayed
-#   first and so have lower values.
+#   first and so have lower values. If a type is a sidecar of another, the
+#   EXTORDER of the sidecar type must be strictly greater if it exists. Thus
+#   this is also used to control processing order so that primary files are
+#   handled before their sidecars - e.g. raf files are handled before jpg
+#   sidecars
+# TODO: verify this EXTORDER/SIDECAR claim, perhaps in tests somewhere. It would
+# also ensure the statement in SIDECARS that there are no cycles.
 #
 # MIMETYPE
 #   The mime type of the file type.
@@ -911,7 +920,7 @@ sub doFindDupeFiles {
     my $fast = 0; # avoid slow operations, potentially with less precision?
     
     # Create the initial groups
-    my %keyToPaths = ();
+    my %keyToPathDetails = ();
     if ($byName) {
         # Make hash to list of like files with hash key based on file/dir name
         traverseGlobPatterns(
@@ -933,7 +942,7 @@ sub doFindDupeFiles {
                 
                 if (-f $pathDetails->absPath) { 
                     my $key = computeFileHashKeyByName($pathDetails);
-                    push @{$keyToPaths{$key}}, $pathDetails->absPath;
+                    push @{$keyToPathDetails{$key}}, $pathDetails;
                 }
             },
             @globPatterns);
@@ -941,70 +950,41 @@ sub doFindDupeFiles {
     } else {
         # Make hash to list of like files with MD5 as hash key
         findMd5s(sub {
-            my ($path, $md5) = @_;
-            if (-e $path) {
-                push @{$keyToPaths{$md5}}, $path;
+            my ($pathDetails, $md5) = @_;
+            if (-e $pathDetails->absPath) {
+                push @{$keyToPathDetails{$md5}}, $pathDetails;
             } else {
-                trace(VERBOSITY_2, "Path for MD5 is missing: '$path'");
+                trace(VERBOSITY_2, "Path for MD5 is missing: '${\$pathDetails->relPath}'");
             }
         }, @globPatterns);
     }
     
-    trace(VERBOSITY_DEBUG, "Found @{[scalar keys %keyToPaths]} initial groups");
+    trace(VERBOSITY_DEBUG, "Found @{[scalar keys %keyToPathDetails]} initial groups");
 
-    # Put everthing that has dupes in an array for sorting
+    # Go through each element in the %keyToPathDetails map, and we'll 
+    # want the ones with multiple things in the array of paths. If
+    # there  are multiple paths for an element, sort the paths array
+    # by decreasing importance (our best guess), and add it to the
+    # @dupes collection for further processing.
     my @dupes = ();
-    while (my ($key, $paths) = each %keyToPaths) {
-        if (@$paths > 1) {
-            push @dupes, [sort {
-                # Try to sort paths trying to put the most likely
-                # master copies first and duplicates last
-
-                my (undef, @as) = deepSplitPath($a);
-                my (undef, @bs) = deepSplitPath($b);
-
-                for (my $i = 0; $i < @as; $i++) {
-                    # If A is in a subdir of B, then B goes first
-                    return 1 if $i >= @bs;
-
-                    my ($aa, $bb) = ($as[$i], $bs[$i]);
-                    if ($aa ne $bb) {
-                        if ($aa =~ /^\Q$bb\E(.+)/) {
-                            # A is a substring of B, put B first
-                            return -1;
-                        } elsif ($bb =~ /^\Q$aa\E(.+)/) {
-                            # B is a substring of A, put A first
-                            return 1;
-                        }
-
-                        # Try as filename and extension
-                        my ($an, $ae) = $aa =~ /^(.*)\.([^.]*)$/;
-                        my ($bn, $be) = $bb =~ /^(.*)\.([^.]*)$/;
-                        if (defined $ae and defined $be and $ae eq $be) {
-                            if ($an =~ /^\Q$bn\E(.+)/) {
-                                # A's filename is a substring of B's, put A first
-                                return 1;
-                            } elsif ($bn =~ /^\Q$an\E(.+)/) {
-                                # B's filename is a substring of A's, put B first
-                                return -1;
-                            }
-                        }
-
-                        return $aa cmp $bb;
-                    }
-                }
-
-                # If B is in a subdir of be then B goes first
-                # else they are equal
-                return @bs > @as ? -1 : 0;
-            } @$paths];
+    while (my ($key, $pathDetailsList) = each %keyToPathDetails) {
+        if (@$pathDetailsList > 1) {
+            # TODO: Finish conversion from something pathy to FileDetails below
+            # and swap the below two lines
+            #push @dupes, [sort {
+            push @dupes, [map { $_->absPath } sort {
+                compareDirectories($a->directories, $b->directories) ||
+                compareFilenameWithExtOrder($a->filename, $b->filename);
+            } @$pathDetailsList];
         }
     }
-    
+
     trace(VERBOSITY_DEBUG, "Found @{[scalar @dupes]} groups with multiple files");
 
-    # Sort groups by first element with with primary files first
-    @dupes = sort { 
+    # TODO: Finish conversion from something pathy to FileDetails from here
+
+    # Sort groups in the order they're to be processed
+    @dupes = sort {
         my ($an, $ae) = $a->[0] =~ /^(.*)\.([^.]*)$/;
         my ($bn, $be) = $b->[0] =~ /^(.*)\.([^.]*)$/;
 
@@ -1419,21 +1399,22 @@ EOM
 sub doVerifyMd5 {
     my (@globPatterns) = @_;
     
-    our $all = 0;
+    # TODO: this verification code is really old (i think it is still
+    # based on V1 md5.txt file, back when it was actually a text file)
+    # can we combine it with or reuse somehow verifyOrGenerateMd5ForFile?
+
+    my $all = 0;
     findMd5s(sub {
-        my ($path, $expectedMd5) = @_;
-        if (-e $path) {
+        my ($pathDetails, $expectedMd5) = @_;
+        if (-e $pathDetails->absPath) {
             # File exists
-            my $actualMd5 = getMd5($path)->{md5};
-            # TODO: this verification code is really old (i think it is still
-            # based on V1 md5.txt file, back when it was actually a text file)
+            my $actualMd5 = getMd5($pathDetails->absPath)->{md5};
             if ($actualMd5 eq $expectedMd5) {
                 # Hash match
-                # TODO: use ${\$pathDetails->relPath}
-                print "Verified MD5 for '$path'\n";
+                print "Verified MD5 for '${\$pathDetails->relPath}'\n";
             } else {
                 # Has MIS-match, needs input
-                warn "ERROR: MD5 mismatch for '$path' ($actualMd5 != $expectedMd5)";
+                warn "ERROR: MD5 mismatch for '${\$pathDetails->relPath}' ($actualMd5 != $expectedMd5)";
                 unless ($all) {
                     while (1) {
                         print "Ignore, ignore All, Quit (i/a/q)? ";
@@ -1445,8 +1426,7 @@ sub doVerifyMd5 {
                             $all = 1;
                             last;
                         } elsif ($in eq 'q') {
-                            # TODO: use ${\$pathDetails->relPath}
-                            confess "MD5 mismatch for '$path'";
+                            exit 0;
                         }
                     }
                 }
@@ -1454,8 +1434,7 @@ sub doVerifyMd5 {
         } else {
             # File doesn't exist
             # TODO: prompt to see if we should remove this via removeMd5ForPath
-            # TODO: use ${\$pathDetails->relPath}
-            warn "Missing file: '$path'";
+            warn "Missing file: '${\$pathDetails->relPath}'";
         }
     }, @globPatterns);
 }
@@ -1595,7 +1574,7 @@ sub verifyOrGenerateMd5ForFile {
             if (isMd5VersionUpToDate($path, $expectedMd5->{version})) {
                 # TODO: switch this hacky crash output to better perl way
                 # of generating tables
-                confess <<EOM
+                confess <<EOM;
 Unexpected state: full MD5 match and content MD5 mismatch for
 $path
              version  full_md5                          md5
@@ -1869,10 +1848,9 @@ sub findMd5s {
                 my $md5s = readMd5FileFromHandle($fh);
 
                 for (sort keys %$md5s) {
-                    my $path = File::Spec->catpath($pathDetails->volume, $pathDetails->directories, $_);
                     my $md5 = $md5s->{$_}->{md5};
-                    # TODO: Make new PathDetails object and pass it to callback instead of $path
-                    $callback->($path, $md5);
+                    my $otherPathDetails = changeFilename($pathDetails, $_);
+                    $callback->($otherPathDetails, $md5);
                 }
             }
         },
@@ -1880,8 +1858,8 @@ sub findMd5s {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# Gets the path to the file containing the md5 information and the key used
-# to index into the contents of that file.
+# Gets the path to the file containing the md5 information (the md5.txt file),
+# and the key used to index into the contents of that file.
 sub getMd5PathAndKey {
     my ($path) = @_;
 
@@ -2109,8 +2087,10 @@ sub getMd5 {
         
     my $fullMd5Hash = getMd5Digest($path, $fh);
 
+    # TODO: should we catch exceptions for partial match computation
+    # and only return the full hash? Currently we just skip the file
+    # which seems worse
     my $partialMd5Hash = undef;
-
     my $type = getMimeType($path);
     if ($type eq 'image/jpeg') {
         $partialMd5Hash = getJpgContentDataMd5($path, $fh);
@@ -2432,17 +2412,104 @@ sub extractInfo {
     return $et;
 }
 
+# MODEL (PathDetails) ----------------------------------------------------------
+sub makePathDetails {
+    my ($absPath, $base, $relPath) = @_;
+
+    # TODO: see if we can delay this calculation until needed. Might require
+    # writing our own class instead of using Class::Struct.
+    my ($volume, $directories, $filename) = File::Spec->splitpath($absPath);
+
+    return PathDetails->new(
+        absPath => $absPath,
+        base => $base,
+        relPath => $relPath,
+        volume => $volume,
+        directories => $directories,
+        filename => $filename);
+}
+
+# MODEL (PathDetails) ----------------------------------------------------------
+sub changeFilename {
+    my ($pathDetails, $newFilename) = @_;
+
+    my $absPath = File::Spec->catpath($pathDetails->volume, 
+                                      $pathDetails->directories, 
+                                      $newFilename);
+
+    # TODO: try harder - do something with $pathDetails->relPath
+    my $relPath = $absPath; 
+
+    return makePathDetails($absPath,
+                           $pathDetails->base,
+                           $relPath);
+}
+
 # MODEL (Path Operations) ------------------------------------------------------
-# Split a [path] into ($volume, @dirs, $name)
-# TODO: do we need this anymore???
-sub deepSplitPath {
-    my ($path) = @_;
+sub compareDirectories {
+    my ($directoriesA, $directoriesB) = @_;
 
-    my ($volume, $dir, $name) = File::Spec->splitpath($path);
-    my @dirs = File::Spec->splitdir($dir);
-    pop @dirs unless $dirs[-1];
+    my @as = File::Spec->splitdir($directoriesA);
+    my @bs = File::Spec->splitdir($directoriesB);
+    for (my $i = 0;; $i++) {
+        if ($i >= @as) {
+            if ($i >= @bs) {
+                # A and B both ran out, so they're equal
+                return 0;
+            } else {
+                # A ran out, B didn't, so B is in subdir
+                # of A, so A goes first
+                return -1;
+            }
+        } else {
+            if ($i >= @bs) {
+                # B ran out, A didn't, so A is in subdir
+                # of B, so B goes first
+                return 1;
+            } else {
+                # Both have an i'th entry, so now we'll 
+                # compare the names, and if they're
+                # not equal, we know the order
+                my $c = lc $as[$i] cmp lc $bs[$i];
+                return $c if $c;
+            }
+        }
+    }
+}
 
-    return ($volume, @dirs, $name);
+# MODEL (Path Operations) ------------------------------------------------------
+sub compareFilenameWithExtOrder {
+    my ($filenameA, $filenameB) = @_;
+
+    my ($basenameA, $extA) = splitExt($filenameA);
+    my ($basenameB, $extB) = splitExt($filenameB);
+
+    # Compare by basename first
+    my $c = lc $basenameA cmp lc $basenameB;
+    return $c if $c;
+
+    # Next by extorder
+    if (defined $fileTypes{uc $extA}) {
+        if (defined $fileTypes{uc $extB}) {
+            # Both known types, A comes first if
+            # it has a lower extorder
+            my $c = $fileTypes{uc $extA} - $fileTypes{uc $extB};
+            return $c if $c;
+        } else {
+            # A is known, B is not, so A comes first
+            return -1;
+        }
+    } else {
+        if (defined $fileTypes{uc $extB}) {
+            # Neither types are known, do nothing here
+        } else {
+            # B is known, A is not, so B comes first
+            return 1;
+        }
+    }
+
+    # And then just the extension as a string
+    return lc $extA cmp lc $extB;
 }
 
 # MODEL (Path Operations) ------------------------------------------------------
@@ -2511,17 +2578,7 @@ sub traverseGlobPatterns {
 
         -e $absPath or die "Programmer Error: incorrect absPath calculation: $absPath";
 
-        # TODO: see if we can delay this calculation until needed. Might require
-        # writing our own class instead of using Class::Struct.
-        my ($volume, $directories, $filename) = File::Spec->splitpath($absPath);
-
-        return PathDetails->new(
-            absPath => $absPath,
-            base => $base,
-            relPath => $relPath,
-            volume => $volume,
-            directories => $directories,
-            filename => $filename);
+        return makePathDetails($absPath, $base, $relPath);
     };
 
     # Method to be called for each directory found in globPatterns
@@ -2751,12 +2808,13 @@ sub trace($@) {
     my ($level, @args) = @_;
 
     if ($level <= $verbosity) {
-        if (@args == 1 and ref $args[0] eq 'CODE') {
-            print "xxx\n";
-            @args = $args[0]->();
-        }
+        # If the only arg we were passed is a code reference (in order to
+        # defer potentially expensive calculation), call it to generate the
+        # trace statements.
+        @args = $args[0]->() if @args == 1 and ref $args[0] eq 'CODE';
 
         if (@args) {
+            # TODO: color coding by trace level
             my ($package, $filename, $line) = caller;
             print colored(sprintf("T%02d@%04d", $level, $line), 'bold white on_bright_black'), 
                   join("\n" . (' ' x 8), map { colored(' ' . $_, 'bold bright_black') } split /\n/, join '', @args),
