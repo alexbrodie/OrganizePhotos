@@ -975,70 +975,51 @@ sub doFindDupeFiles {
     my @dupes = ();
     while (my ($key, $pathDetailsList) = each %keyToPathDetails) {
         if (@$pathDetailsList > 1) {
-            # TODO: Finish conversion from something pathy to FileDetails below
-            # and swap the below two lines
-            #push @dupes, [sort {
-            push @dupes, [map { $_->absPath } sort {
-                compareDirectories($a->directories, $b->directories) ||
-                compareFilenameWithExtOrder($a->filename, $b->filename);
-            } @$pathDetailsList];
+            push @dupes, [sort { comparePathWithExtOrder($a, $b) } @$pathDetailsList];
         }
     }
+
+    # The 2nd level is properly sorted, now let's sort the groups
+    # themselves - this will be the order in which the groups
+    # are processed, so we want it extorder based as well.
+    @dupes = sort { comparePathWithExtOrder($a->[0], $b->[0]) } @dupes;
 
     trace(VERBOSITY_DEBUG, "Found @{[scalar @dupes]} groups with multiple files");
 
     # TODO: Finish conversion from something pathy to FileDetails from here
-
-    # Sort groups in the order they're to be processed
-    @dupes = sort {
-        my ($an, $ae) = $a->[0] =~ /^(.*)\.([^.]*)$/;
-        my ($bn, $be) = $b->[0] =~ /^(.*)\.([^.]*)$/;
-
-        # Sort by filename first
-        my $cmp = $an cmp $bn;
-        return $cmp if $cmp;
-
-        # Sort by extension (by EXTORDER, rather than alphabetic)
-        my $aOrder = $fileTypes{uc $ae}->{EXTORDER} || 0;
-        my $bOrder = $fileTypes{uc $be}->{EXTORDER} || 0;
-        return $aOrder <=> $bOrder;
-    } @dupes;
     
     # TODO: merge sidecars
     
     # Process each group of dupliates
     my $lastCommand = '';
     DUPES: for (my $dupeIndex = 0; $dupeIndex < @dupes; $dupeIndex++) {
-        # Convert current element from an array of paths (strings) to
+        # Convert current element from an array of PathDetails to
         # an array (per file, in storted order) to array of hash
         # references with some metadata in the same (desired) order
         my @group = map {
-            { path => $_, exists => -e }
+            { pathDetails => $_, exists => -e $_->absPath }
         } @{$dupes[$dupeIndex]};
-        
+         
+        # TODO: should this change to a "I suggest you ____, sir" approach?
         # If dupes are missing, we can auto-remove
         my $autoRemoveMissingDuplicates = 1;
         if ($autoRemoveMissingDuplicates) {
-            # If there's missing files but at least one not missing...
-            my $numMissing = grep { !$_->{exists} } @group;
-            if ($numMissing > 0 and $numMissing < @group) {
-                # Remove the metadata for all missing files, and
-                # keep track of what's still existing
-                my @newGroup = ();
-                for (@group) {
-                    if ($_->{exists}) {
-                        push @newGroup, $_;
-                    } else {
-                        removeMd5ForPath($_->{path});
-                    }
+            # Remove the metadata for all missing files, and
+            # keep track of what's still existing
+            my @newGroup = ();
+            for (@group) {
+                if ($_->{exists}) {
+                    push @newGroup, $_;
+                } else {
+                    removeMd5ForPath($_->{pathDetails}->absPath);
                 }
-            
-                # If there's still multiple in the group, continue
-                # with what was left over, else move to next group
-                next DUPES if @newGroup < 2;
-                
-                @group = @newGroup;
             }
+        
+            # If there's still multiple in the group, continue
+            # with what was left over, else move to next group
+            next DUPES if @newGroup < 2;
+            
+            @group = @newGroup;
         }
 
         # Except when trying to be fast, calculate the MD5 match
@@ -1048,7 +1029,7 @@ sub doFindDupeFiles {
         unless ($fast) {
             # Want to tell if the files are identical, so we need hashes
             # TODO: if we're not doing this by name we can use the md5.txt file contents for  MD5 and other metadata
-            $_->{exists} and $_ = { %$_, %{getMd5($_->{path})} } for @group;
+            $_->{exists} and $_ = { %$_, %{getMd5($_->{pathDetails}->absPath)} } for @group;
         
             my $fullMd5Match = 1;
             my $md5Match = 1;
@@ -1077,8 +1058,8 @@ sub doFindDupeFiles {
         for (my $i = 0; $i < @group; $i++) {
             my $elt = $group[$i];
 
-            my $path = $elt->{path};
-            if ($path =~ /\/ToImport\//) {
+            if (!$elt->{exists} ||
+                $elt->{pathDetails}->absPath =~ /[\/\\]ToImport[\/\\]/) {
                 $autoCommand .= ';' if $autoCommand;
                 $autoCommand .= "t$i";
             }
@@ -1096,7 +1077,7 @@ sub doFindDupeFiles {
 
             push @prompt, "  $i. ";
 
-            my $path = $elt->{path};
+            my $path = $elt->{pathDetails}->absPath;
             push @prompt, coloredByIndex($path, $i);
             
             # Add file error suffix
@@ -1138,7 +1119,7 @@ sub doFindDupeFiles {
 
         # TODO: somehow determine whether one is a superset of one or
         # TODO: more of the others (hopefully for auto-delete) 
-        metadataDiff(undef, map { $_->{path} } @group) if $autoDiff;
+        metadataDiff(undef, map { $_->{pathDetails}->absPath } @group) if $autoDiff;
 
         # If you want t automate something (e.g. do $autoCommand without
         # user confirmation), set that action here: 
@@ -1149,17 +1130,10 @@ sub doFindDupeFiles {
         # Get input until something sticks...
         PROMPT: while (1) {
             print "\n", @prompt;
-                        
-            # This allows for some automated processing if there are
-            # temporary patterns of thousands of items that need the
-            # same processing
-            #if ($group[0]->{path} =~ /\/2017-2\//) {
-            #    $command = "t0"
-            #}
             
             # Prompt for action
             unless ($command) {
-                chomp($command = lc <STDIN>);
+                chomp(my $command = lc <STDIN>);
                 
                 # If the user provided something, save that for next 
                 # conflict's default
@@ -1168,7 +1142,7 @@ sub doFindDupeFiles {
                 # Enter with empty string uses $defaultCommand
                 $command = $defaultCommand if $defaultCommand and $command eq '';
             } else {
-                print "\n";
+                print "$command\n";
             }
             
             # something like if -l turn on $defaultLastAction and next PROMPT
@@ -1177,41 +1151,41 @@ sub doFindDupeFiles {
             for (split /;/, $command) {
                 if ($_ eq 'd') {
                     # Diff
-                    metadataDiff(undef, map { $_->{path} } @group);
+                    metadataDiff(undef, map { $_->{pathDetails}->absPath } @group);
                 } elsif ($_ eq 'c') {
                     # Continue
-                    last PROMPT;
+                    last PROMPT;  # next group please
                 } elsif ($_ eq 'a') {
                     # Always continue
                     $all = 1;
-                    last PROMPT;
+                    last PROMPT;  # next group please
                 } elsif (/^t(\d+)$/) {
                     # Trash Number
                     if ($1 <= $#group && $group[$1]) {
                         if ($group[$1]->{exists}) {
-                            trashPathAndSidecars($group[$1]->{path});
+                            trashPathAndSidecars($group[$1]->{pathDetails}->absPath);
                         } else {
                             # File we're trying to trash doesn't exist, 
                             # so just remove its metadata
-                            removeMd5ForPath($group[$1]->{path});
+                            removeMd5ForPath($group[$1]->{pathDetails}->absPath);
                         }
 
                         $group[$1] = undef;
                         $itemCount--;
                         last PROMPT if $itemCount < 2;
                     } else {
-                        print "$1 is out of range [0,", $#group, "]";
-                        last PROMPT;
+                        carp "$1 is out of range [0, $#group]";
+                        last PROMPT; # next group please
                     }
                 } elsif (/^o(\d+)$/i) {
                     # Open Number
                     if ($1 <= $#group) {
-                        `open "$group[$1]->{path}"`;
+                        `open "$group[$1]->{pathDetails}->absPath"`;
                     }
                 } elsif (/^m(\d+(?:,\d+)+)$/) {
                     # Merge 1,2,3,4,... into 0
                     my @matches = split ',', $1;
-                    appendMetadata(map { $group[$_]->{path} } @matches);
+                    appendMetadata(map { $group[$_]->{pathDetails}->absPath } @matches);
                 }
             }
             
@@ -1231,7 +1205,7 @@ sub doMetadataDiff {
 
 # API ==========================================================================
 # Execute remove-empties verb
-sub doRemoveEmpties {
+sub doRemoveEmpties {  
     my (@globPatterns) = @_;
     
     # Map from directory absolute path to sub-item count
@@ -1650,9 +1624,8 @@ sub metadataDiff {
     my %keys = ();
     for (my $i = 0; $i < @items; $i++) {
         while (my ($key, $value) = each %{$items[$i]}) {
-            # TODO: switch to List::Util::any { $key eq $_ } @tagsToSkip or something like that
             no warnings 'experimental::smartmatch';
-            unless ($key ~~ @tagsToSkip) {
+            unless (any { $_ eq $key } @tagsToSkip) {
                 for (my $j = 0; $j < @items; $j++) {
                     if ($i != $j and
                         (!exists $items[$j]->{$key} or
@@ -2457,6 +2430,14 @@ sub changeFilename {
                            $relPath);
 }
 
+# MODEL (PathDetails) ----------------------------------------------------------
+sub comparePathWithExtOrder {
+    my ($pathDetailsA, $pathDetailsB) = @_;
+
+    return compareDirectories($pathDetailsA->directories, $pathDetailsB->directories) ||
+           compareFilenameWithExtOrder($pathDetailsA->filename, $pathDetailsB->filename);
+}
+
 # MODEL (Path Operations) ------------------------------------------------------
 sub compareDirectories {
     my ($directoriesA, $directoriesB) = @_;
@@ -2505,7 +2486,7 @@ sub compareFilenameWithExtOrder {
         if (defined $fileTypes{uc $extB}) {
             # Both known types, A comes first if
             # it has a lower extorder
-            my $c = $fileTypes{uc $extA} - $fileTypes{uc $extB};
+            my $c = $fileTypes{uc $extA}->{EXTORDER} <=> $fileTypes{uc $extB}->{EXTORDER};
             return $c if $c;
         } else {
             # A is known, B is not, so A comes first
@@ -2733,6 +2714,7 @@ sub moveFile {
         or croak "Failed to make directory '$newParentDir': $!";
 
     # Do the real move
+    # BUGBUG
 #!!!    File::Copy::move($oldPath, $newPath)
 #!!!        or croak "Failed to move '$oldPath' to '$newPath': $!";
 
