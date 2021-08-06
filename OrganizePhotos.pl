@@ -463,7 +463,6 @@ use strict;
 use warnings;
 use warnings FATAL => qw(uninitialized);
 
-use Carp qw(carp croak);
 use Class::Struct qw(struct);
 use Data::Compare ();
 use Data::Dumper ();
@@ -493,12 +492,11 @@ use Term::ANSIColor;
 struct(PathDetails => [
     # The full absolute path which should be used for
     # most things except potentially display purposes.
-    # This form is used for any croak statements.
+    # This form is used for any die statements.
     absPath => '$',
     # The cwd that was the context when this was created,
     # which was used with rel2abs and abs2rel in creation
     # of absPath or relPath.
-    # This form is used for any print/trace/carp statements.
     # TODO: can we remove this and change relPath to disPath?
     base => '$',
     # The "friendly" relative path based on the context
@@ -507,6 +505,7 @@ struct(PathDetails => [
     # for any actual file operations. This may be the
     # same as absPath in some cases (e.g. if base and
     # absPath are on different volumes).
+    # This form is used for any print/trace/warn statements.
     relPath => '$',
     # The file or directory's volume which is equivalent
     # to splitpath(absPath)[0]. It is useful for catpath.
@@ -685,12 +684,11 @@ exit 0;
 sub main {
     sub myGetOptions {
         Getopt::Long::GetOptions('verbosity|v=i' => \$verbosity, @_)
-            or croak "Error in command line, aborting.";
+            or die "Error in command line, aborting.";
 
-        # If we're at VERBOSITY_DEBUG, upgrade carp=>cluck, croak=>confess
-        # just like perl argument -MCarp=verbose does
+        # If we're at VERBOSITY_DEBUG, include stack traces
         if ($verbosity >= VERBOSITY_DEBUG) {
-            $Carp::Verbose = 1;
+            use Carp::Always;
         }
     }
 
@@ -728,7 +726,7 @@ sub main {
             doCollectTrash(@ARGV);
         } elsif ($verb eq 'find-dupe-dirs' or $verb eq 'fdd') {
             myGetOptions();
-            @ARGV and croak "Unexpected parameters: @ARGV";
+            @ARGV and die "Unexpected parameters: @ARGV";
             doFindDupeDirs();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
             my ($all, $autoDiff, $byName, $defaultLastAction);
@@ -751,7 +749,7 @@ sub main {
             myGetOptions();
             doVerifyMd5(@ARGV);
         } else {
-            croak "Unknown verb: '$rawVerb'\n";
+            die "Unknown verb: '$rawVerb'\n";
         }
     }
 }
@@ -855,7 +853,7 @@ sub buildDupeGroups {
                     return ($pathDetails->filename =~ /$mediaType/);
                 }
                 
-                croak "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
+                die "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
             },
             sub { # callback
                 my ($pathDetails) = @_;
@@ -931,7 +929,7 @@ sub computeFileHashKeyByName {
     } else {
         # Unknown file format, just use all of basename? It's not
         # nothing, but will only work with exact filename matches
-        carp "Unknown filename format for '$basename' in '${\$pathDetails->relPath}'";
+        warn "Unknown filename format for '$basename' in '${\$pathDetails->relPath}'";
         $key .= lc $basename . ';';
     }
     
@@ -954,7 +952,7 @@ sub computeFileHashKeyByName {
         if ($dirKey) {
             $key .= $dirKey;
         } else {
-            carp "Unknown directory format in '${\$pathDetails->relPath}'";
+            warn "Unknown directory format in '${\$pathDetails->relPath}'";
         }
     }
 
@@ -1157,7 +1155,7 @@ sub doFindDupeFiles {
                         $itemCount--;
                         last PROMPT if $itemCount < 2;
                     } else {
-                        carp "$1 is out of range [0, $#group]";
+                        warn "$1 is out of range [0, $#group]";
                         last PROMPT; # next group please
                     }
                 } elsif (/^o(\d+)$/i) {
@@ -1214,7 +1212,7 @@ sub doRemoveEmpties {
                 return 1;
             }
             
-            croak "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
+            die "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
         },
         sub { # callback 
             my ($pathDetails, $rootPathDetails) = @_;
@@ -1255,7 +1253,7 @@ sub doRemoveEmpties {
 
     if (%dirSubItemsMap) {
         # See notes in above callback 
-        croak "Programmer Error: unprocessed items in doRemoveEmpties map";
+        die "Programmer Error: unprocessed items in doRemoveEmpties map";
     }
 }
 
@@ -1291,7 +1289,7 @@ sub doTest2 {
     my ($filename) = @_;
 
     -s $filename
-        or croak "$filename doesn't exist";
+        or die "$filename doesn't exist";
     
     # Look for a QR code
     my @results = `qrscan '$filename'`;
@@ -1301,7 +1299,7 @@ sub doTest2 {
     my $messageDate;
     for (@results) {
         /^Message:\s*(\{.*\})/
-            or croak "Unexpected qrscan output: $_";
+            or die "Unexpected qrscan output: $_";
         
         my $message = decode_json($1);
         trace(VERBOSITY_DEBUG, "message: ", Data::Dumper::Dumper($message));
@@ -1309,7 +1307,7 @@ sub doTest2 {
         if (exists $message->{date}) {
             my $date = $message->{date};
             !$messageDate or $messageDate eq $date
-                or croak "Two different dates detected: $messageDate, $date";
+                or die "Two different dates detected: $messageDate, $date";
             $messageDate = $date
         }
     }
@@ -1384,7 +1382,7 @@ sub doVerifyMd5 {
                 print "Verified MD5 for '${\$pathDetails->relPath}'\n";
             } else {
                 # Has MIS-match, needs input
-                carp "ERROR: MD5 mismatch for '${\$pathDetails->relPath}' ($actualMd5 != $expectedMd5)";
+                warn "ERROR: MD5 mismatch for '${\$pathDetails->relPath}' ($actualMd5 != $expectedMd5)";
                 unless ($all) {
                     while (1) {
                         print "Ignore, ignore All, Quit (i/a/q)? ";
@@ -1404,7 +1402,7 @@ sub doVerifyMd5 {
         } else {
             # File doesn't exist
             # TODO: prompt to see if we should remove this via removeMd5ForPath
-            carp "Missing file: '${\$pathDetails->relPath}'";
+            warn "Missing file: '${\$pathDetails->relPath}'";
         }
     }, @globPatterns);
 }
@@ -1442,7 +1440,7 @@ sub verifyOrGenerateMd5ForGlob {
                 return 0;
             }
             
-            croak "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
+            die "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
         },
         sub { # callback
             my ($pathDetails) = @_;
@@ -1468,7 +1466,7 @@ sub verifyOrGenerateMd5ForFile {
     # Get file stats for the file we're evaluating to reference and/or
     # update MD5.txt
     my $stats = File::stat::stat($pathDetails->absPath) 
-        or croak "Couldn't stat '${\$pathDetails->absPath}': $!";
+        or die "Couldn't stat '${\$pathDetails->absPath}': $!";
 
     # Add stats metadata to be persisted to md5.txt
     my $actualMd5 = {
@@ -1508,7 +1506,7 @@ sub verifyOrGenerateMd5ForFile {
     if ($@) {
         # Can't get the MD5
         # TODO: for now, skip but we'll want something better in the future
-        carp colored("UNAVAILABLE MD5 for '${\$pathDetails->relPath}' with error:", 'red'), "\n\t$@";
+        warn colored("UNAVAILABLE MD5 for '${\$pathDetails->relPath}' with error:", 'red'), "\n\t$@";
         return;
     }
     
@@ -1532,7 +1530,7 @@ sub verifyOrGenerateMd5ForFile {
             if (isMd5VersionUpToDate($pathDetails->absPath, $expectedMd5->{version})) {
                 # TODO: switch this hacky crash output to better perl way
                 # of generating tables
-                croak <<EOM;
+                die <<EOM;
 Unexpected state: full MD5 match and content MD5 mismatch for
 ${\$pathDetails->absPath}
              version  full_md5                          md5
@@ -1542,7 +1540,7 @@ EOM
             }
         } else {
             # Mismatch and we can update MD5, needs resolving...
-            carp colored("MISMATCH OF MD5 for '${\$pathDetails->relPath}'", 'red'), 
+            warn colored("MISMATCH OF MD5 for '${\$pathDetails->relPath}'", 'red'), 
                  " [$expectedMd5->{md5} vs $actualMd5->{md5}]\n";
 
             # Do user action prompt
@@ -1679,7 +1677,7 @@ sub appendMetadata {
             defined $oldRating ? $oldRating : "(null)", 
             " -> $rating\n";
         $etTarget->SetNewValue('Rating', $rating)
-            or croak "Couldn't set Rating";
+            or die "Couldn't set Rating";
         $dirty = 1;
     }
         
@@ -1691,7 +1689,7 @@ sub appendMetadata {
                 defined $old ? "\"$old\"" : "(null)",
                 " -> \"$new\"\n";            
             $etTarget->SetNewValue($name, $new)
-                or croak "Couldn't set $name";
+                or die "Couldn't set $name";
             $dirty = 1;
         }
     }
@@ -1706,7 +1704,7 @@ sub appendMetadata {
     
         # Make backup
         File::Copy::copy($target, $backup)
-            or croak "Couldn't copy $target to $backup: $!";
+            or die "Couldn't copy $target to $backup: $!";
 
         # Update metadata in target file
         my $write = $etTarget->WriteInfo($target);
@@ -1718,7 +1716,7 @@ sub appendMetadata {
             print "$target was already up to date\n";
         } else {
             # failure
-            croak "Couldn't WriteInfo for $target";
+            die "Couldn't WriteInfo for $target";
         }
     }
 }
@@ -1786,7 +1784,7 @@ sub findMd5s {
                 return (lc $pathDetails->filename eq 'md5.txt');
             }
             
-            croak "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
+            die "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
         },
         sub { # callback
             my ($pathDetails) = @_;
@@ -1796,7 +1794,7 @@ sub findMd5s {
                 
                 # Open the md5.txt file in read only mode
                 open(my $fh, '<:crlf', $pathDetails->absPath)
-                    or croak "Couldn't open '${\$pathDetails->absPath}': $!";
+                    or die "Couldn't open '${\$pathDetails->absPath}': $!";
             
                 # Parse the file to get all the filename -> file info hash
                 my $md5Set = readMd5FileFromHandle($fh);
@@ -1882,7 +1880,7 @@ sub openAndReadMd5File {
     } else {
         # File doesn't exist, create RW
         open($fh, '+>', $path)
-            or croak "Couldn't open $path: $!";
+            or die "Couldn't open $path: $!";
         return ($fh, {});
     }
 }
@@ -1904,7 +1902,7 @@ sub readMd5FileFromHandle {
     }
     
     seek($fh, 0, 0)
-        or croak "Couldn't reset seek on file: $!";
+        or die "Couldn't reset seek on file: $!";
 
     if ($useJson) {
         # Parse as JSON
@@ -1924,7 +1922,7 @@ sub readMd5FileFromHandle {
         my %md5s = ();    
         for (<$fh>) {
             /^([^:]+):\s*($md5pattern)$/ or
-                carp "unexpected line in MD5: $_";
+                warn "unexpected line in MD5: $_";
 
             # We use version 0 here for the very old way before we went to
             # JSON when we added more info than just the full file MD5
@@ -1944,9 +1942,9 @@ sub writeMd5FileToHandle {
     
     # Clear MD5 file
     seek($fh, 0, 0)
-        or croak "Couldn't reset seek on file: $!";
+        or die "Couldn't reset seek on file: $!";
     truncate($fh, 0)
-        or croak "Couldn't truncate file: $!";
+        or die "Couldn't truncate file: $!";
 
     # Update MD5 file
     my $useJson = 1;
@@ -2042,7 +2040,7 @@ sub getMd5 {
     }
     
     open(my $fh, '<:raw', $path)
-        or croak "Couldn't open $path: $!";
+        or die "Couldn't open $path: $!";
         
     my $fullMd5Hash = getMd5Digest($path, $fh);
 
@@ -2066,7 +2064,7 @@ sub getMd5 {
     };
     if ($@) {
         # Can't get the partial MD5, so we'll just use the full hash
-        carp "Unavailable content MD5 for '$path' with error:\n\t$@";
+        warn "Unavailable content MD5 for '$path' with error:\n\t$@";
     }
     
     my $result = {
@@ -2100,7 +2098,7 @@ sub getMimeType {
     if (exists $fileTypes{$type}) {
         return $fileTypes{$type}->{MIMETYPE};
     } else {
-        croak "Unexpected file type $type for '$path'";        
+        die "Unexpected file type $type for '$path'";        
     }
 }
 
@@ -2112,18 +2110,18 @@ sub getJpgContentDataMd5 {
 
     # Read Start of Image [SOI]
     seek($fh, 0, 0)
-        or croak "Failed to reset seek for '$path': $!";
+        or die "Failed to reset seek for '$path': $!";
     read($fh, my $fileData, 2)
-        or croak "Failed to read SOI from '$path': $!";
+        or die "Failed to read SOI from '$path': $!";
     my ($soi) = unpack('n', $fileData);
     $soi == 0xffd8
-        or croak "JPG file didn't start with SOI marker: '$path'";
+        or die "JPG file didn't start with SOI marker: '$path'";
 
     # Read blobs until SOS
     my $tags = '';
     while (1) {
         read($fh, my $fileData, 4)
-            or croak "Failed to read from '$path' at @{[tell $fh]} after $tags: $!";
+            or die "Failed to read from '$path' at @{[tell $fh]} after $tags: $!";
 
         my ($tag, $size) = unpack('nn', $fileData);
         
@@ -2135,7 +2133,7 @@ sub getJpgContentDataMd5 {
 
         my $address = tell($fh) + $size - 2;
         seek($fh, $address, 0)
-            or croak "Failed to seek '$path' to $address: $!";
+            or die "Failed to seek '$path' to $address: $!";
     }
 }
 
@@ -2150,7 +2148,7 @@ sub getMp4ContentDataMd5 {
     my ($path, $fh) = @_;
     
     seek($fh, 0, 0)
-        or croak "Failed to reset seek for '$path': $!";
+        or die "Failed to reset seek for '$path': $!";
         
     # TODO: should we verify the first atom is ftyp? Do we care?
     
@@ -2164,7 +2162,7 @@ sub getMp4ContentDataMd5 {
         
         # Read atom header
         read($fh, my $fileData, 8)
-            or croak "Failed to read MP4 atom from '$path' at @{[tell $fh]}: $!";
+            or die "Failed to read MP4 atom from '$path' at @{[tell $fh]}: $!";
         my ($atomSize, $atomType) = unpack('NA4', $fileData);
             
         if ($atomSize == 0) {
@@ -2180,13 +2178,13 @@ sub getMp4ContentDataMd5 {
             if ($atomSize == 1) {
                 # 1 means it's 64 bit size
                 read($fh, $fileData, 8)
-                    or croak "Failed to read MP4 atom from '$path': $!";
+                    or die "Failed to read MP4 atom from '$path': $!";
                 $atomSize = unpack('Q>', $fileData);
                 $dataSize = $atomSize - 16;
             }
             
             $dataSize >= 0 
-                or croak "Unexpected size for MP4 atom '$atomType': $atomSize";
+                or die "Unexpected size for MP4 atom '$atomType': $atomSize";
         
             # I think we want to take all the the mdat atom data?
             return getMd5Digest($path, $fh, $dataSize) if $atomType eq 'mdat'; 
@@ -2194,7 +2192,7 @@ sub getMp4ContentDataMd5 {
             # Seek to start of next atom
             my $address = $seekStartOfAtom + $atomSize;
             seek($fh, $address, 0)
-                or croak "Failed to seek '$path' to $address: $!";
+                or die "Failed to seek '$path' to $address: $!";
         }
     }
         
@@ -2206,22 +2204,22 @@ sub getPngContentDataMd5 {
     my ($path, $fh) = @_;
     
     seek($fh, 0, 0)
-        or croak "Failed to reset seek for '$path': $!";
+        or die "Failed to reset seek for '$path': $!";
     read($fh, my $fileData, 8)
-        or croak "Failed to read PNG header from '$path': $!";
+        or die "Failed to read PNG header from '$path': $!";
     my @actualHeader = unpack('C8', $fileData);
 
     # All PNGs start with this
     my @pngHeader = ( 137, 80, 78, 71, 13, 10, 26, 10 );
     Data::Compare::Compare(\@actualHeader, \@pngHeader)
-        or croak "PNG file didn't start with correct header: '$path'";
+        or die "PNG file didn't start with correct header: '$path'";
 
     my $md5 = new Digest::MD5;
         
     while (!eof($fh)) {
         # Read chunk header
         read($fh, $fileData, 8)
-            or croak "Failed to read PNG chunk from '$path' at @{[tell $fh]}: $!";
+            or die "Failed to read PNG chunk from '$path' at @{[tell $fh]}: $!";
         my ($size, $type) = unpack('NA4', $fileData);
         
         my $seekStartOfData = tell($fh);
@@ -2246,7 +2244,7 @@ sub getPngContentDataMd5 {
         # Seek to start of next chunk (past header, data, and CRC)
         my $address = $seekStartOfData + $size + 4;
         seek($fh, $address, 0)
-            or croak "Failed to seek '$path' to $address: $!";
+            or die "Failed to seek '$path' to $address: $!";
     }
 
     return resolveMd5Digest($md5);
@@ -2276,7 +2274,7 @@ sub addToMd5Digest {
         for (my $remaining = $size; $remaining > 0; $remaining -= $chunkSize) {
             my $readSize = $chunkSize < $remaining ? $chunkSize : $remaining;
             read($fh, my $fileData, $readSize)
-                or croak "Failed to read from '$path' at @{[tell $fh]}: $!";
+                or die "Failed to read from '$path' at @{[tell $fh]}: $!";
             $md5->add($fileData);
         }
     }
@@ -2290,7 +2288,7 @@ sub resolveMd5Digest {
     
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$md5pattern/
-        or croak "Unexpected MD5: $hexdigest";
+        or die "Unexpected MD5: $hexdigest";
 
     return $hexdigest;
 }
@@ -2317,7 +2315,7 @@ sub getSidecarPaths {
             return @sidecars;
         } else {
             # Unknown file type (based on extension)
-            croak "Unknown type '$key' to determine sidecars for '$path'"; 
+            die "Unknown type '$key' to determine sidecars for '$path'"; 
         }
     }
 }
@@ -2366,7 +2364,7 @@ sub extractInfo {
     $et = new Image::ExifTool unless $et;
     
     $et->ExtractInfo($path)
-        or croak "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
+        or die "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
         
     return $et;
 }
@@ -2543,7 +2541,7 @@ sub traverseGlobPatterns {
         $relPath = File::Spec->canonpath($relPath);
         my $absPath = File::Spec->rel2abs($relPath, $base);
 
-        -e $absPath or croak "Programmer Error: incorrect absPath calculation: $absPath";
+        -e $absPath or die "Programmer Error: incorrect absPath calculation: $absPath";
 
         return makePathDetails($absPath, $base, $relPath);
     };
@@ -2624,7 +2622,7 @@ sub traverseGlobPatterns {
                         $callback->($pathDetails, $pathDetails);
                     }
                 } else {
-                    croak "Don't know how to deal with glob result '$_'";
+                    die "Don't know how to deal with glob result '$_'";
                 }
             }
         }
@@ -2672,12 +2670,12 @@ sub trashPathWithRoot {
 
     # Verify @rootDirs is a prefix match for (i.e. ancestor of) $pathDirs
     $pathDetails->volume eq $rootPathDetails->volume
-        or croak "Programmer error: root is is not a prefix for path (different volumes)";
+        or die "Programmer error: root is is not a prefix for path (different volumes)";
     @rootDirs < @pathDirs 
-        or croak "Programmer error: root is is not a prefix for path (root is longer)";
+        or die "Programmer error: root is is not a prefix for path (root is longer)";
     for (my $i = 0; $i < @rootDirs; $i++) {
         $rootDirs[$i] eq $pathDirs[$i] 
-            or croak "Programmer error: root is not prefix for path ('$rootDirs[$i]' ne '$pathDirs[$i]' at $i)";
+            or die "Programmer error: root is not prefix for path ('$rootDirs[$i]' ne '$pathDirs[$i]' at $i)";
     }
 
     # Figure out postRoot (pathDetails relative to rootPathDetails without trash),
@@ -2700,16 +2698,16 @@ sub movePath {
         # Ensure parent dir exists
         my $parent = File::Spec->catpath((File::Spec->splitpath($newPath))[0,1]);
         -d $parent or File::Path::make_path($parent)
-            or croak "Failed to make directory '$parent': $!";
+            or die "Failed to make directory '$parent': $!";
 
         # Move the file/dir
         File::Copy::move($oldPath, $newPath)
-            or croak "Failed to move '$oldPath' to '$newPath': $!";
+            or die "Failed to move '$oldPath' to '$newPath': $!";
     };
 
     if (-f $oldPath) {
         -e $newPath
-            and croak "I can't overwrite files moving '$oldPath' to '$newPath')";
+            and die "I can't overwrite files moving '$oldPath' to '$newPath')";
 
         $moveInternal->($oldPath, $newPath);
         my $md5 = removeMd5ForPath($oldPath);
@@ -2725,7 +2723,7 @@ sub movePath {
             # a multi-level move-merge
 
             -d $newPath
-                or croak "Can't move a directory - file already exists at destination ('$oldPath' => '$newPath')";
+                or die "Can't move a directory - file already exists at destination ('$oldPath' => '$newPath')";
 
             # Walk through all the sub-items in the dir $oldPath breadth first
             # so that we try to move parent dirs that don't already have something
@@ -2750,7 +2748,7 @@ sub movePath {
             printFileOp("Moved dir  '$oldPath' => '$newPath'\n");
         }
     } else {
-        croak "Programmer Error: unexpected type for object $oldPath";
+        die "Programmer Error: unexpected type for object $oldPath";
     }
 }
 
