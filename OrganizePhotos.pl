@@ -1503,10 +1503,10 @@ sub verifyOrGenerateMd5ForFile {
         # TODO: consolidate opening file multiple times from stat and getMd5
         $actualMd5 = { %$actualMd5, %{getMd5($pathDetails->absPath)} };
     };
-    if ($@) {
+    if (my $error = $@) {
         # Can't get the MD5
         # TODO: for now, skip but we'll want something better in the future
-        warn colored("UNAVAILABLE MD5 for '${\$pathDetails->relPath}' with error:", 'red'), "\n\t$@";
+        warn colored("UNAVAILABLE MD5 for '${\$pathDetails->relPath}' with error:", 'red'), "\n\t$error";
         return;
     }
     
@@ -2062,9 +2062,9 @@ sub getMd5 {
             $partialMd5Hash = getPngContentDataMd5($path, $fh);
         }
     };
-    if ($@) {
+    if (my $error = $@) {
         # Can't get the partial MD5, so we'll just use the full hash
-        warn "Unavailable content MD5 for '$path' with error:\n\t$@";
+        warn "Unavailable content MD5 for '$path' with error:\n\t$error";
     }
     
     my $result = {
@@ -2694,6 +2694,10 @@ sub movePath {
     my ($oldPath, $newPath) = @_;
     trace(VERBOSITY_DEBUG, "movePath('$oldPath', '$newPath');");
 
+    $_ = File::Spec->canonpath($_) for ($oldPath, $newPath);
+
+    return if $oldPath eq $newPath;
+
     my $moveInternal = sub {
         # Ensure parent dir exists
         my $parent = File::Spec->catpath((File::Spec->splitpath($newPath))[0,1]);
@@ -2701,6 +2705,7 @@ sub movePath {
             or die "Failed to make directory '$parent': $!";
 
         # Move the file/dir
+        trace(VERBOSITY_DEBUG, "File::Copy::move('$oldPath', '$newPath');");
         File::Copy::move($oldPath, $newPath)
             or die "Failed to move '$oldPath' to '$newPath': $!";
     };
