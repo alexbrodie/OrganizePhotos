@@ -76,8 +76,8 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 =head1 SYNOPSIS
 
-    # Help:
-    OrganizePhotos.pl -h
+# Help:
+OrganizePhotos.pl -h
 
     # Typical workflow:
     # Import via Image Capture to local folder as originals (unmodified copy)
@@ -110,15 +110,11 @@ The following verbs are available:
 
 =item B<add-md5> [glob patterns...]
 
-=item Experimental: B<append-metadata> <target file> <source files...>
-
 =item B<check-md5> [glob patterns...]
 
 =item B<checkup> [-a] [-d] [-l] [-n] [glob patterns...]
 
 =item B<collect-trash> [glob patterns...]
-
-=item Experimental: B<find-dupe-dirs>
 
 =item B<find-dupe-files> [-a] [-d] [-l] [-n] [glob patterns...]
 
@@ -255,12 +251,6 @@ Rather than operate on files under the current directory, operate on
 the specified glob pattern.
 
 =back
-
-=head2 find-dupe-dirs
-
-I<Alias: fdd>
-
-Find directories that represent the same date.
 
 =head2 find-dupe-files [  patterns...]
 
@@ -860,6 +850,76 @@ sub doFindDupeDirs {
     }
 }
 
+
+# TODO: Move this elsewhere in the file/package (Model?)
+# ------------------------------------------------------------------------------
+sub buildDupeGroups {
+    my ($byName, @globPatterns) = @_;
+
+    # Create the initial groups
+    my %keyToPathDetails = ();
+    if ($byName) {
+        # Make hash to list of like files with hash key based on file/dir name
+        traverseGlobPatterns(
+            sub { # isWanted
+                my ($pathDetails) = @_;
+                
+                if (-d $pathDetails->absPath) {
+                    # silently skip trash, traverse other dirs
+                    return (lc $pathDetails->filename ne '.trash');
+                } elsif (-f $pathDetails->absPath) {
+                    # process media files
+                    return ($pathDetails->filename =~ /$mediaType/);
+                }
+                
+                croak "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
+            },
+            sub { # callback
+                my ($pathDetails) = @_;
+                
+                if (-f $pathDetails->absPath) { 
+                    my $key = computeFileHashKeyByName($pathDetails);
+                    push @{$keyToPathDetails{$key}}, $pathDetails;
+                }
+            },
+            @globPatterns);
+        
+    } else {
+        # Make hash to list of like files with MD5 as hash key
+        findMd5s(sub {
+            my ($pathDetails, $md5) = @_;
+            if (-e $pathDetails->absPath) {
+                push @{$keyToPathDetails{$md5}}, $pathDetails;
+            } else {
+                trace(VERBOSITY_2, "Path for MD5 is missing: '${\$pathDetails->relPath}'");
+            }
+        }, @globPatterns);
+    }
+    
+    trace(VERBOSITY_DEBUG, "Found @{[scalar keys %keyToPathDetails]} initial groups");
+
+    # Go through each element in the %keyToPathDetails map, and we'll 
+    # want the ones with multiple things in the array of paths. If
+    # there  are multiple paths for an element, sort the paths array
+    # by decreasing importance (our best guess), and add it to the
+    # @dupes collection for further processing.
+    my @dupes = ();
+    while (my ($key, $pathDetailsList) = each %keyToPathDetails) {
+        if (@$pathDetailsList > 1) {
+            push @dupes, [sort { comparePathWithExtOrder($a, $b) } @$pathDetailsList];
+        }
+    }
+
+    # The 2nd level is properly sorted, now let's sort the groups
+    # themselves - this will be the order in which the groups
+    # are processed, so we want it extorder based as well.
+    @dupes = sort { comparePathWithExtOrder($a->[0], $b->[0]) } @dupes;
+
+    trace(VERBOSITY_DEBUG, "Found @{[scalar @dupes]} groups with multiple files");
+
+    return \@dupes;
+}
+
 # TODO: Move this elsewhere in the file/package (Model?)
 # ------------------------------------------------------------------------------
 sub computeFileHashKeyByName {
@@ -925,80 +985,19 @@ sub doFindDupeFiles {
     
     my $fast = 0; # avoid slow operations, potentially with less precision?
     
-    # Create the initial groups
-    my %keyToPathDetails = ();
-    if ($byName) {
-        # Make hash to list of like files with hash key based on file/dir name
-        traverseGlobPatterns(
-            sub { # isWanted
-                my ($pathDetails) = @_;
-                
-                if (-d $pathDetails->absPath) {
-                    # silently skip trash, traverse other dirs
-                    return (lc $pathDetails->filename ne '.trash');
-                } elsif (-f $pathDetails->absPath) {
-                    # process media files
-                    return ($pathDetails->filename =~ /$mediaType/);
-                }
-                
-                croak "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
-            },
-            sub { # callback
-                my ($pathDetails) = @_;
-                
-                if (-f $pathDetails->absPath) { 
-                    my $key = computeFileHashKeyByName($pathDetails);
-                    push @{$keyToPathDetails{$key}}, $pathDetails;
-                }
-            },
-            @globPatterns);
-        
-    } else {
-        # Make hash to list of like files with MD5 as hash key
-        findMd5s(sub {
-            my ($pathDetails, $md5) = @_;
-            if (-e $pathDetails->absPath) {
-                push @{$keyToPathDetails{$md5}}, $pathDetails;
-            } else {
-                trace(VERBOSITY_2, "Path for MD5 is missing: '${\$pathDetails->relPath}'");
-            }
-        }, @globPatterns);
-    }
-    
-    trace(VERBOSITY_DEBUG, "Found @{[scalar keys %keyToPathDetails]} initial groups");
-
-    # Go through each element in the %keyToPathDetails map, and we'll 
-    # want the ones with multiple things in the array of paths. If
-    # there  are multiple paths for an element, sort the paths array
-    # by decreasing importance (our best guess), and add it to the
-    # @dupes collection for further processing.
-    my @dupes = ();
-    while (my ($key, $pathDetailsList) = each %keyToPathDetails) {
-        if (@$pathDetailsList > 1) {
-            push @dupes, [sort { comparePathWithExtOrder($a, $b) } @$pathDetailsList];
-        }
-    }
-
-    # The 2nd level is properly sorted, now let's sort the groups
-    # themselves - this will be the order in which the groups
-    # are processed, so we want it extorder based as well.
-    @dupes = sort { comparePathWithExtOrder($a->[0], $b->[0]) } @dupes;
-
-    trace(VERBOSITY_DEBUG, "Found @{[scalar @dupes]} groups with multiple files");
-
-    # TODO: Finish conversion from something pathy to FileDetails from here
+    my $dupeGroups = buildDupeGroups();
     
     # TODO: merge sidecars
     
     # Process each group of dupliates
     my $lastCommand = '';
-    DUPES: for (my $dupeIndex = 0; $dupeIndex < @dupes; $dupeIndex++) {
+    DUPES: for (my $dupeIndex = 0; $dupeIndex < @$dupeGroups; $dupeIndex++) {
         # Convert current element from an array of PathDetails to
         # an array (per file, in storted order) to array of hash
         # references with some metadata in the same (desired) order
         my @group = map {
             { pathDetails => $_, exists => -e $_->absPath }
-        } @{$dupes[$dupeIndex]};
+        } @{$dupeGroups->[$dupeIndex]};
          
         # TODO: should this change to a "I suggest you ____, sir" approach?
         # If dupes are missing, we can auto-remove
@@ -1071,7 +1070,7 @@ sub doFindDupeFiles {
         # Todo: ^^^^ that
         
         # Build base of prompt - indexed paths
-        my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @dupes, ' ', $reco, "\n");
+        my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @$dupeGroups, ' ', $reco, "\n");
         for (my $i = 0; $i < @group; $i++) {
             my $elt = $group[$i];
 
@@ -1762,10 +1761,11 @@ sub getDirectoryError {
         }
     }
 
+    my $errorColor = 'bright_white on_' . 
+                     (defined $colorIndex ? colorByIndex($colorIndex) : 'red');
+
     if (!defined $date) {
-        # TODO: use ${\$pathDetails->relPath}
-        carp "Couldn't find date for '$path'";
-        return '';
+        return ' ' . colored("** Can't find media's date! $errorColor **", $errorColor);
     }
 
     my $yyyy = substr $date, 0, 4;
@@ -1777,8 +1777,7 @@ sub getDirectoryError {
         return '';
     } else {
         # Truthy error string
-        my $backColor = defined $colorIndex ? colorByIndex($colorIndex) : 'red';
-        return ' ' . colored("** Wrong dir! [$date] **", "bright_white on_$backColor") . ' ';
+        return ' ' . colored("** Wrong dir! [$date] **", $errorColor);
     }
 }
 
