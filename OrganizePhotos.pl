@@ -66,7 +66,8 @@
 # * Cleanup print/trace/warn/die/carp/cluck/croak/confess including final endlines
 # * Include zip and pdf files too
 # * Tests covering at least the checkup verb code paths
-# * Add wrapper around warn/carp/cluck similar to trace
+# * Add wrapper around warn/carp/cluck similar to trace. Should we have a
+#   halt/alert/inform/trace system for crashes/warnings/print statments/diagnositcs?
 #
 =pod
 
@@ -79,11 +80,11 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 # Help:
 OrganizePhotos.pl -h
 
-    # Typical workflow:
-    # Import via Image Capture to local folder as originals (unmodified copy)
-    # Import that folder in Lightroom as move
-    OrganizePhotos.pl checkup /photos/root/dir
-    # Archive /photos/root/dir (see help)
+# Typical workflow:
+# Import via Image Capture to local folder as originals (unmodified copy)
+# Import that folder in Lightroom as move
+OrganizePhotos.pl checkup /photos/root/dir
+# Archive /photos/root/dir (see help)
 
 =head1 DESCRIPTION
 
@@ -492,10 +493,12 @@ use Term::ANSIColor;
 struct(PathDetails => [
     # The full absolute path which should be used for
     # most things except potentially display purposes.
+    # This form is used for any croak statements.
     absPath => '$',
     # The cwd that was the context when this was created,
     # which was used with rel2abs and abs2rel in creation
     # of absPath or relPath.
+    # This form is used for any print/trace/carp statements.
     # TODO: can we remove this and change relPath to disPath?
     base => '$',
     # The "friendly" relative path based on the context
@@ -776,8 +779,6 @@ sub doCheckMd5 {
 # Execute collect-trash verb
 sub doCollectTrash {
     my (@globPatterns) = @_;
-
-    croak "This method hasn't been debugged yet after refactor";
     
     traverseGlobPatterns(
         sub { # isWanted
@@ -793,6 +794,8 @@ sub doCollectTrash {
             
             if (lc $pathDetails->filename eq '.trash') {
                 trace(VERBOSITY_2, sub { "xxxx" });
+
+                croak "This method hasn't been debugged yet after refactor";
 
                 # Convert $root/bunch/of/dirs/.Trash to $root/.Trash/bunch/of/dirs
                 # TODO: fix for traverseGlobPatterns refactor
@@ -877,7 +880,8 @@ sub buildDupeGroups {
             sub { # callback
                 my ($pathDetails) = @_;
                 
-                if (-f $pathDetails->absPath) { 
+                if (-f $pathDetails->absPath) {
+                    trace(VERBOSITY_DEBUG, "buildDupeGroups processing '${\$pathDetails->relPath)}'")
                     my $key = computeFileHashKeyByName($pathDetails);
                     push @{$keyToPathDetails{$key}}, $pathDetails;
                 }
@@ -1248,6 +1252,7 @@ sub doRemoveEmpties {
                     # if called on already processed dir, then at end, make sure there's
                     # no unprocessed dirs which could signal a hash key miscalculation
                     # that leads to a mismatch (e.g. non-canonicalized paths).
+                    #delete $dirSubItemsMap{$pathDetails->absPath};
                     
                     # If this dir is empty, then we'll want to trash it and have the
                     # parent dir ignore it like trashable files (e.g. md5.txt). If
@@ -1266,7 +1271,8 @@ sub doRemoveEmpties {
         },
         @globPatterns);
 
-    
+    # This only should contain the parent dir(s) of the resolved @globPatterns,
+    # with the array(s) containing the resolved @globPatterns.
     #print map { "$_ = $dirSubItemsMap{$_}\n" } sort keys %dirSubItemsMap;
 }
 
@@ -1520,7 +1526,7 @@ sub verifyOrGenerateMd5ForFile {
     if ($@) {
         # Can't get the MD5
         # TODO: for now, skip but we'll want something better in the future
-        # TODO: use ${\$pathDetails->relPath}
+        # TODO: use '${\$pathDetails->relPath}'
         carp colored("UNAVAILABLE MD5 for '$path' with error:", 'red'), "\n\t$@";
         return;
     }
@@ -1530,7 +1536,7 @@ sub verifyOrGenerateMd5ForFile {
     if (defined $expectedMd5) {
         if ($expectedMd5->{md5} eq $actualMd5->{md5}) {
             # Matches last recorded hash, nothing to do'
-            # TODO: use ${\$pathDetails->relPath}
+            # TODO: use '${\$pathDetails->relPath}'
             print colored("Verified    MD5 for '$path", 'green'), "\n";
 
             # If the MD5 data is a full match, then we don't have anything
@@ -1556,7 +1562,7 @@ EOM
             }
         } else {
             # Mismatch and we can update MD5, needs resolving...
-            # TODO: use ${\$pathDetails->relPath}
+            # TODO: use '${\$pathDetails->relPath}'
             carp colored("MISMATCH OF MD5 for $path", 'red'), 
                  " [$expectedMd5->{md5} vs $actualMd5->{md5}]\n";
 
@@ -1579,7 +1585,7 @@ EOM
         }
         
         # Write MD5
-        # TODO: use ${\$pathDetails->relPath}
+        # TODO: use '${\$pathDetails->relPath}'
         print colored("UPDATING    MD5 for '$path'", 'magenta'), "\n";
     } else {
         # It wasn't there, it's a new file, we'll add that
@@ -1813,7 +1819,7 @@ sub findMd5s {
                 
                 # Open the md5.txt file
                 open(my $fh, '<:crlf', $pathDetails->absPath)
-                    or croak "Couldn't open ${\$pathDetails->absPath}: $!";
+                    or croak "Couldn't open '${\$pathDetails->absPath}': $!";
             
                 # Parse the file to get all the filename -> file info hash
                 my $md5Set = readMd5FileFromHandle($fh);
@@ -1986,7 +1992,7 @@ sub canMakeMd5MetadataShortcut {
     
     if (defined $expectedMd5) {
         if ($addOnly) {
-            # TODO: use ${\$pathDetails->relPath} instead of $path (which is absPath)
+            # TODO: use '${\$pathDetails->relPath}' instead of '$path' (which is absPath)
             trace(VERBOSITY_2, "Skipping MD5 recalculation for '$path' (add-only mode)");
             return 1;
         }
@@ -1996,7 +2002,7 @@ sub canMakeMd5MetadataShortcut {
             $actualMd5->{size} == $expectedMd5->{size} and
             defined $expectedMd5->{mtime} and 
             $actualMd5->{mtime} == $expectedMd5->{mtime}) {
-            # TODO: use ${\$pathDetails->relPath} instead of $path (which is absPath)
+            # TODO: use '${\$pathDetails->relPath}' instead of '$path' (which is absPath)
             trace(VERBOSITY_2, "Skipping MD5 recalculation for '$path' (same size/date-modified)");
             return 1;
         }
@@ -2044,7 +2050,7 @@ sub isMd5VersionUpToDate {
 sub getMd5 {
     my ($path, $useCache) = @_;
     
-    # TODO: use ${\$pathDetails->relPath} instead of $path (which is absPath)
+    # TODO: use '${\$pathDetails->relPath}' instead of '$path' (which is absPath)
     trace(VERBOSITY_DEBUG, "Calculating MD5 for '$path'");
     
     # *** IMPORTANT NOTE ***
@@ -2541,7 +2547,7 @@ sub splitExt {
 #       },
 #       sub {
 #           my ($pathDetails) = @_; 
-#           print("$pathDetails->relPath\n") if -f $absPath; 
+#           print("Processing '${\$pathDetails->relPath}'\n") if -f $absPath; 
 #       });
 #
 # Note that if glob patterns overlap, then some files might invoke the 
