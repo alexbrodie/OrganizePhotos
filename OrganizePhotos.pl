@@ -790,31 +790,11 @@ sub doCollectTrash {
             return -d $pathDetails->absPath;
         },
         sub { # callback
-            my ($pathDetails) = @_;
+            my ($pathDetails, $rootPathDetails) = @_;
             
             if (lc $pathDetails->filename eq '.trash') {
-                trace(VERBOSITY_2, sub { "xxxx" });
-
-                croak "This method hasn't been debugged yet after refactor";
-
-                # Convert $root/bunch/of/dirs/.Trash to $root/.Trash/bunch/of/dirs
-                # TODO: fix for traverseGlobPatterns refactor
-                my $root = undef; # BUGBUG
-                my $oldFullPath = File::Spec->rel2abs($pathDetails->filename);
-                my $oldRelPath = File::Spec->abs2rel($oldFullPath, $root);
-                my @dirs = File::Spec->splitdir($oldRelPath);
-                @dirs = ('.Trash', (grep { lc ne '.trash' } @dirs));
-                my $newRelPath = File::Spec->catdir(@dirs);
-                my $newFullPath = File::Spec->rel2abs($newRelPath, $root);
-
-                if ($oldFullPath ne $newFullPath) {
-                    # BUGBUG - this should probably strip out any extra .Trash
-                    # right now occasionally seeing things like
-                    # .Trash/foo/.Trash/bar.jpg
-                    moveDir($oldFullPath, $newFullPath);
-                } else {
-                    #print "Noop for path $oldRelPath\n";
-                }
+                # Convert root/bunch/of/dirs/.Trash to root/.Trash/bunch/of/dirs
+                trashPathWithRoot($pathDetails, $rootPathDetails);
             }
         },
         @globPatterns);
@@ -881,7 +861,7 @@ sub buildDupeGroups {
                 my ($pathDetails) = @_;
                 
                 if (-f $pathDetails->absPath) {
-                    trace(VERBOSITY_DEBUG, "buildDupeGroups processing '${\$pathDetails->relPath)}'")
+                    trace(VERBOSITY_DEBUG, "buildDupeGroups processing '${\$pathDetails->relPath}'");
                     my $key = computeFileHashKeyByName($pathDetails);
                     push @{$keyToPathDetails{$key}}, $pathDetails;
                 }
@@ -1071,7 +1051,7 @@ sub doFindDupeFiles {
         # If it's a short mov file next to a jpg or heic that's an iPhone,
         # then it's probably the live video portion from a burst shot. We
         # should just continue
-        # Todo: ^^^^ that
+        # TODO: ^^^^ that
         
         # Build base of prompt - indexed paths
         my @prompt = ('Resolving ', ($dupeIndex + 1), ' of ', scalar @$dupeGroups, ' ', $reco, "\n");
@@ -1237,7 +1217,7 @@ sub doRemoveEmpties {
             croak "Programmer Error: unknown object type for '${\$pathDetails->absPath}'";
         },
         sub { # callback 
-            my ($pathDetails) = @_;
+            my ($pathDetails, $rootPathDetails) = @_;
 
                 if (-d $pathDetails->absPath) {
                     # at this point, all the sub-items should be processed, see how many
@@ -1248,32 +1228,35 @@ sub doRemoveEmpties {
                     # from our map. Then if other sub-items are added after we process
                     # this parent dir right now, then we could have accidentally trashed
                     # a non-trashable dir. 
-                    # TODO: remove from map or make ++ operator at end of this method crash
-                    # if called on already processed dir, then at end, make sure there's
-                    # no unprocessed dirs which could signal a hash key miscalculation
-                    # that leads to a mismatch (e.g. non-canonicalized paths).
-                    #delete $dirSubItemsMap{$pathDetails->absPath};
+                    delete $dirSubItemsMap{$pathDetails->absPath};
                     
                     # If this dir is empty, then we'll want to trash it and have the
                     # parent dir ignore it like trashable files (e.g. md5.txt). If
                     # it's not trashable, then fall through to add this to its parent
-                    # dir's list.
+                    # dir's list (to prevent the parent from being trashed).
                     unless ($subItems) {
-                        print "Trashing '${\$pathDetails->relPath}'\n"; 
+                        trace(VERBOSITY_2, "Trashing '${\$pathDetails->relPath}'"); 
                         trashPath($pathDetails->absPath);
                         return;
                     }
                 }
                 
-                my $dir = File::Spec->catpath($pathDetails->volume, $pathDetails->directories, undef);
-                $dir = File::Spec->canonpath($dir);
-                $dirSubItemsMap{$dir}++;
+                # We don't mark the root item (file or dir) like all the subitems, because
+                # we're not looking to remove the root's parent based on some partial knowledge
+                # (e.g. if dir Alex has a lot of non-empty stuff in it and a child dir named
+                # Quinn, then we wouldn't want to consider trashing Alex if we check only Quinn)
+                if ($pathDetails->absPath ne $rootPathDetails->absPath) {
+                    my $dir = File::Spec->catpath($pathDetails->volume, $pathDetails->directories, undef);
+                    $dir = File::Spec->canonpath($dir);
+                    $dirSubItemsMap{$dir}++;
+                }
         },
         @globPatterns);
 
-    # This only should contain the parent dir(s) of the resolved @globPatterns,
-    # with the array(s) containing the resolved @globPatterns.
-    #print map { "$_ = $dirSubItemsMap{$_}\n" } sort keys %dirSubItemsMap;
+    if (%dirSubItemsMap) {
+        # See notes in above callback 
+        croak "Programmer Error: unprocessed items in doRemoveEmpties map";
+    }
 }
 
 # API ==========================================================================
@@ -1465,7 +1448,7 @@ sub verifyOrGenerateMd5ForGlob {
             my ($pathDetails) = @_;
             
             if (-f $pathDetails->absPath) {
-                verifyOrGenerateMd5ForFile($addOnly, $pathDetails->absPath);
+                verifyOrGenerateMd5ForFile($addOnly, $pathDetails);
             }
         },
         @globPatterns);
@@ -1478,15 +1461,14 @@ sub verifyOrGenerateMd5ForGlob {
 # If the file's md5.txt file doesn't have a MD5 for the specified [path],
 # this adds the [path]'s current MD5 to it.
 sub verifyOrGenerateMd5ForFile {
-    my ($addOnly, $path) = @_;
+    my ($addOnly, $pathDetails) = @_;
 
-    $path = File::Spec->rel2abs($path);
-    my ($md5Path, $md5Key) = getMd5PathAndKey($path);
+    my ($md5Path, $md5Key) = getMd5PathAndKey($pathDetails->absPath);
     
     # Get file stats for the file we're evaluating to reference and/or
     # update MD5.txt
-    my $stats = File::stat::stat($path) 
-        or croak "Couldn't stat '$path': $!";
+    my $stats = File::stat::stat($pathDetails->absPath) 
+        or croak "Couldn't stat '${\$pathDetails->absPath}': $!";
 
     # Add stats metadata to be persisted to md5.txt
     my $actualMd5 = {
@@ -1501,7 +1483,7 @@ sub verifyOrGenerateMd5ForFile {
     if ($lastMd5Path and $md5Path eq $lastMd5Path) {
         # Skip files whose date modified and file size haven't changed
         # TODO: unless force override if specified
-        return if canMakeMd5MetadataShortcut($addOnly, $path, $lastMd5Set->{$md5Key}, $actualMd5);
+        return if canMakeMd5MetadataShortcut($addOnly, $pathDetails, $lastMd5Set->{$md5Key}, $actualMd5);
     }
         
     # Read MD5.txt file to consult
@@ -1516,18 +1498,17 @@ sub verifyOrGenerateMd5ForFile {
         
     # Skip files whose date modified and file size haven't changed
     # TODO: unless force override if specified
-    return if canMakeMd5MetadataShortcut($addOnly, $path, $expectedMd5, $actualMd5);
+    return if canMakeMd5MetadataShortcut($addOnly, $pathDetails, $expectedMd5, $actualMd5);
 
     # We can't skip this, so compute MD5 now
     eval {
         # TODO: consolidate opening file multiple times from stat and getMd5
-        $actualMd5 = { %$actualMd5, %{getMd5($path)} };
+        $actualMd5 = { %$actualMd5, %{getMd5($pathDetails->absPath)} };
     };
     if ($@) {
         # Can't get the MD5
         # TODO: for now, skip but we'll want something better in the future
-        # TODO: use '${\$pathDetails->relPath}'
-        carp colored("UNAVAILABLE MD5 for '$path' with error:", 'red'), "\n\t$@";
+        carp colored("UNAVAILABLE MD5 for '${\$pathDetails->relPath}' with error:", 'red'), "\n\t$@";
         return;
     }
     
@@ -1536,8 +1517,7 @@ sub verifyOrGenerateMd5ForFile {
     if (defined $expectedMd5) {
         if ($expectedMd5->{md5} eq $actualMd5->{md5}) {
             # Matches last recorded hash, nothing to do'
-            # TODO: use '${\$pathDetails->relPath}'
-            print colored("Verified    MD5 for '$path", 'green'), "\n";
+            print colored("Verified    MD5 for '${\$pathDetails->relPath}'", 'green'), "\n";
 
             # If the MD5 data is a full match, then we don't have anything
             # else to do. If not (probably missing or updated metadata 
@@ -1549,12 +1529,12 @@ sub verifyOrGenerateMd5ForFile {
             # If that's the case (i.e. the expected version is not up to
             # date), then we should just update the MD5s. If it's not the
             # case, then it's unexpected and some kind of programer error.
-            if (isMd5VersionUpToDate($path, $expectedMd5->{version})) {
+            if (isMd5VersionUpToDate($pathDetails->absPath, $expectedMd5->{version})) {
                 # TODO: switch this hacky crash output to better perl way
                 # of generating tables
                 croak <<EOM;
 Unexpected state: full MD5 match and content MD5 mismatch for
-$path
+${\$pathDetails->absPath}
              version  full_md5                          md5
   Expected:  $expectedMd5->{version}        $expectedMd5->{full_md5}  $expectedMd5->{md5}
     Actual:  $actualMd5->{version}        $actualMd5->{full_md5}  $actualMd5->{md5}
@@ -1562,8 +1542,7 @@ EOM
             }
         } else {
             # Mismatch and we can update MD5, needs resolving...
-            # TODO: use '${\$pathDetails->relPath}'
-            carp colored("MISMATCH OF MD5 for $path", 'red'), 
+            carp colored("MISMATCH OF MD5 for '${\$pathDetails->relPath}'", 'red'), 
                  " [$expectedMd5->{md5} vs $actualMd5->{md5}]\n";
 
             # Do user action prompt
@@ -1579,18 +1558,16 @@ EOM
                     last;
                 } elsif ($in eq 'q') {
                     # User requested to terminate
-                    croak "MD5 mismatch for '$path'";
+                    exit 0;
                 }
             }
         }
         
         # Write MD5
-        # TODO: use '${\$pathDetails->relPath}'
-        print colored("UPDATING    MD5 for '$path'", 'magenta'), "\n";
+        print colored("UPDATING    MD5 for '${\$pathDetails->relPath}'", 'magenta'), "\n";
     } else {
         # It wasn't there, it's a new file, we'll add that
-        # TODO: use ${\$pathDetails->relPath}
-        print colored("ADDING      MD5 for '$path'", 'blue'), "\n";
+        print colored("ADDING      MD5 for '${\$pathDetails->relPath}'", 'blue'), "\n";
     }
 
     # Add/update MD5
@@ -1817,7 +1794,7 @@ sub findMd5s {
             if (-f $pathDetails->absPath) {
                 trace(VERBOSITY_2, "Found '${\$pathDetails->relPath}'");
                 
-                # Open the md5.txt file
+                # Open the md5.txt file in read only mode
                 open(my $fh, '<:crlf', $pathDetails->absPath)
                     or croak "Couldn't open '${\$pathDetails->absPath}': $!";
             
@@ -1988,22 +1965,20 @@ sub writeMd5FileToHandle {
 # Check if we can shortcut based on metadata without evaluating MD5s
 # TODO: should this be a nested function?
 sub canMakeMd5MetadataShortcut {
-    my ($addOnly, $path, $expectedMd5, $actualMd5) = @_;
+    my ($addOnly, $pathDetails, $expectedMd5, $actualMd5) = @_;
     
     if (defined $expectedMd5) {
         if ($addOnly) {
-            # TODO: use '${\$pathDetails->relPath}' instead of '$path' (which is absPath)
-            trace(VERBOSITY_2, "Skipping MD5 recalculation for '$path' (add-only mode)");
+            trace(VERBOSITY_2, "Skipping MD5 recalculation for '${\$pathDetails->relPath}' (add-only mode)");
             return 1;
         }
     
-        if (isMd5VersionUpToDate($path, $expectedMd5->{version}) and
-            defined $expectedMd5->{size} and 
-            $actualMd5->{size} == $expectedMd5->{size} and
+        if (defined $expectedMd5->{size} and 
             defined $expectedMd5->{mtime} and 
+            isMd5VersionUpToDate($pathDetails->absPath, $expectedMd5->{version}) and
+            $actualMd5->{size} == $expectedMd5->{size} and
             $actualMd5->{mtime} == $expectedMd5->{mtime}) {
-            # TODO: use '${\$pathDetails->relPath}' instead of '$path' (which is absPath)
-            trace(VERBOSITY_2, "Skipping MD5 recalculation for '$path' (same size/date-modified)");
+            trace(VERBOSITY_2, "Skipping MD5 recalculation for '${\$pathDetails->relPath}' (same size/date-modified)");
             return 1;
         }
     }
@@ -2538,14 +2513,14 @@ sub splitExt {
 # called depth first such that the process of a dir doesn't occur until all
 # the subitems have been processed. 
 #
-# Example: if you wanted to print out all the friendly names of all files that 
+# Example: if you wanted to report all the friendly names of all files that 
 # aren't in a .Trash directory, you'd do:
 #   traverseGlobPatterns(
-#       sub {
+#       sub { #isWanted
 #           my ($pathDetails) = @_; 
 #           return !(-d $pathDetails->absPath) or (lc $pathDetails->filename ne '.trash');
 #       },
-#       sub {
+#       sub { # callback
 #           my ($pathDetails) = @_; 
 #           print("Processing '${\$pathDetails->relPath}'\n") if -f $absPath; 
 #       });
@@ -2562,7 +2537,7 @@ sub traverseGlobPatterns {
     
     # the isWanted and callback methods take the same params, that share
     # the following computations
-    my $makeArgs = sub {
+    my $myMakePathDetails = sub {
         my ($relPath) = @_;
 
         $relPath = File::Spec->canonpath($relPath);
@@ -2577,13 +2552,15 @@ sub traverseGlobPatterns {
     my $helper = sub {
         my ($rootDir) = @_;
 
+        my $rootPathDetails = $myMakePathDetails->($rootDir);
+
         # The final wanted call for $rootDir doesn't have a matching preprocess call,
         # so force one up front for symetry with all other pairs.
-        if (!$isWanted or $isWanted->($makeArgs->($rootDir))) {
+        if (!$isWanted or $isWanted->($rootPathDetails, $rootPathDetails)) {
             File::Find::find({
                 bydepth => 1,
                 no_chdir => 1,
-                preprocess => !$isWanted ? undef : sub {
+                preprocess => sub {
                     return grep {
                             # Skip .. because it doesn't matter what we do, this
                             # isn't going to get passed to wanted, and it doesn't
@@ -2592,18 +2569,23 @@ sub traverseGlobPatterns {
                             # process each dir twice, and $rootDir once. This makes
                             # subdirs once and $rootDir not at all.
                             if (($_ ne '.') and ($_ ne '..')) {
-                                # The values used here to compute the full path to the file
-                                # relative to $base matches the values of wanted's implementation, 
-                                # and both work the same whether no_chdir is set or not, i.e. they 
-                                # only use values that are unaffected by no_chdir. 
-                                my @args = $makeArgs->(File::Spec->catfile($File::Find::dir, $_));
+                                if ($isWanted) {
+                                    # The values used here to compute the full path to the file
+                                    # relative to $base matches the values of wanted's implementation, 
+                                    # and both work the same whether no_chdir is set or not, i.e. they 
+                                    # only use values that are unaffected by no_chdir. 
+                                    my $relPath = File::Spec->catfile($File::Find::dir, $_);
+                                    my $pathDetails = $myMakePathDetails->($relPath);
 
-                                # prevent accedental use via implicit args in isWanted
-                                local $_ = undef;
-                                
-                                $isWanted->(@args);
+                                    # prevent accedental use via implicit args in isWanted
+                                    local $_ = undef;
+                                    
+                                    $isWanted->($pathDetails, $rootPathDetails);
+                                } else {
+                                    1; # process
+                                }
                             } else {
-                                undef;
+                                0; # skip
                             }
                         } @_;
                 },
@@ -2612,12 +2594,12 @@ sub traverseGlobPatterns {
                     # relative to $base matches the values of preprocess' implementation, 
                     # and both work the same whether no_chdir is set or not, i.e. they 
                     # only use values that are unaffected by no_chdir.
-                    my @args =  $makeArgs->($File::Find::name);
+                    my $pathDetails = $myMakePathDetails->($File::Find::name);
 
                     # prevent accedental use via implicit args in callback
                     local $_ = undef;
 
-                    $callback->(@args);
+                    $callback->($pathDetails, $rootPathDetails);
                 }
             }, $rootDir);
         }
@@ -2633,12 +2615,14 @@ sub traverseGlobPatterns {
                 if (-d) {
                     $helper->($_);
                 } elsif (-f) {
-                    my @args = $makeArgs->($_);
+                    my $pathDetails = $myMakePathDetails->($_);
 
                     # prevent accedental use via implicit args in isWanted/callback
                     local $_ = undef;
 
-                    $callback->(@args) if !$isWanted or $isWanted->(@args);
+                    if (!$isWanted or $isWanted->($pathDetails, $pathDetails)) {
+                        $callback->($pathDetails, $pathDetails);
+                    }
                 } else {
                     croak "Don't know how to deal with glob result '$_'";
                 }
@@ -2663,7 +2647,7 @@ sub trashPathAndSidecars {
 }
 
 # MODEL (File Operations) ------------------------------------------------------
-# Trash the specified path by moving it to a .Trash subdir and removing
+# Trash the specified path by moving it to a .Trash subdir and moving
 # its entry from the md5.txt file
 sub trashPath {
     my ($path) = @_;
@@ -2674,6 +2658,36 @@ sub trashPath {
     my $trashPath = File::Spec->catfile($trashDir, $name);
 
     movePath($path, $trashPath);
+}
+
+# MODEL (File Operations) ------------------------------------------------------
+# Trash the specified path by moving it to rootPathDetails's .Trash subdir
+# and moving its entry from the md5.txt file
+sub trashPathWithRoot {
+    my ($pathDetails, $rootPathDetails) = @_;
+
+    # Split the directories into pieces assuming root is a dir    
+    my @pathDirs = File::Spec->splitdir($pathDetails->directories);
+    my @rootDirs = File::Spec->splitdir(File::Spec->catdir($rootPathDetails->directories, $rootPathDetails->filename));
+
+    # Verify @rootDirs is a prefix match for (i.e. ancestor of) $pathDirs
+    $pathDetails->volume eq $rootPathDetails->volume
+        or croak "Programmer error: root is is not a prefix for path (different volumes)";
+    @rootDirs < @pathDirs 
+        or croak "Programmer error: root is is not a prefix for path (root is longer)";
+    for (my $i = 0; $i < @rootDirs; $i++) {
+        $rootDirs[$i] eq $pathDirs[$i] 
+            or croak "Programmer error: root is not prefix for path ('$rootDirs[$i]' ne '$pathDirs[$i]' at $i)";
+    }
+
+    # Figure out postRoot (pathDetails relative to rootPathDetails without trash),
+    # and then append that to rootPathDetails's trash dir's path
+    my @postRoot = grep { lc ne '.trash' } @pathDirs[@rootDirs .. @pathDirs-1];
+    my $newFilename = pop @postRoot;
+    my $newDirectories = File::Spec->catdir(@rootDirs, '.Trash', @postRoot);
+    my $newAbsPath = File::Spec->catpath($pathDetails->volume, $newDirectories, $newFilename);
+
+    movePath($pathDetails->absPath, $newAbsPath);
 }
 
 # MODEL (File Operations) ------------------------------------------------------
