@@ -466,8 +466,8 @@ use warnings FATAL => qw(uninitialized);
 use Class::Struct qw(struct);
 use Data::Compare ();
 use Data::Dumper ();
-use DateTime::Format::HTTP;
-use Digest::MD5;
+use DateTime::Format::HTTP ();
+use Digest::MD5 ();
 use File::Copy ();
 use File::Find ();
 use File::Glob qw(:globally :nocase);
@@ -475,10 +475,10 @@ use File::Path ();
 use File::Spec ();
 use File::stat ();
 use Getopt::Long ();
-use Image::ExifTool;
-use JSON;
+use Image::ExifTool ();
+use JSON ();
 use List::Util qw(any all);
-use Pod::Usage;
+use Pod::Usage ();
 if ($^O eq 'MSWin32') {
     use Win32::Console::ANSI; # must come before Term::ANSIColor
 }
@@ -561,100 +561,125 @@ my $md5pattern = qr/[0-9a-f]{32}/;
 # TODO: flesh this out
 # TODO: convert to Class::Struct
 my %fileTypes = (
-    AVI     => {
+    AVI => {
         SIDECARS => [],
         EXTORDER => 0,
         MIMETYPE => 'video/x-msvideo'
     },
-    CRW     => {
+    CRW => {
         SIDECARS => [qw( JPEG JPG XMP )],
         EXTORDER => -1,
         MIMETYPE => 'image/crw'
     },
-    CR2     => {
+    CR2 => {
         SIDECARS => [qw( JPEG JPG XMP )],
         EXTORDER => -1,
         MIMETYPE => 'image/cr2' # Non-standard
     },
-    CR3     => {
+    CR3 => {
         SIDECARS => [qw( JPEG JPG XMP )],
         EXTORDER => -1,
         MIMETYPE => 'image/cr3' # Non-standard
     },
-    JPEG    => {
+    ICNS => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'image/x-icns'
+    },
+    ICO => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'image/x-icon'
+    },
+    JPEG => {
         SIDECARS => [],
         EXTORDER => 1,
         MIMETYPE => 'image/jpeg'
     },
-    JPG     => {
+    JPG => {
         SIDECARS => [],
         EXTORDER => 1,
         MIMETYPE => 'image/jpeg'
     },
-    HEIC    => {
+    HEIC => {
         SIDECARS => [qw( XMP MOV )],
         EXTORDER => -1,
-        MIMETYPE => 'image/heic' # Non-standard
+        MIMETYPE => 'image/heic'
     },
-    M4V     => {
+    M2TS => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'video/mp2t'
+    },
+    M4V => {
         SIDECARS => [],
         EXTORDER => 0,
         MIMETYPE => 'video/mp4v-es'
     },
-    MOV     => {
+    MOV => {
         SIDECARS => [],
         EXTORDER => 0,
         MIMETYPE => 'video/quicktime'
     },
-    MP4     => {
+    MP4 => {
         SIDECARS => [qw( LRV THM )],
         EXTORDER => 0,
         MIMETYPE => 'video/mp4v-es'
     },
-    MPG     => {
+    MPG => {
         SIDECARS => [],
         EXTORDER => 0,
         MIMETYPE => 'video/mpeg'
     },
-    MTS     => {
+    MTS => {
         SIDECARS => [],
         EXTORDER => 0,
-        MIMETYPE => 'video/mts' # Non-standard
+        MIMETYPE => 'video/mp2t'
     },
-    NEF     => {
+    NEF => {
         SIDECARS => [qw( JPEG JPG XMP )],
         EXTORDER => -1,
         MIMETYPE => 'image/nef' # Non-standard
     },
-    PNG     => {
+    PDF => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'application/pdf'
+    },
+    PNG => {
         SIDECARS => [],
         EXTORDER => 0,
         MIMETYPE => 'image/png'
     },
-    PSB     => {
+    PSB => {
         SIDECARS => [],
         EXTORDER => 0,
         MIMETYPE => 'image/psb' # Non-standard
     },
-    PSD     => {
+    PSD => {
         SIDECARS => [],
         EXTORDER => 0,
         MIMETYPE => 'image/photoshop'
     },
-    RAF     => {
+    RAF => {
         SIDECARS => [qw( JPEG JPG XMP )],
         EXTORDER => -1,
         MIMETYPE => 'image/raf' # Non-standard
     },
-    TIF     => {
+    TIF => {
         SIDECARS => [],
         EXTORDER => 0,
         MIMETYPE => 'image/tiff'
     },
-    TIFF    => {
+    TIFF => {
         SIDECARS => [],
         EXTORDER => 0,
         MIMETYPE => 'image/tiff'
+    },
+    ZIP => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'application/zip'
     }
 );
 
@@ -694,9 +719,9 @@ sub main {
 
     # Parse args (using GetOptions) and delegate to the doVerb methods...
     unless (@ARGV) {
-        pod2usage();        
+        Pod::Usage::pod2usage();        
     } elsif ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]$/i) {
-        pod2usage(-verbose => 2);
+        Pod::Usage::pod2usage(-verbose => 2);
     } else {
         Getopt::Long::Configure('bundling');
         my $rawVerb = shift @ARGV;
@@ -1301,7 +1326,7 @@ sub doTest2 {
         /^Message:\s*(\{.*\})/
             or die "Unexpected qrscan output: $_";
         
-        my $message = decode_json($1);
+        my $message = JSON::decode_json($1);
         trace(VERBOSITY_DEBUG, "message: ", Data::Dumper::Dumper($message));
     
         if (exists $message->{date}) {
@@ -1906,7 +1931,7 @@ sub readMd5FileFromHandle {
 
     if ($useJson) {
         # Parse as JSON
-        my $md5s = decode_json(join '', <$fh>);
+        my $md5s = JSON::decode_json(join '', <$fh>);
         # TODO: Consider validating response - do a lc on  
         # TODO: filename/md5s/whatever, and verify vs $md5pattern???
         
