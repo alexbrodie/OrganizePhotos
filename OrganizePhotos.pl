@@ -979,6 +979,60 @@ sub computeFileHashKeyByName {
     return $key;
 }
 
+sub buildFindDupeFilesPrompt {
+    # Build base of prompt - indexed paths
+    my @prompt = ();
+
+    # Main heading for group
+    push @prompt, 'Resolving ', ($dupeIndex + 1), ' of ', scalar @$dupeGroups, ' ';
+    if ($matchType == MATCH_FULL) {
+        push @prompt, colored('[Match: FULL]', 'bold blue on_white');
+    } elsif ($matchType == MATCH_CONTENT) {
+        push @prompt, '[Match: Content]';
+    } else {
+        push @prompt, colored('[Match: UNKNOWN]', 'bold red on_white');
+    }
+    push @prompt, "\n";
+
+    # The list of all files in the group
+    for (my $i = 0; $i < @group; $i++) {
+        my $elt = $group[$i];
+
+        push @prompt, "  $i. ";
+        push @prompt, coloredByIndex($elt->{pathDetails}->relPath, $i);
+        
+        # Add file error suffix
+        if ($elt->{exists}) {
+            # Don't bother cracking the file to get metadata if we're in fast mode
+            push @prompt, getDirectoryError($elt->{pathDetails}->absPath, $i) unless $fast;                
+        } else {
+            push @prompt, ' ', colored('[MISSING]', 'bold red on_white');
+        }
+        
+        push @prompt, "\n";
+        
+        # Collect all sidecars and add to prompt
+        for (getSidecarPaths($elt->{pathDetails})) {
+            push @prompt, '     ', coloredByIndex(colored($_->relPath, 'faint'), $i), "\n";
+        }
+    }
+
+    push @prompt, colored("I suggest you $autoCommand", 'bold black on_red'), "\n" if $autoCommand;
+
+    #Input options
+    push @prompt, "Diff, Continue, Trash Number, Open Number (d/c";
+    if (@group <= 3) {
+        for my $x ('t', 'o') {
+            push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#group);
+        }
+    } else {
+        push @prompt, '/', coloredByIndex('t0', 0), '/.../', coloredByIndex("t$#group", $#group);
+        push @prompt, '/', coloredByIndex('o0', 0), '/.../', coloredByIndex("t$#group", $#group);
+    }
+    push @prompt, "/q)? ";
+    push @prompt, "[$defaultCommand] " if $defaultCommand;
+}
+
 # TODO: break up this nearly 400 line behemoth
 # API ==========================================================================
 # Execute find-dupe-files verb
@@ -1059,7 +1113,6 @@ sub doFindDupeFiles {
                 $matchType = MATCH_NONE;
             }
         }
-
         # See if we can use some heuristics to guess what should be
         # done for this group
         my @autoCommands = ();
@@ -1101,57 +1154,7 @@ sub doFindDupeFiles {
             $defaultCommand = $lastCommand;            
         }
         
-        # Build base of prompt - indexed paths
-        my @prompt = ();
-
-        # Main heading for group
-        push @prompt, 'Resolving ', ($dupeIndex + 1), ' of ', scalar @$dupeGroups, ' ';
-        if ($matchType == MATCH_FULL) {
-            push @prompt, colored('[Match: FULL]', 'bold blue on_white');
-        } elsif ($matchType == MATCH_CONTENT) {
-            push @prompt, '[Match: Content]';
-        } else {
-            push @prompt, colored('[Match: UNKNOWN]', 'bold red on_white');
-        }
-        push @prompt, "\n";
-
-        # The list of all files in the group
-        for (my $i = 0; $i < @group; $i++) {
-            my $elt = $group[$i];
-
-            push @prompt, "  $i. ";
-            push @prompt, coloredByIndex($elt->{pathDetails}->relPath, $i);
-            
-            # Add file error suffix
-            if ($elt->{exists}) {
-                # Don't bother cracking the file to get metadata if we're in fast mode
-                push @prompt, getDirectoryError($elt->{pathDetails}->absPath, $i) unless $fast;                
-            } else {
-                push @prompt, ' ', colored('[MISSING]', 'bold red on_white');
-            }
-            
-            push @prompt, "\n";
-            
-            # Collect all sidecars and add to prompt
-            for (getSidecarPaths($elt->{pathDetails})) {
-                push @prompt, '     ', coloredByIndex(colored($_->relPath, 'faint'), $i), "\n";
-            }
-        }
-
-        push @prompt, colored("I suggest you $autoCommand", 'bold black on_red'), "\n" if $autoCommand;
-
-        #Input options
-        push @prompt, "Diff, Continue, Trash Number, Open Number (d/c";
-        if (@group <= 3) {
-            for my $x ('t', 'o') {
-                push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#group);
-            }
-        } else {
-            push @prompt, '/', coloredByIndex('t0', 0), '/.../', coloredByIndex("t$#group", $#group);
-            push @prompt, '/', coloredByIndex('o0', 0), '/.../', coloredByIndex("t$#group", $#group);
-        }
-        push @prompt, "/q)? ";
-        push @prompt, "[$defaultCommand] " if $defaultCommand;
+        buildFindDupeFilesPrompt();
 
         # TODO: somehow determine whether one is a superset of one or
         # TODO: more of the others (hopefully for auto-delete) 
