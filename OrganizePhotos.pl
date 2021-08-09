@@ -68,6 +68,8 @@
 # * Tests covering at least the checkup verb code paths
 # * Add wrapper around warn/carp/cluck similar to trace. Should we have a
 #   halt/alert/inform/trace system for crashes/warnings/print statments/diagnositcs?
+# * Add a new restore-trash verb that searches for .Trash dirs and for each
+#   one calls consolidateTrash(self, self) and movePath(self, parent)
 #
 =pod
 
@@ -717,7 +719,7 @@ sub main {
     # Parse args (using GetOptions) and delegate to the doVerb methods...
     unless (@ARGV) {
         Pod::Usage::pod2usage();        
-    } elsif ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]$/i) {
+    } elsif ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]|help$/i) {
         Pod::Usage::pod2usage(-verbose => 2);
     } else {
         Getopt::Long::Configure('bundling');
@@ -769,7 +771,7 @@ sub main {
             myGetOptions();
             doVerifyMd5(@ARGV);
         } else {
-            die "Unknown verb: '$rawVerb'\n";
+            die "Unknown verb: '$rawVerb'";
         }
     }
 }
@@ -851,10 +853,9 @@ sub doFindDupeDirs {
     }
 }
 
-
-# TODO: Move this elsewhere in the file/package (Model?)
+# TODO: Move this elsewhere in the file/package
 # ------------------------------------------------------------------------------
-sub buildDupeGroups {
+sub buildFindDupeFilesDupeGroups {
     my ($byName, @globPatterns) = @_;
 
     # Create the initial groups
@@ -880,7 +881,7 @@ sub buildDupeGroups {
                 
                 if (-f $pathDetails->absPath) {
                     trace(VERBOSITY_DEBUG, "buildDupeGroups processing '${\$pathDetails->relPath}'");
-                    my $key = computeFileHashKeyByName($pathDetails);
+                    my $key = computeFindDupeFilesHashKeyByName($pathDetails);
                     push @{$keyToPathDetails{$key}}, $pathDetails;
                 }
             },
@@ -890,11 +891,14 @@ sub buildDupeGroups {
         # Make hash to list of like files with MD5 as hash key
         findMd5s(sub {
             my ($pathDetails, $md5) = @_;
-            if (-e $pathDetails->absPath) {
+            # TODO: we have to handle missing files later anyway. This seems to just
+            # hide crusty data in the md5.txt files. Should we just add all files
+            # whether they're missing or not?
+            #if (-e $pathDetails->absPath) {
                 push @{$keyToPathDetails{$md5}}, $pathDetails;
-            } else {
-                trace(VERBOSITY_2, "Path for MD5 is missing: '${\$pathDetails->relPath}'");
-            }
+            #} else {
+            #    trace(VERBOSITY_2, "Path for MD5 is missing: '${\$pathDetails->relPath}'");
+            #}
         }, @globPatterns);
     }
     
@@ -907,6 +911,7 @@ sub buildDupeGroups {
     # @dupes collection for further processing.
     my @dupes = ();
     while (my ($key, $pathDetailsList) = each %keyToPathDetails) {
+        trace(VERBOSITY_DEBUG, "Built dupe group for '$key':", map { "\n\t".$_->absPath } @$pathDetailsList);
         if (@$pathDetailsList > 1) {
             push @dupes, [sort { comparePathWithExtOrder($a, $b) } @$pathDetailsList];
         }
@@ -922,9 +927,9 @@ sub buildDupeGroups {
     return \@dupes;
 }
 
-# TODO: Move this elsewhere in the file/package (Model?)
+# TODO: Move this elsewhere in the file/package
 # ------------------------------------------------------------------------------
-sub computeFileHashKeyByName {
+sub computeFindDupeFilesHashKeyByName {
     my ($pathDetails) = @_;
 
     my ($basename, $ext) = splitExt($pathDetails->filename);
@@ -979,12 +984,16 @@ sub computeFileHashKeyByName {
     return $key;
 }
 
+# TODO: Move this elsewhere in the file/package
+# ------------------------------------------------------------------------------
 sub buildFindDupeFilesPrompt {
+    my ($group, $fast, $matchType, $autoCommand, $defaultCommand, $progressNumber, $progressCount) = @_;
+
     # Build base of prompt - indexed paths
     my @prompt = ();
 
     # Main heading for group
-    push @prompt, 'Resolving ', ($dupeIndex + 1), ' of ', scalar @$dupeGroups, ' ';
+    push @prompt, 'Resolving ', $progressNumber, ' of ', $progressCount, ' ';
     if ($matchType == MATCH_FULL) {
         push @prompt, colored('[Match: FULL]', 'bold blue on_white');
     } elsif ($matchType == MATCH_CONTENT) {
@@ -995,8 +1004,8 @@ sub buildFindDupeFilesPrompt {
     push @prompt, "\n";
 
     # The list of all files in the group
-    for (my $i = 0; $i < @group; $i++) {
-        my $elt = $group[$i];
+    for (my $i = 0; $i < @$group; $i++) {
+        my $elt = $group->[$i];
 
         push @prompt, "  $i. ";
         push @prompt, coloredByIndex($elt->{pathDetails}->relPath, $i);
@@ -1004,7 +1013,12 @@ sub buildFindDupeFilesPrompt {
         # Add file error suffix
         if ($elt->{exists}) {
             # Don't bother cracking the file to get metadata if we're in fast mode
-            push @prompt, getDirectoryError($elt->{pathDetails}->absPath, $i) unless $fast;                
+            # TODO: this file access and computation doesn't seem to belong here
+            unless ($fast) {
+                if (my $err = getDirectoryError($elt->{pathDetails}->absPath)) {
+                    push @prompt, ' ', colored("** $err **", 'bright_white on_' . colorByIndex($i));
+                }
+            }
         } else {
             push @prompt, ' ', colored('[MISSING]', 'bold red on_white');
         }
@@ -1019,18 +1033,24 @@ sub buildFindDupeFilesPrompt {
 
     push @prompt, colored("I suggest you $autoCommand", 'bold black on_red'), "\n" if $autoCommand;
 
-    #Input options
-    push @prompt, "Diff, Continue, Trash Number, Open Number (d/c";
-    if (@group <= 3) {
-        for my $x ('t', 'o') {
-            push @prompt, '/', coloredByIndex("$x$_", $_) for (0..$#group);
+    # Returns either something like 'x0/x1' or 'x0/.../x42'
+    my $getMultiCommandOption = sub {
+        my ($prefix) = @_;
+
+        if (@$group <= 3) {
+            return join '/', map { coloredByIndex("$prefix$_", $_) } (0..$#$group);
+        } else {
+            return coloredByIndex("${prefix}0", 0) . '/.../' . 
+                   coloredByIndex("$prefix$#$group", $#$group);
         }
-    } else {
-        push @prompt, '/', coloredByIndex('t0', 0), '/.../', coloredByIndex("t$#group", $#group);
-        push @prompt, '/', coloredByIndex('o0', 0), '/.../', coloredByIndex("t$#group", $#group);
-    }
-    push @prompt, "/q)? ";
+    };
+
+    # Input options
+    push @prompt, 'Choose actions from ?/c/d/', $getMultiCommandOption->('o'), 
+                  '/q', $getMultiCommandOption->('t'), ' ';
     push @prompt, "[$defaultCommand] " if $defaultCommand;
+
+    return join '', @prompt;
 }
 
 # TODO: break up this nearly 400 line behemoth
@@ -1041,7 +1061,7 @@ sub doFindDupeFiles {
     
     my $fast = 0; # avoid slow operations, potentially with less precision?
     
-    my $dupeGroups = buildDupeGroups();
+    my $dupeGroups = buildFindDupeFilesDupeGroups($byName, @globPatterns);
     
     # TODO: merge sidecars
     
@@ -1083,6 +1103,8 @@ sub doFindDupeFiles {
             @group = @newGroup;
         }
 
+        # TODO: my $matchType = getFindDupeFilesMatchType(\@group);
+
         # Except when trying to be fast, calculate the MD5 match
         # TODO: get this pairwise and store it somehow for later
         # TODO: (hopefully for auto-delete)
@@ -1113,6 +1135,9 @@ sub doFindDupeFiles {
                 $matchType = MATCH_NONE;
             }
         }
+
+        # TODO: my $autoCommand = getFindDupeFilesAutoCommands(\@group, ...);
+
         # See if we can use some heuristics to guess what should be
         # done for this group
         my @autoCommands = ();
@@ -1139,13 +1164,13 @@ sub doFindDupeFiles {
             push @autoCommands, "t$i" if $isTrashable[$i];
         }
 
-        my $autoCommand = join ';', uniqstr sort @autoCommands;
-
         # If it's a short mov file next to a jpg or heic that's an iPhone,
         # then it's probably the live video portion from a burst shot. We
         # should just continue
         # TODO: ^^^^ that
         
+        my $autoCommand = join ';', uniqstr sort @autoCommands;
+
         # Default command is what happens if you hit enter with an empty string
         my $defaultCommand;
         if ($autoCommand) {
@@ -1154,7 +1179,9 @@ sub doFindDupeFiles {
             $defaultCommand = $lastCommand;            
         }
         
-        buildFindDupeFilesPrompt();
+        my $prompt = buildFindDupeFilesPrompt(
+            \@group, $fast, $matchType, $autoCommand, $defaultCommand, 
+            $dupeIndex + 1, scalar @$dupeGroups);
 
         # TODO: somehow determine whether one is a superset of one or
         # TODO: more of the others (hopefully for auto-delete) 
@@ -1166,32 +1193,59 @@ sub doFindDupeFiles {
         
         # Get input until something sticks...
         PROMPT: while (1) {
-            print "\n", @prompt;
-            
-            # Prompt for action
+            # Prompt for command(s)
+            print "\n", $prompt;
             unless ($command) {
                 chomp($command = lc <STDIN>);
-                
-                # If the user provided something, save that for next 
-                # conflict's default
-                $lastCommand = $command unless $command eq '';
-
-                # Enter with empty string uses $defaultCommand
-                $command = $defaultCommand if $defaultCommand and $command eq '';
+                if ($command) {
+                    # If the user provided something, save that for next 
+                    # conflict's default
+                    $lastCommand = $command;
+                } elsif ($defaultCommand) {
+                    # Enter with empty string uses $defaultCommand
+                    $command = $defaultCommand;
+                }
             } else {
                 print "$command\n";
             }
+            print "\n";
             
-            # something like if -l turn on $defaultLastAction and next PROMPT
-            
+            # TODO: processFindDupeFilesCommands(\@group, $command)
+
+            # Process the command(s)
             my $itemCount = @group;
             for (split /;/, $command) {
-                if ($_ eq 'd') {
-                    # Diff
-                    metadataDiff(undef, map { $_->{pathDetails}->absPath } @group);
+                if ($_ eq '?') {
+                    print <<'EOM';
+?   Help: shows this help message
+c   Continue: go to the next group
+d   Diff: perform metadata diff of this group
+o#  Open Number: open the specified item
+q   Quit: exit the application
+t#  Trash Number: move the specified item to .Trash
+EOM
                 } elsif ($_ eq 'c') {
                     # Continue
                     last PROMPT;  # next group please
+                } elsif ($_ eq 'd') {
+                    # Diff
+                    metadataDiff(undef, map { $_->{pathDetails}->absPath } @group);
+                } elsif (/^m(\d+(?:,\d+)+)$/) {
+                    # Merge 1,2,3,4,... into 0
+                    my @matches = split ',', $1;
+                    appendMetadata(map { $group[$_]->{pathDetails}->absPath } @matches);
+                } elsif (/^o(\d+)$/) {
+                    # Open Number
+                    if ($1 > $#group) {
+                        warn "$1 is out of range [0, $#group]";
+                    } elsif (!defined $group[$1]) {
+                        warn "$1 has already been trashed";
+                    } else {
+                        `open "$group[$1]->{pathDetails}->absPath"`;
+                    }
+                } elsif ($_ eq 'q') {
+                    # Quit
+                    exit 0;
                 } elsif (/^t(\d+)$/) {
                     # Trash Number
                     if ($1 > $#group) {
@@ -1211,21 +1265,6 @@ sub doFindDupeFiles {
                         $itemCount--;
                         last PROMPT if $itemCount < 2;
                     }
-                } elsif (/^o(\d+)$/) {
-                    # Open Number
-                    if ($1 > $#group) {
-                        warn "$1 is out of range [0, $#group]";
-                    } elsif (!defined $group[$1]) {
-                        warn "$1 has already been trashed";
-                    } else {
-                        `open "$group[$1]->{pathDetails}->absPath"`;
-                    }
-                } elsif (/^m(\d+(?:,\d+)+)$/) {
-                    # Merge 1,2,3,4,... into 0
-                    my @matches = split ',', $1;
-                    appendMetadata(map { $group[$_]->{pathDetails}->absPath } @matches);
-                } elsif ($_ eq 'q') {
-                    exit 0;
                 } else {
                     warn "Unrecognized command: '$_'";
                 }
@@ -1409,7 +1448,7 @@ sub doTest2 {
         my $days = ($diff->is_negative ? -1 : 1) * 
             ($diff->days + ($diff->hours + ($diff->minutes + $diff->seconds / 60) / 60) / 24);
 
-        print <<EOM;
+        print <<"EOM";
 Make            : $info->{Make}
 Model           : $info->{Model}
 SerialNumber    : $info->{SerialNumber}
@@ -1591,7 +1630,7 @@ sub verifyOrGenerateMd5ForFile {
             if (isMd5VersionUpToDate($pathDetails->absPath, $expectedMd5->{version})) {
                 # TODO: switch this hacky crash output to better perl way
                 # of generating tables
-                die <<EOM;
+                die <<"EOM";
 Unexpected state: full MD5 match and content MD5 mismatch for
 ${\$pathDetails->absPath}
              version  full_md5                          md5
@@ -1789,7 +1828,7 @@ sub appendMetadata {
 # empty string. If it is in the wrong directory, a short truthy error
 # string for display (colored by [colorIndex]) is returned.
 sub getDirectoryError {
-    my ($path, $colorIndex) = @_;
+    my ($path) = @_;
 
     my $et = new Image::ExifTool;
 
@@ -1805,23 +1844,16 @@ sub getDirectoryError {
         }
     }
 
-    my $errorColor = 'bright_white on_' . 
-                     (defined $colorIndex ? colorByIndex($colorIndex) : 'red');
-
-    if (!defined $date) {
-        return ' ' . colored("** Can't find media's date! $errorColor **", $errorColor);
-    }
+    return 'Can\'t find media date' if !defined $date;
 
     my $yyyy = substr $date, 0, 4;
     my $date2 = join '', $date =~ /^..(..)-(..)-(..)$/;
     my @dirs = File::Spec->splitdir((File::Spec->splitpath($path))[1]);
     if ($dirs[-3] eq $yyyy and
         $dirs[-2] =~ /^(?:$date|$date2)/) {
-        # Falsy empty string when path is correct
-        return '';
+        return ''; # No error
     } else {
-        # Truthy error string
-        return ' ' . colored("** Wrong dir! [$date] **", $errorColor);
+        return "Wrong dir for item with data $date";
     }
 }
 
@@ -1896,7 +1928,7 @@ sub addMd5ForPath {
     $md5Set->{md5Key} = $md5;
     writeMd5FileToHandle($fh, $md5Set);
  
-    printFileOp("Added   $md5Key to   '$md5Path'\n");
+    printFileOp("Added   '$md5Key' to   '$md5Path'\n");
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -1912,20 +1944,31 @@ sub removeMd5ForPath {
         if (exists $md5Set->{$md5Key}) {
             my $md5 = $md5Set->{$md5Key};
 
-            delete $md5Set->{$md5Key};            
-            writeMd5FileToHandle($fh, $md5Set);
+            delete $md5Set->{$md5Key};
             
+            if (%$md5Set) {
+                writeMd5FileToHandle($fh, $md5Set);
+                printFileOp("Removed '$md5Key' from '$md5Path'\n");
+            } else {
+                # We removed the last entry, so delete the
+                # file rather than just leaving empty files
+                trace(VERBOSITY_DEBUG, "Deleting '$md5Path' after removing the last entry");
+                close($fh);
+                unlink $md5Path
+                    or die "Couldn't delete '$md5Path': $!";
+                printFileOp("Removed '$md5Key' from '$md5Path', and deleted empty file\n");
+            }
+
             # TODO: update the cache from the validate func?
 
-            printFileOp("Removed $md5Key from '$md5Path'\n");
 
             return $md5;
         } else {
-            trace(VERBOSITY_DEBUG, "$md5Key didn't exist in $md5Path");
+            trace(VERBOSITY_DEBUG, "'$md5Key' didn't exist in '$md5Path'");
             return undef;
         }
     } else {
-        trace(VERBOSITY_DEBUG, "Couldn't open $md5Path");
+        trace(VERBOSITY_DEBUG, "Couldn't open '$md5Path'");
         return undef;
     }
 }
@@ -2003,6 +2046,8 @@ sub writeMd5FileToHandle {
     my ($fh, $md5s) = @_;
     trace(VERBOSITY_DEBUG, 'writeMd5FileToHandle(<..>, { hash of @{[ scalar keys %$md5s ]} items })');    
     
+    warn "Writing empty data to md5.txt" unless %$md5s;
+
     # Clear MD5 file
     seek($fh, 0, 0)
         or die "Couldn't reset seek on file: $!";
@@ -2775,6 +2820,9 @@ sub movePath {
     };
 
     if (-f $oldPath) {
+        # TODO: If both are md5.txt files, and newPath exists, then
+        # cat oldPath on to newPath, and delete oldPath
+
         -e $newPath
             and die "I can't overwrite files moving '$oldPath' to '$newPath')";
 
