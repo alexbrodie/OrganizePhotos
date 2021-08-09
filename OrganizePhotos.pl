@@ -39,7 +39,7 @@
 #    up when data is copied from HFS on MacOS to shared exFAT drive and viewed 
 #    on Windows), and treat them sort of like sidecars (except, that we want
 #    the resource fork of each sidecar in some cases - maybe it should be lower
-#    level like moveFile, traverseGlobPatterns, etc)
+#    level like moveFile, traverseFiles, etc)
 #  * Make sure all file-system/path stuff goes through File:: stuff, not the perlfunc
 #    stuff like: -X, glob, stat
 #  * Get rid of relative paths more and clean up use of rel2abs/abs2rel, and make
@@ -61,7 +61,7 @@
 # * Switch from print to trace where appropriate
 # * Namespace somehow for view/model/API/etc?
 # * Add param types to sub declaration? 
-# * Switch File::Find::find to traverseGlobPatterns
+# * Switch File::Find::find to traverseFiles
 # * Replace '.' with File::Spec->curdir()?
 # * Cleanup print/trace/warn/die/carp/cluck/croak/confess including final endlines
 # * Include zip and pdf files too
@@ -800,7 +800,7 @@ sub doCheckMd5 {
 sub doCollectTrash {
     my (@globPatterns) = @_;
     
-    traverseGlobPatterns(
+    traverseFiles(
         sub { # isWanted
             my ($pathDetails) = @_;
             
@@ -825,7 +825,7 @@ sub doCollectTrash {
 # Execute find-dupe-dirs verb
 sub doFindDupeDirs {
 
-    # TODO: clean this up and use traverseGlobPatterns
+    # TODO: clean this up and use traverseFiles
 
     my %keyToPaths = ();
     File::Find::find({
@@ -862,7 +862,7 @@ sub buildFindDupeFilesDupeGroups {
     my %keyToPathDetails = ();
     if ($byName) {
         # Make hash to list of like files with hash key based on file/dir name
-        traverseGlobPatterns(
+        traverseFiles(
             sub { # isWanted
                 my ($pathDetails) = @_;
                 
@@ -880,26 +880,20 @@ sub buildFindDupeFilesDupeGroups {
                 my ($pathDetails) = @_;
                 
                 if (-f $pathDetails->absPath) {
-                    trace(VERBOSITY_DEBUG, "buildDupeGroups processing '${\$pathDetails->relPath}'");
                     my $key = computeFindDupeFilesHashKeyByName($pathDetails);
                     push @{$keyToPathDetails{$key}}, $pathDetails;
                 }
             },
-            @globPatterns);
-        
+            @globPatterns);        
     } else {
         # Make hash to list of like files with MD5 as hash key
-        findMd5s(sub {
-            my ($pathDetails, $md5) = @_;
-            # TODO: we have to handle missing files later anyway. This seems to just
-            # hide crusty data in the md5.txt files. Should we just add all files
-            # whether they're missing or not?
-            #if (-e $pathDetails->absPath) {
+        findMd5s(
+            sub {
+                my ($pathDetails, $md5) = @_;
+
                 push @{$keyToPathDetails{$md5}}, $pathDetails;
-            #} else {
-            #    trace(VERBOSITY_2, "Path for MD5 is missing: '${\$pathDetails->relPath}'");
-            #}
-        }, @globPatterns);
+            }, 
+            @globPatterns);
     }
     
     trace(VERBOSITY_DEBUG, "Found @{[scalar keys %keyToPathDetails]} initial groups");
@@ -911,7 +905,6 @@ sub buildFindDupeFilesDupeGroups {
     # @dupes collection for further processing.
     my @dupes = ();
     while (my ($key, $pathDetailsList) = each %keyToPathDetails) {
-        trace(VERBOSITY_DEBUG, "Built dupe group for '$key':", map { "\n\t".$_->absPath } @$pathDetailsList);
         if (@$pathDetailsList > 1) {
             push @dupes, [sort { comparePathWithExtOrder($a, $b) } @$pathDetailsList];
         }
@@ -1292,7 +1285,7 @@ sub doRemoveEmpties {
     # Map from directory absolute path to sub-item count
     my %dirSubItemsMap = ();
 
-    traverseGlobPatterns(
+    traverseFiles(
         sub { # isWanted
             my ($pathDetails) = @_;
 
@@ -1320,7 +1313,7 @@ sub doRemoveEmpties {
                 if (-d $pathDetails->absPath) {
                     # at this point, all the sub-items should be processed, see how many
                     my $subItems = $dirSubItemsMap{$pathDetails->absPath};
-                    trace(VERBOSITY_DEBUG, "Directory '${\$pathDetails->relPath}' contains @{[ $subItems || 0 ]} subitems");
+                    #trace(VERBOSITY_DEBUG, "Directory '${\$pathDetails->relPath}' contains @{[ $subItems || 0 ]} subitems");
 
                     # As part of a later verification check, we'll remove this dir
                     # from our map. Then if other sub-items are added after we process
@@ -1512,7 +1505,7 @@ sub doVerifyMd5 {
 sub verifyOrGenerateMd5ForGlob {
     my ($addOnly, @globPatterns) = @_;
 
-    traverseGlobPatterns(
+    traverseFiles(
         sub { # isWanted
             my ($pathDetails) = @_;
 
@@ -1867,7 +1860,7 @@ sub findMd5s {
     trace(VERBOSITY_2, 'Looking for md5.txt in', 
           (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (unspecified)'));
 
-    traverseGlobPatterns(
+    traverseFiles(
         sub { # isWanted
             my ($pathDetails) = @_;
 
@@ -2622,7 +2615,7 @@ sub splitExt {
 #
 # Example: if you wanted to report all the friendly names of all files that 
 # aren't in a .Trash directory, you'd do:
-#   traverseGlobPatterns(
+#   traverseFiles(
 #       sub { #isWanted
 #           my ($pathDetails) = @_; 
 #           return !(-d $pathDetails->absPath) or (lc $pathDetails->filename ne '.trash');
@@ -2634,9 +2627,9 @@ sub splitExt {
 #
 # Note that if glob patterns overlap, then some files might invoke the 
 # callbacks more than once. For example, 
-#   traverseGlobPatterns(sub { ... }, sub {...}, 'Al*.jpg', '*ex.jpg');
+#   traverseFiles(sub { ... }, sub {...}, 'Al*.jpg', '*ex.jpg');
 # would match Alex.jpg twice, and invoke isWanted/callback twice as well.
-sub traverseGlobPatterns {
+sub traverseFiles {
     my ($isWanted, $callback, @globPatterns) = @_;
 
     # Record base now so that no_chdir doesn't affect rel2abs/abs2rel below
@@ -2758,47 +2751,112 @@ sub trashPathAndSidecars {
 # its entry from the md5.txt file
 sub trashPath {
     my ($path) = @_;
-    #trace(VERBOSITY_DEBUG, "trashPath('$path');");
+    trace(VERBOSITY_DEBUG, "trashPath('$path');");
 
-    my ($volume, $dir, $name) = File::Spec->splitpath($path);
-    my $trashDir = File::Spec->catpath($volume, $dir, '.Trash');
-    my $trashPath = File::Spec->catfile($trashDir, $name);
-
-    movePath($path, $trashPath);
+    # If it's an empty directory, just delete it. Trying to trash
+    # a dir with no items proves problematic for future move-merges
+    # and we wind up with a lot of orphaned empty containers.
+    unless (tryRemoveEmptyDir($path)) {
+        # Not an empty dir, so move to trash
+        my ($volume, $dir, $filename) = File::Spec->splitpath($path);
+        my $trashDir = File::Spec->catdir($dir, '.Trash');
+        my $trashPath = File::Spec->catpath($volume, $trashDir, $filename);
+        movePath($path, $trashPath);
+    }
 }
 
 # MODEL (File Operations) ------------------------------------------------------
-# Trash the specified path by moving it to rootPathDetails's .Trash subdir
-# and moving its entry from the md5.txt file
+# Trash the specified pathDetails by moving it to rootPathDetails's .Trash
+# subdir and moving its entry from the md5.txt file. rootPathDetails must
+# be an ancestor of pathDetails. If it is the direct parent, this method
+# behaves like trashPath.
+#
+# Example 1: (nested with intermediate .Trash)
+#   trashPathWithRoot('.../root/A/B/.Trash/C/D/.Trash', '.../root')
+#   results in: 
+#   movePath('.../root/A/B/.Trash/C/D/.Trash', '.../root/.Trash/A/B/C/D')
+#  
+# Example 2: (degenerate trashPath case)
+#   trashPathWithRoot('.../root/foo', '.../root')
+#   results in: 
+#   movePath('.../root/foo', '.../root/.Trash/foo')
+#  
+# Example 3: (edge case)
+#   trashPathWithRoot('.../root/.Trash/.Trash/.Trash', '.../root')
+#   results in: 
+#   movePath('.../root/.Trash/.Trash/.Trash', '.../root/.Trash')
 sub trashPathWithRoot {
     my ($pathDetails, $rootPathDetails) = @_;
+    trace(VERBOSITY_DEBUG, "trashPathWithRoot('${\$pathDetails->relPath}', '${\$rootPathDetails->relPath}');");
 
-    # Split the directories into pieces assuming root is a dir    
-    my @pathDirs = File::Spec->splitdir($pathDetails->directories);
-    my @rootDirs = File::Spec->splitdir(File::Spec->catdir($rootPathDetails->directories, $rootPathDetails->filename));
+    # We will follow along with an example:
+    #   trashPathWithRoot('.../root/A/B/.Trash/C/D/.Trash', '.../root')
+    # with the desired result: 
+    #   movePath('.../root/A/B/.Trash/C/D/.Trash', '.../root/.Trash/A/B/C/D')
 
-    # Verify @rootDirs is a prefix match for (i.e. ancestor of) $pathDirs
+    # Split the directories into pieces assuming root is a dir
+    # Note the careful use of splitdir and catdir - splitdir can return
+    # empty string entries in the array, notably at beginning and end
+    # which can make manipulation of dir arrays tricky.
+
+    # Example 1: pathDirs = ( ..., root, A, B, .Trash, C, D )
+    my @pathDirs = File::Spec->splitdir(File::Spec->catdir(
+        $pathDetails->directories, $pathDetails->filename));
+    # trace(VERBOSITY_DEBUG, 'pathDirs = ', join(', ', map { "'$_'" } @pathDirs));
+
+    # Example N: rootDirs = ( ..., root )
+    my @rootDirs = File::Spec->splitdir(File::Spec->catdir(
+        $rootPathDetails->directories, $rootPathDetails->filename));
+    # trace(VERBOSITY_DEBUG, 'rootDirs = ', join(', ', map { "'$_'" } @rootDirs));
+
+    my $prefixDeath = sub {
+        "Programmer error: root '${\$rootPathDetails->absPath}' is not " .
+        "a prefix for path '${\$pathDetails->absPath} (@_)";
+    };
+
+    # Verify @rootDirs is a prefix match for (i.e. ancestor of) @pathDirs
     $pathDetails->volume eq $rootPathDetails->volume
-        or die "Programmer error: root is is not a prefix for path (different volumes)";
+        or die $prefixDeath->('different volumes');
     @rootDirs < @pathDirs 
-        or die "Programmer error: root is is not a prefix for path (root is longer)";
+        or die $prefixDeath->('root is longer');
     for (my $i = 0; $i < @rootDirs; $i++) {
         $rootDirs[$i] eq $pathDirs[$i] 
-            or die "Programmer error: root is not prefix for path ('$rootDirs[$i]' ne '$pathDirs[$i]' at $i)";
+            or die $prefixDeath->("'$rootDirs[$i]' ne '$pathDirs[$i]' at $i");
     }
 
     # Figure out postRoot (pathDetails relative to rootPathDetails without trash),
     # and then append that to rootPathDetails's trash dir's path
-    my @postRoot = grep { lc ne '.trash' } @pathDirs[@rootDirs .. @pathDirs-1];
+
+    # Example 1: postRoot = ( .Trash, A, B, C, D )
+    # Example 2: postRoot = ( .Trash, foo )
+    # Example 3: postRoot = ( .Trash )
+    my @postRoot = ('.Trash', grep { lc ne '.trash' } @pathDirs[@rootDirs .. @pathDirs-1]);
+    # trace(VERBOSITY_DEBUG, 'postRoot = ', join(', ', map { "'$_'" } @postRoot));
+
+    # Example 1: postRoot = ( .Trash, A, B, C ); newFilename = D
+    # Example 2: postRoot = ( .Trash ); newFilename = foo
+    # Example 3: postRoot = (); newFilename = .Trash
     my $newFilename = pop @postRoot;
-    my $newDirectories = File::Spec->catdir(@rootDirs, '.Trash', @postRoot);
+    # trace(VERBOSITY_DEBUG, 'postRoot = ', join(', ', map { "'$_'" } @postRoot), 
+    #                        "; newFilename = $newFilename");
+
+    # Example 1: newDirectories = '.../root/.Trash/A/B/C'
+    # Example 2: newDirectories = '.../root/.Trash'
+    # Example 3: newDirectories = '.../root'
+    my $newDirectories = File::Spec->catdir(@rootDirs, @postRoot);
+    # trace(VERBOSITY_DEBUG, "newDirectories = $newDirectories");
+
+    # Example 1: newAbsPath = '.../root/.Trash/A/B/C/D'
+    # Example 2: newAbsPath = '.../root/.Trahs/foo'
+    # Example 3: newAbsPath = '.../root/.Trash'
     my $newAbsPath = File::Spec->catpath($pathDetails->volume, $newDirectories, $newFilename);
+    # trace(VERBOSITY_DEBUG, "newAbsPath = $newAbsPath");
 
     movePath($pathDetails->absPath, $newAbsPath);
 }
 
 # MODEL (File Operations) ------------------------------------------------------
-# Move [oldPath] to [newPath]
+# Move [oldPath] to [newPath] doing a move-merge where necessary and possible
 sub movePath {
     my ($oldPath, $newPath) = @_;
     trace(VERBOSITY_DEBUG, "movePath('$oldPath', '$newPath');");
@@ -2830,42 +2888,60 @@ sub movePath {
         my $md5 = removeMd5ForPath($oldPath);
         addMd5ForPath($newPath, $md5) if $md5;
 
-        printFileOp("Moved file '$oldPath' => '$newPath'\n");
+        printFileOp("Moved file  '$oldPath' => '$newPath'\n");
     } elsif (-d $oldPath) {
-        if (-e $newPath) {
+        if (-e $newPath) { 
             # Dest dir path already exists, need to move-merge.
-
-            # TODO: BUGBUG: this needs some cleanup and debugging. 
-            # I'm not sure this actually works for example when doing 
-            # a multi-level move-merge
 
             -d $newPath
                 or die "Can't move a directory - file already exists at destination ('$oldPath' => '$newPath')";
 
-            # Walk through all the sub-items in the dir $oldPath breadth first
-            # so that we try to move parent dirs that don't already have something
-            # at the destination before going and trying to move their sub-items
-            # one at a time.
-            File::Find::find({
-                wanted => sub {
-                    if ($_ ne '.') {
-                        movePath($File::Find::name,
-                                File::Spec->catfile($newPath, $_));
-                    }
-                }
-            }, $oldPath);
+            # Use readdir rather than File::Find::find here. This doesn't
+            # do a lot of what File::Find::find does - by design. We don't
+            # want a lot of that behavior, and don't care about most of
+            # the rest (we only want one - not recursive, don't want to
+            # change dir, don't support traversing symbolic links, etc.). 
 
-            # TODO: If we've emptied out $oldPath my moving all its contents into
-            # the already existing $newPath, can we safely delete it? Or do we
-            # just be conservative and lazy and let doRemoveEmpties handle it?
+            opendir(my $dh, $oldPath)
+                or die "Couldn't open dir '$oldPath': $!";
+            my @filenames = readdir($dh);
+            closedir($dh);
+
+            for (@filenames) {
+                if ($_ ne '.' and $_ ne '..') {
+                    my $oldSubPath = File::Spec->catfile($oldPath, $_);
+                    my $newSubPath = File::Spec->catfile($newPath, $_);
+                    movePath($oldSubPath, $newSubPath);
+                }
+            }
+
+            # If we've emptied out $oldPath my moving all its contents into
+            # the already existing $newPath, we can safely delete it.
+            tryRemoveEmptyDir($oldPath);
+            
         } else {
             # Dest dir doesn't exist, so we can just move the whole directory
             $moveInternal->($oldPath, $newPath);
 
-            printFileOp("Moved dir  '$oldPath' => '$newPath'\n");
+            printFileOp("Moved dir   '$oldPath' => '$newPath'\n");
         }
     } else {
         die "Programmer Error: unexpected type for object $oldPath";
+    }
+}
+
+# MODEL (File Operations) ------------------------------------------------------
+# Removes the specified path if it's an empty directory and returns truthy.
+# If it's not a directory or a directory with children, the do nothing
+# and return falsy.
+sub tryRemoveEmptyDir {
+    my ($path) = @_;
+
+    if (-d $path and rmdir $path) {
+        printFileOp("Deleted dir '$path' (it was empty)\n");
+        return 1;
+    } else {
+        return 0;
     }
 }
 
