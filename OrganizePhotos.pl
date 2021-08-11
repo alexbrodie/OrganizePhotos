@@ -1417,8 +1417,8 @@ sub doTest2 {
         # Get file metadata
         my @props = qw(DateTimeOriginal TimeZone TimeZoneCity DaylightSavings 
                        Make Model SerialNumber);
-        trace(VERBOSITY_2, "Image::ExifTool::ImageInfo('$path', ...);");
-        my $info = Image::ExifTool::ImageInfo($path, \@props, {DateFormat => '%FT%TZ'});
+        trace(VERBOSITY_2, "Image::ExifTool::ImageInfo('$filename', ...);");
+        my $info = Image::ExifTool::ImageInfo($filename, \@props, {DateFormat => '%FT%TZ'});
         trace(VERBOSITY_DEBUG, "$filename: ", Data::Dumper::Dumper($info));
     
         my $metadataDate = $info->{DateTimeOriginal};
@@ -2172,7 +2172,7 @@ sub getMd5 {
     # If we fail to generate a partial match (e.g. corrupted file),
     # Just warn and use the full file MD5 rather than letting the
     # exception loose and just skipping the file.
-r    my $partialMd5Hash = undef;
+    my $partialMd5Hash = undef;
     eval {
         my $type = getMimeType($path);
         if ($type eq 'image/jpeg') {
