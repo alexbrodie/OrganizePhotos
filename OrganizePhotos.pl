@@ -70,6 +70,10 @@
 #   halt/alert/inform/trace system for crashes/warnings/print statments/diagnositcs?
 # * Add a new restore-trash verb that searches for .Trash dirs and for each
 #   one calls consolidateTrash(self, self) and movePath(self, parent)
+# * readMd5File/writeMd5File should just do a Storable::dclone on the 
+#   hashref it's returning or is passed to cache last md5Path/md5Set for caching
+#   rather than only doing it in verifyOrGenerateMd5ForFile
+# * Use constants for some of the standard paths like md5.txt, .Trash, thumbs.db, etc
 #
 =pod
 
@@ -1326,8 +1330,7 @@ sub doRemoveEmpties {
                     # it's not trashable, then fall through to add this to its parent
                     # dir's list (to prevent the parent from being trashed).
                     unless ($subItems) {
-                        trace(VERBOSITY_2, "Trashing '${\$pathDetails->relPath}'"); 
-                        trashPath($pathDetails->absPath);
+                        trashPath($pathDetails);
                         return;
                     }
                 }
@@ -1516,13 +1519,14 @@ sub verifyOrGenerateMd5ForGlob {
                 # process media files
                 return 1 if ($pathDetails->filename =~ /$mediaType/);
                 
-                trace(VERBOSITY_2, sub {
+                trace(VERBOSITY_DEBUG, sub {
                     # Don't show message for types that aren't meaningful in this
                     # context, occur a lot, and would just be a lot of noisy output
                     my $lowerName = lc $pathDetails->filename;
                     if (($lowerName ne 'md5.txt') and 
                         ($lowerName ne '.ds_store') and 
                         ($lowerName ne 'thumbs.db') and 
+                        ($lowerName ne 'desktop.ini') and 
                         ($lowerName !~ /\.(?:thm|xmp)$/)) {
                         return "Skipping MD5 calculation for '${\$pathDetails->relPath}' (non-media file)";
                     }
@@ -1578,7 +1582,7 @@ sub verifyOrGenerateMd5ForFile {
     }
         
     # Read MD5.txt file to consult
-    my ($fh, $expectedMd5Set) = openAndReadMd5File($md5Path);
+    my ($fh, $expectedMd5Set) = readOrCreateNewMd5File($md5Path);
 
     # Update cache
     $lastMd5Path = $md5Path;
@@ -1671,7 +1675,8 @@ EOM
     $lastMd5Set = $expectedMd5Set;
 
     # Update MD5 file
-    writeMd5FileToHandle($fh, $expectedMd5Set);   
+    trace(VERBOSITY_2, "Writing '$md5Path' after setting MD5 for '$md5Key'");
+    writeMd5File($fh, $expectedMd5Set);   
 }
 
 #-------------------------------------------------------------------------------
@@ -1692,7 +1697,6 @@ sub metadataDiff {
     my %keys = ();
     for (my $i = 0; $i < @items; $i++) {
         while (my ($key, $value) = each %{$items[$i]}) {
-            no warnings 'experimental::smartmatch';
             unless (any { $_ eq $key } @tagsToSkip) {
                 for (my $j = 0; $j < @items; $j++) {
                     if ($i != $j and
@@ -1856,9 +1860,8 @@ sub getDirectoryError {
 #      callback($absolutePath, $md5AsString)
 sub findMd5s {
     my ($callback, @globPatterns) = @_;
-    
-    trace(VERBOSITY_2, 'Looking for md5.txt in', 
-          (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (unspecified)'));
+    trace(VERBOSITY_DEBUG, 'findMd5s(...); with @globPatterns of', 
+          (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (current dir)'));
 
     traverseFiles(
         sub { # isWanted
@@ -1878,15 +1881,7 @@ sub findMd5s {
             my ($pathDetails) = @_;
             
             if (-f $pathDetails->absPath) {
-                trace(VERBOSITY_2, "Found '${\$pathDetails->relPath}'");
-                
-                # Open the md5.txt file in read only mode
-                open(my $fh, '<:crlf', $pathDetails->absPath)
-                    or die "Couldn't open '${\$pathDetails->absPath}': $!";
-            
-                # Parse the file to get all the filename -> file info hash
-                my $md5Set = readMd5FileFromHandle($fh);
-
+                my (undef, $md5Set) = readMd5File('<:crlf', $pathDetails->absPath);
                 for (sort keys %$md5Set) {
                     my $md5 = $md5Set->{$_}->{md5};
                     my $otherPathDetails = changeFilename($pathDetails, $_);
@@ -1902,6 +1897,7 @@ sub findMd5s {
 # and the key used to index into the contents of that file.
 sub getMd5PathAndKey {
     my ($path) = @_;
+    trace(VERBOSITY_DEBUG, "getMd5PathAndKey('$path');");
 
     $path = File::Spec->rel2abs($path);
     my ($volume, $dir, $name) = File::Spec->splitpath($path);
@@ -1912,16 +1908,30 @@ sub getMd5PathAndKey {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-sub addMd5ForPath {
-    my ($path, $md5) = @_;
-    trace(VERBOSITY_DEBUG, "addMd5ForPath('$path', {..});");
+sub setMd5ForPath {
+    my ($path, $md5Info) = @_;
+    trace(VERBOSITY_DEBUG, "setMd5ForPath('$path', {...});");
+
+    return removeMd5ForPath($path) unless $md5Info;
 
     my ($md5Path, $md5Key) = getMd5PathAndKey($path);
-    my ($fh, $md5Set) = openAndReadMd5File($md5Path);
-    $md5Set->{md5Key} = $md5;
-    writeMd5FileToHandle($fh, $md5Set);
- 
-    printFileOp("Added   '$md5Key' to   '$md5Path'\n");
+
+    my ($fh, $md5Set) = readOrCreateNewMd5File($md5Path);
+
+    my $existingMd5Info = $md5Set->{$md5Key};
+    $md5Set->{md5Key} = $md5Info;
+
+    trace(VERBOSITY_2, "Writing '$md5Path' after setting MD5 for '$md5Key'");
+    writeMd5File($fh, $md5Set);
+    if (defined $existingMd5Info) {
+        printFileOp("Updated MD5 for '$path'\n");
+    } else {
+        printFileOp("Added MD5 for '$path'\n");
+    }
+
+    # TODO: update the cache from the validate func?
+    
+    return $existingMd5Info;
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -1929,66 +1939,76 @@ sub addMd5ForPath {
 # Returns the data that was removed or undef if it wasn't there.
 sub removeMd5ForPath {
     my ($path) = @_;
+    trace(VERBOSITY_DEBUG, "removeMd5ForPath('$path');");
 
     my ($md5Path, $md5Key) = getMd5PathAndKey($path);
-    if (open(my $fh, '+<:crlf', $md5Path)) {
-        my $md5Set = readMd5FileFromHandle($fh);
-        
-        if (exists $md5Set->{$md5Key}) {
-            my $md5 = $md5Set->{$md5Key};
-
-            delete $md5Set->{$md5Key};
-            
-            if (%$md5Set) {
-                writeMd5FileToHandle($fh, $md5Set);
-                printFileOp("Removed '$md5Key' from '$md5Path'\n");
-            } else {
-                # We removed the last entry, so delete the
-                # file rather than just leaving empty files
-                trace(VERBOSITY_DEBUG, "Deleting '$md5Path' after removing the last entry");
-                close($fh);
-                unlink $md5Path
-                    or die "Couldn't delete '$md5Path': $!";
-                printFileOp("Removed '$md5Key' from '$md5Path', and deleted empty file\n");
-            }
-
-            # TODO: update the cache from the validate func?
-
-
-            return $md5;
-        } else {
-            trace(VERBOSITY_DEBUG, "'$md5Key' didn't exist in '$md5Path'");
-            return undef;
-        }
-    } else {
-        trace(VERBOSITY_DEBUG, "Couldn't open '$md5Path'");
+    
+    # If md5.txt is missing, there's nothing to do and the prev value is undef
+    unless (-e $md5Path) {
+        trace(VERBOSITY_DEBUG, "Non-existant '$md5Path' means we can't remove MD5 for '$md5Key'");
         return undef;
     }
+
+    my ($fh, $md5Set) = readMd5File('+<:crlf', $md5Path);
+    
+    # If the MD5 is missing from md5.txt, we can stop here and the prev value is undef
+    unless (exists $md5Set->{$md5Key}) {
+        trace(VERBOSITY_DEBUG, "Leaving '$md5Path' alone since it doesn't contain MD5 for '$md5Key'");
+        return undef;
+    }
+
+    my $existingMd5Info = $md5Set->{$md5Key};
+    delete $md5Set->{$md5Key};
+    
+    # TODO: Should this if/else code move to writeMd5File such that
+    # any time someone tries to write an empty hashref, it deletes the file?
+    if (%$md5Set) {
+        trace(VERBOSITY_2, "Writing '$md5Path' after removing MD5 for '$md5Key'");
+        writeMd5File($fh, $md5Set);
+        printFileOp("Removed MD5 for '$path'\n");
+    } else {
+        # We removed the last entry, so delete the
+        # file rather than just leaving empty files
+        trace(VERBOSITY_2, "Deleting '$md5Path' after removing MD5 for '$md5Key' (the last one)");
+        close($fh);
+        unlink($md5Path)
+            or die "Couldn't delete '$md5Path': $!";
+        printFileOp("Removed MD5 for '$path', and deleted empty file md5.txt\n");
+    }
+
+    # TODO: update the cache from the validate func?
+
+    return $existingMd5Info;
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # This is a utility for updating MD5 information. It opens the MD5 file R/W,
 # then parses and returns the handle and information in the file. The typical
-# usage is to next modify to the MD5s data and call writeMd5FileToHandle.
-sub openAndReadMd5File {
+# usage is to next modify to the MD5s data and call writeMd5File.
+sub readOrCreateNewMd5File {
     my ($path) = @_;
+    trace(VERBOSITY_DEBUG, "readOrCreateNewMd5File('$path');");
 
-    if (open(my $fh, '+<:crlf', $path)) {
+    if (-e $path) {
         # Read existing contents
-        return ($fh, readMd5FileFromHandle($fh));
+        return readMd5File('+<:crlf', $path);
     } else {
         # File doesn't exist, create RW
-        open($fh, '+>', $path)
-            or die "Couldn't open $path: $!";
-        return ($fh, {});
+        # TODO: should mode here have :crlf on the end?
+        return (openOrDie('+>', $path), {});
     }
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# Deserialize a md5.txt file handle into a OM
-sub readMd5FileFromHandle {
-    my ($fh) = @_;
-    trace(VERBOSITY_DEBUG, 'readMd5FileFromHandle(<..>)');
+# Deserialize a md5.txt file handle into a OM which can be read, modified, 
+# and/or passed to writeMd5File.
+sub readMd5File {
+    my ($mode, $path) = @_;
+    trace(VERBOSITY_2, "readMd5File('$mode', '$path');");
+
+    # TODO: Should we validate filename is md5.txt or do we care?
+
+    my $fh = openOrDie($mode, $path);
     
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple name: md5 format parsing
@@ -2015,7 +2035,7 @@ sub readMd5FileFromHandle {
             $values->{version} = 1 unless exists $values->{version};
         }
         
-        return $md5s;
+        return ($fh, $md5s);
     } else {
         # Parse as simple "name: md5" text
         my %md5s = ();    
@@ -2029,15 +2049,15 @@ sub readMd5FileFromHandle {
             $md5s{lc $1} = { version => 0, md5 => $fullMd5, full_md5 => $fullMd5 };
         }        
 
-        return \%md5s;
+        return ($fh, \%md5s);
     }
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Serialize OM into a md5.txt file handle
-sub writeMd5FileToHandle {
+sub writeMd5File {
     my ($fh, $md5s) = @_;
-    trace(VERBOSITY_DEBUG, 'writeMd5FileToHandle(<..>, { hash of @{[ scalar keys %$md5s ]} items })');    
+    trace(VERBOSITY_DEBUG, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5s ]} items });');    
     
     warn "Writing empty data to md5.txt" unless %$md5s;
 
@@ -2065,10 +2085,11 @@ sub writeMd5FileToHandle {
 # TODO: should this be a nested function?
 sub canMakeMd5MetadataShortcut {
     my ($addOnly, $pathDetails, $expectedMd5, $actualMd5) = @_;
+    trace(VERBOSITY_DEBUG, 'canMakeMd5MetadataShortcut(...);');    
     
     if (defined $expectedMd5) {
         if ($addOnly) {
-            trace(VERBOSITY_2, "Skipping MD5 recalculation for '${\$pathDetails->relPath}' (add-only mode)");
+            trace(VERBOSITY_DEBUG, "Skipping MD5 recalculation for '${\$pathDetails->relPath}' (add-only mode)");
             return 1;
         }
     
@@ -2077,7 +2098,7 @@ sub canMakeMd5MetadataShortcut {
             isMd5VersionUpToDate($pathDetails->absPath, $expectedMd5->{version}) and
             $actualMd5->{size} == $expectedMd5->{size} and
             $actualMd5->{mtime} == $expectedMd5->{mtime}) {
-            trace(VERBOSITY_2, "Skipping MD5 recalculation for '${\$pathDetails->relPath}' (same size/date-modified)");
+            trace(VERBOSITY_DEBUG, "Skipping MD5 recalculation for '${\$pathDetails->relPath}' (same size/date-modified)");
             return 1;
         }
     }
@@ -2091,6 +2112,7 @@ sub canMakeMd5MetadataShortcut {
 # version is equivalent to the current version for the specified file type.
 sub isMd5VersionUpToDate {
     my ($path, $version) = @_;
+    trace(VERBOSITY_DEBUG, "isMd5VersionUpToDate('$path', $version);");    
     
     # NOTE: this is a good place to put a hack if you want to force 
     # regeneration of MD5s for file(s). Returning something falsy will 
@@ -2122,10 +2144,9 @@ sub isMd5VersionUpToDate {
 #   md5: primary MD5 comparison (excludes volitile data from calculation)
 #   full_md5: full MD5 calculation for exact match
 sub getMd5 {
-    my ($path, $useCache) = @_;
-    
+    my ($path, $useCache) = @_;    
     # TODO: use '${\$pathDetails->relPath}' instead of '$path' (which is absPath)
-    trace(VERBOSITY_DEBUG, "Calculating MD5 for '$path'");
+    trace(VERBOSITY_2, "getMd5('$path', ", ($useCache ? 'true' : 'false') ,');');
     
     # *** IMPORTANT NOTE ***
     # $getMd5Version should be incremented whenever the output of
@@ -2140,9 +2161,7 @@ sub getMd5 {
         return $cacheResult if defined $cacheResult;
     }
     
-    open(my $fh, '<:raw', $path)
-        or die "Couldn't open $path: $!";
-        
+    my $fh = openOrDie('<:raw', $path);
     my $fullMd5Hash = getMd5Digest($path, $fh);
 
     # TODO: should we catch exceptions for partial match computation
@@ -2472,7 +2491,10 @@ sub extractInfo {
 }
 
 # MODEL (PathDetails) ----------------------------------------------------------
-sub makePathDetails {
+# Makes a PathDetails object without verifying or sanitizing the input.
+# All paths should be pre-verified and canonpath'ed. This is primarily to
+# be used for implementing other factory methods.
+sub unsafeMakePathDetails {
     my ($absPath, $base, $relPath) = @_;
 
     # TODO: see if we can delay this calculation until needed. Might require
@@ -2499,17 +2521,31 @@ sub changeFilename {
     # TODO: try harder - do something with $pathDetails->relPath
     my $relPath = $absPath; 
 
-    return makePathDetails($absPath,
-                           $pathDetails->base,
-                           $relPath);
+    return unsafeMakePathDetails(File::Spec->canonpath($absPath),
+                                 $pathDetails->base,
+                                 File::Spec->canonpath($relPath));
+}
+
+# MODEL (PathDetails) ----------------------------------------------------------
+sub appendFilename {
+    my ($pathDetails, $append) = @_;
+
+    my $newAbs = File::Spec->catfile($pathDetails->absPath, $append);
+    my $newRel = File::Spec->catfile($pathDetails->relPath, $append);
+
+    return unsafeMakePathDetails(File::Spec->canonpath($newAbs),
+                                 $pathDetails->base,
+                                 File::Spec->canonpath($newRel));
 }
 
 # MODEL (PathDetails) ----------------------------------------------------------
 sub comparePathWithExtOrder {
     my ($pathDetailsA, $pathDetailsB) = @_;
 
-    return compareDirectories($pathDetailsA->directories, $pathDetailsB->directories) ||
-           compareFilenameWithExtOrder($pathDetailsA->filename, $pathDetailsB->filename);
+    return compareDirectories($pathDetailsA->directories, 
+                              $pathDetailsB->directories) ||
+           compareFilenameWithExtOrder($pathDetailsA->filename, 
+                                       $pathDetailsB->filename);
 }
 
 # MODEL (Path Operations) ------------------------------------------------------
@@ -2618,7 +2654,8 @@ sub splitExt {
 #   traverseFiles(
 #       sub { #isWanted
 #           my ($pathDetails) = @_; 
-#           return !(-d $pathDetails->absPath) or (lc $pathDetails->filename ne '.trash');
+#           return !(-d $pathDetails->absPath) 
+#               or (lc $pathDetails->filename ne '.trash');
 #       },
 #       sub { # callback
 #           my ($pathDetails) = @_; 
@@ -2633,7 +2670,8 @@ sub traverseFiles {
     my ($isWanted, $callback, @globPatterns) = @_;
 
     # Record base now so that no_chdir doesn't affect rel2abs/abs2rel below
-    my $base = File::Spec->rel2abs(File::Spec->curdir());
+    # (and - bonus - just resolve and canonicalize once)
+    my $base = File::Spec->canonpath(File::Spec->rel2abs(File::Spec->curdir()));
     
     # the isWanted and callback methods take the same params, that share
     # the following computations
@@ -2642,10 +2680,12 @@ sub traverseFiles {
 
         $relPath = File::Spec->canonpath($relPath);
         my $absPath = File::Spec->rel2abs($relPath, $base);
+        $absPath = File::Spec->canonpath($absPath);
 
-        -e $absPath or die "Programmer Error: incorrect absPath calculation: $absPath";
+        -e $absPath 
+            or die "Programmer Error: incorrect absPath calculation: $absPath";
 
-        return makePathDetails($absPath, $base, $relPath);
+        return unsafeMakePathDetails($absPath, $base, $relPath);
     };
 
     # Method to be called for each directory found in globPatterns
@@ -2654,8 +2694,8 @@ sub traverseFiles {
 
         my $rootPathDetails = $myMakePathDetails->($rootDir);
 
-        # The final wanted call for $rootDir doesn't have a matching preprocess call,
-        # so force one up front for symetry with all other pairs.
+        # The final wanted call for $rootDir doesn't have a matching preprocess
+        # call, so force one up front for symetry with all other pairs.
         if (!$isWanted or $isWanted->($rootPathDetails, $rootPathDetails)) {
             File::Find::find({
                 bydepth => 1,
@@ -2668,32 +2708,32 @@ sub traverseFiles {
                         # enumeration. Also, skip '.' because we would otherwise
                         # process each dir twice, and $rootDir once. This makes
                         # subdirs once and $rootDir not at all.
-                        if (($_ ne '.') and ($_ ne '..')) {
-                            if ($isWanted) {
-                                # The values used here to compute the full path to the file
-                                # relative to $base matches the values of wanted's implementation, 
-                                # and both work the same whether no_chdir is set or not, i.e. they 
-                                # only use values that are unaffected by no_chdir. 
-                                my $relPath = File::Spec->catfile($File::Find::dir, $_);
-                                my $pathDetails = $myMakePathDetails->($relPath);
-
-                                # prevent accedental use via implicit args in isWanted
-                                local $_ = undef;
-                                
-                                $isWanted->($pathDetails, $rootPathDetails);
-                            } else {
-                                1; # process
-                            }
-                        } else {
+                        if (($_ eq '.') or ($_ eq '..')) {
                             0; # skip
+                        } elsif ($isWanted) {
+                            # The values used here to compute the full path to
+                            # the file relative to $base matches the values of
+                            # wanted's implementation,  and both work the same
+                            # whether no_chdir is set or not, i.e. they only
+                            # use values that are unaffected by no_chdir. 
+                            my $pathDetails = $myMakePathDetails->(
+                                File::Spec->catfile($File::Find::dir, $_));
+
+                            # prevent accedental use in isWanted
+                            local $_ = undef;
+                            
+                            $isWanted->($pathDetails, $rootPathDetails);
+                        } else {
+                            1; # process
                         }
                     } @_;
                 },
                 wanted => sub {
                     # The values used here to compute the full path to the file
-                    # relative to $base matches the values of preprocess' implementation, 
-                    # and both work the same whether no_chdir is set or not, i.e. they 
-                    # only use values that are unaffected by no_chdir.
+                    # relative to $base matches the values of preprocess' 
+                    # implementation, and both work the same whether no_chdir is
+                    # set or not, i.e. they only use values that are unaffected
+                    #  by no_chdir.
                     my $pathDetails = $myMakePathDetails->($File::Find::name);
 
                     # prevent accedental use via implicit args in callback
@@ -2717,7 +2757,7 @@ sub traverseFiles {
                 } elsif (-f) {
                     my $pathDetails = $myMakePathDetails->($_);
 
-                    # prevent accedental use via implicit args in isWanted/callback
+                    # prevent accedental use in isWanted/callback
                     local $_ = undef;
 
                     if (!$isWanted or $isWanted->($pathDetails, $pathDetails)) {
@@ -2743,25 +2783,43 @@ sub trashPathAndSidecars {
 
     # TODO: check all for existance before performing any operations to
     # make file+sidecar opererations more atomic
-    trashPath($_->absPath) for ($pathDetails, getSidecarPaths($pathDetails));
+    trashPath($_) for ($pathDetails, getSidecarPaths($pathDetails));
 }
 
 # MODEL (File Operations) ------------------------------------------------------
 # Trash the specified path by moving it to a .Trash subdir and moving
 # its entry from the md5.txt file
 sub trashPath {
-    my ($path) = @_;
-    trace(VERBOSITY_DEBUG, "trashPath('$path');");
+    my ($pathDetails) = @_;
+    trace(VERBOSITY_DEBUG, "trashPath('${\$pathDetails->relPath}');");
 
     # If it's an empty directory, just delete it. Trying to trash
     # a dir with no items proves problematic for future move-merges
     # and we wind up with a lot of orphaned empty containers.
-    unless (tryRemoveEmptyDir($path)) {
-        # Not an empty dir, so move to trash
-        my ($volume, $dir, $filename) = File::Spec->splitpath($path);
-        my $trashDir = File::Spec->catdir($dir, '.Trash');
-        my $trashPath = File::Spec->catpath($volume, $trashDir, $filename);
-        movePath($path, $trashPath);
+    unless (tryRemoveEmptyDir($pathDetails->absPath)) {
+        # Not an empty dir, so move to trash by inserting
+        # a .Trash dir before the filename in the path
+
+        # Insert dir into absPath
+        my $absTrashDir = File::Spec->catdir(
+            $pathDetails->directories, '.Trash');
+        my $absPath = File::Spec->catpath(
+            $pathDetails->volume, $absTrashDir, $pathDetails->filename);
+        $absPath = File::Spec->canonpath($absPath);
+
+        # Insert dir into relPath
+        my ($relVolume, $relDirs, $relFilename) = 
+            File::Spec->splitpath($pathDetails->absPath);
+        my $relTrashDir = File::Spec->catdir(
+            $relDirs, '.Trash');
+        my $relPath = File::Spec->catpath(
+            $relVolume, $relTrashDir, $relFilename);
+        $relPath = File::Spec->canonpath($relPath); 
+
+        my $newPathDetails =  unsafeMakePathDetails(
+            $absPath, $pathDetails->base, $relPath);
+
+        movePath($pathDetails, $newPathDetails);
     }
 }
 
@@ -2787,7 +2845,8 @@ sub trashPath {
 #   movePath('.../root/.Trash/.Trash/.Trash', '.../root/.Trash')
 sub trashPathWithRoot {
     my ($pathDetails, $rootPathDetails) = @_;
-    trace(VERBOSITY_DEBUG, "trashPathWithRoot('${\$pathDetails->relPath}', '${\$rootPathDetails->relPath}');");
+    trace(VERBOSITY_DEBUG, "trashPathWithRoot('${\$pathDetails->relPath}', ",
+                           "'${\$rootPathDetails->relPath}');");
 
     # We will follow along with an example:
     #   trashPathWithRoot('.../root/A/B/.Trash/C/D/.Trash', '.../root')
@@ -2824,8 +2883,8 @@ sub trashPathWithRoot {
             or die $prefixDeath->("'$rootDirs[$i]' ne '$pathDirs[$i]' at $i");
     }
 
-    # Figure out postRoot (pathDetails relative to rootPathDetails without trash),
-    # and then append that to rootPathDetails's trash dir's path
+    # Figure out postRoot (pathDetails relative to rootPathDetails without 
+    # trash), and then append that to rootPathDetails's trash dir's path
 
     # Example 1: postRoot = ( .Trash, A, B, C, D )
     # Example 2: postRoot = ( .Trash, foo )
@@ -2852,49 +2911,64 @@ sub trashPathWithRoot {
     my $newAbsPath = File::Spec->catpath($pathDetails->volume, $newDirectories, $newFilename);
     # trace(VERBOSITY_DEBUG, "newAbsPath = $newAbsPath");
 
-    movePath($pathDetails->absPath, $newAbsPath);
+    TODO need to make a PathDetails for newAbsPath
+    movePath($pathDetails, $newAbsPath);
 }
 
 # MODEL (File Operations) ------------------------------------------------------
-# Move [oldPath] to [newPath] doing a move-merge where necessary and possible
+# Move [oldPathDetails] to [newPathDetails] doing a move-merge where
+# necessary and possible
 sub movePath {
-    my ($oldPath, $newPath) = @_;
-    trace(VERBOSITY_DEBUG, "movePath('$oldPath', '$newPath');");
+    my ($oldPathDetails, $newPathDetails) = @_;
+    my $oap = $oldPathDetails->absPath;  # Shorthand
+    my $orp = $oldPathDetails->relPath;  # for very
+    my $nap = $newPathDetails->absPath;  # frequently
+    my $nrp = $newPathDetails->relPath;  # used values
+    trace(VERBOSITY_DEBUG, "movePath('$orp', '$nrp');");
 
-    $_ = File::Spec->canonpath($_) for ($oldPath, $newPath);
-
-    return if $oldPath eq $newPath;
+    return if $oap eq $nap;
 
     my $moveInternal = sub {
         # Ensure parent dir exists
-        my $parent = File::Spec->catpath((File::Spec->splitpath($newPath))[0,1]);
-        -d $parent or File::Path::make_path($parent)
-            or die "Failed to make directory '$parent': $!";
+        my $parent = File::Spec->catpath(
+            $newPathDetails->volume, $newPathDetails->directories, undef);
+        $parent = File::Spec->canonpath($parent);
+
+        unless (-d $parent) {
+            trace(VERBOSITY_2, "File::Copy::make_path('$parent');");
+            File::Path::make_path($parent)
+                or die "Failed to make directory '$parent': $!";
+
+            printFileOp("Created dir '$parent'\n");
+        }
 
         # Move the file/dir
-        trace(VERBOSITY_DEBUG, "File::Copy::move('$oldPath', '$newPath');");
-        File::Copy::move($oldPath, $newPath)
-            or die "Failed to move '$oldPath' to '$newPath': $!";
+        trace(VERBOSITY_2, "File::Copy::move('$orp', '$nrp');");
+        File::Copy::move($oap, $nap)
+            or die "Failed to move '$oap' to '$nap': $!";
+        # (caller is expected to printFileOp with more context)
     };
 
-    if (-f $oldPath) {
-        # TODO: If both are md5.txt files, and newPath exists, then
-        # cat oldPath on to newPath, and delete oldPath
+    if (-f $oap) {
+        # TODO: If both are md5.txt files, and newPathDetails exists, 
+        # then cat oldPath on to newPathDetails, and delete oldPath
 
-        -e $newPath
-            and die "I can't overwrite files moving '$oldPath' to '$newPath')";
+        -e $nap
+            and die "I can't overwrite files moving '$orp' to '$nap')";
 
-        $moveInternal->($oldPath, $newPath);
-        my $md5 = removeMd5ForPath($oldPath);
-        addMd5ForPath($newPath, $md5) if $md5;
+        $moveInternal->();
+        my $md5 = removeMd5ForPath($oap);
+        setMd5ForPath($nap, $md5) if $md5;
 
-        printFileOp("Moved file  '$oldPath' => '$newPath'\n");
-    } elsif (-d $oldPath) {
-        if (-e $newPath) { 
+        printFileOp("Moved file  '$orp' => '$nrp'\n");
+    } elsif (-d $oap) {
+        if (-e $nap) { 
             # Dest dir path already exists, need to move-merge.
+            trace(VERBOSITY_DEBUG, "Move merge '$orp' to '$nrp'");
 
-            -d $newPath
-                or die "Can't move a directory - file already exists at destination ('$oldPath' => '$newPath')";
+            -d $nap
+                or die "Can't move a directory - file already exists " .
+                       "at destination ('$oap' => '$nap')";
 
             # Use readdir rather than File::Find::find here. This doesn't
             # do a lot of what File::Find::find does - by design. We don't
@@ -2902,31 +2976,29 @@ sub movePath {
             # the rest (we only want one - not recursive, don't want to
             # change dir, don't support traversing symbolic links, etc.). 
 
-            opendir(my $dh, $oldPath)
-                or die "Couldn't open dir '$oldPath': $!";
+            opendir(my $dh, $oap)
+                or die "Couldn't open dir '$oap': $!";
             my @filenames = readdir($dh);
             closedir($dh);
 
             for (@filenames) {
                 if ($_ ne '.' and $_ ne '..') {
-                    my $oldSubPath = File::Spec->catfile($oldPath, $_);
-                    my $newSubPath = File::Spec->catfile($newPath, $_);
-                    movePath($oldSubPath, $newSubPath);
+                    movePath(appendFilename($oldPathDetails, $_),
+                             appendFilename($newPathDetails, $_)); 
                 }
             }
 
-            # If we've emptied out $oldPath my moving all its contents into
-            # the already existing $newPath, we can safely delete it.
-            tryRemoveEmptyDir($oldPath);
-            
+            # If we've emptied out $oldPathDetails my moving all its contents into
+            # the already existing $newPathDetails, we can safely delete it.
+            tryRemoveEmptyDir($oap);
         } else {
             # Dest dir doesn't exist, so we can just move the whole directory
-            $moveInternal->($oldPath, $newPath);
+            $moveInternal->();
 
-            printFileOp("Moved dir   '$oldPath' => '$newPath'\n");
+            printFileOp("Moved dir   '$orp' => '$nrp'\n");
         }
     } else {
-        die "Programmer Error: unexpected type for object $oldPath";
+        die "Programmer Error: unexpected type for object '$oap'";
     }
 }
 
@@ -2936,6 +3008,7 @@ sub movePath {
 # and return falsy.
 sub tryRemoveEmptyDir {
     my ($path) = @_;
+    trace(VERBOSITY_DEBUG, "tryRemoveEmptyDir('$path');");
 
     if (-d $path and rmdir $path) {
         printFileOp("Deleted dir '$path' (it was empty)\n");
@@ -2943,6 +3016,17 @@ sub tryRemoveEmptyDir {
     } else {
         return 0;
     }
+}
+
+# MODEL (File Operations) ------------------------------------------------------
+sub openOrDie {
+    my ($mode, $path) = @_;
+    trace(VERBOSITY_DEBUG, "openOrDie('$path');");
+
+    open(my $fh, $mode, $path)
+        or die "Couldn't open '$path' in $mode mode: $!";
+
+    return $fh;
 }
 
 # VIEW -------------------------------------------------------------------------
