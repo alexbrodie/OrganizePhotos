@@ -1062,7 +1062,7 @@ sub doFindDupeFiles {
     
     # TODO: merge sidecars
     
-    # Process each group of dupliates
+    # Process each group of duplicates
     my $lastCommand = '';
     DUPES: for (my $dupeIndex = 0; $dupeIndex < @$dupeGroups; $dupeIndex++) {
         # Convert current element from an array of PathDetails to
@@ -1071,6 +1071,11 @@ sub doFindDupeFiles {
         my @group = map {
             { pathDetails => $_, exists => -e $_->absPath }
         } @{$dupeGroups->[$dupeIndex]};
+
+        # TODO: we do a lot of file reads here that maybe could be consolidated?
+        #   * Image::ExifTool::ExtractInfo in getDirectoryError once per file per DUPES:
+        #   * Image::ExifTool::ExtractInfo once per file per metadataDiff
+        #   * getMd5 file read
 
         # TODO: Should we sort groups so that missing files are at the end?
         # It's supposed to be sorted by importance. We would need to do that
@@ -1410,12 +1415,10 @@ sub doTest2 {
 
     if ($messageDate) {
         # Get file metadata
-        my $et = new Image::ExifTool;
-        $et->Options(DateFormat => '%FT%TZ');
-        $et = extractInfo($filename, $et);
-        my $info = $et->GetInfo(qw(
-            DateTimeOriginal TimeZone TimeZoneCity DaylightSavings 
-            Make Model SerialNumber));
+        my @props = qw(DateTimeOriginal TimeZone TimeZoneCity DaylightSavings 
+                       Make Model SerialNumber);
+        trace(VERBOSITY_2, "Image::ExifTool::ImageInfo('$path', ...);");
+        my $info = Image::ExifTool::ImageInfo($path, \@props, {DateFormat => '%FT%TZ'});
         trace(VERBOSITY_DEBUG, "$filename: ", Data::Dumper::Dumper($info));
     
         my $metadataDate = $info->{DateTimeOriginal};
@@ -1827,14 +1830,16 @@ sub appendMetadata {
 sub getDirectoryError {
     my ($path) = @_;
 
-    my $et = new Image::ExifTool;
+    my @props = qw(DateTimeOriginal MediaCreateDate);
 
-    my @dateProps = qw(DateTimeOriginal MediaCreateDate);
-
-    my $info = $et->ImageInfo($path, \@dateProps, {DateFormat => '%F'});
+    # TODO: should this use readMetadata to pick up date taken from XMP?
+    # or can we store this with MD5 info?
+    trace(VERBOSITY_2, "Image::ExifTool::ImageInfo('$path', ...);");
+    my $info = Image::ExifTool::ImageInfo($path, \@props, {DateFormat => '%F'});
+    printFileOp("Read metadata for '$path' to get media date");
 
     my $date;
-    for (@dateProps) {
+    for (@props) {
         if (exists $info->{$_}) {
             $date = $info->{$_};
             last;
@@ -2164,10 +2169,10 @@ sub getMd5 {
     my $fh = openOrDie('<:raw', $path);
     my $fullMd5Hash = getMd5Digest($path, $fh);
 
-    # TODO: should we catch exceptions for partial match computation
-    # and only return the full hash? Currently we just skip the file
-    # which seems worse
-    my $partialMd5Hash = undef;
+    # If we fail to generate a partial match (e.g. corrupted file),
+    # Just warn and use the full file MD5 rather than letting the
+    # exception loose and just skipping the file.
+r    my $partialMd5Hash = undef;
     eval {
         my $type = getMimeType($path);
         if ($type eq 'image/jpeg') {
@@ -2478,14 +2483,16 @@ sub readMetadata {
 }
 
 # MODEL (Metadata) -------------------------------------------------------------
-# Wrapper for Image::ExifTool::ExtractInfo + GetInfo with error handling
+# Wrapper for Image::ExifTool::ExtractInfo with error handling
 sub extractInfo {
     my ($path, $et) = @_;
     
     $et = new Image::ExifTool unless $et;
     
+    trace(VERBOSITY_2, "Image::ExifTool::ExtractInfo('$path');");
     $et->ExtractInfo($path)
         or die "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
+    printFileOp("Read metadata for '$path'");
         
     return $et;
 }
@@ -3050,6 +3057,7 @@ sub colorByIndex {
 }
 
 # VIEW -------------------------------------------------------------------------
+# This should be called when any crud operations have been performed
 sub printFileOp(@) {
     print map { colored("! $_", 'bright_cyan'), "\n" } split /\n/, join '', @_;
 }
