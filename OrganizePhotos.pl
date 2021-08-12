@@ -1817,18 +1817,16 @@ sub getDirectoryError {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# For each item in each md5.txt file under [dir], invoke [callback]
+# For each item in each md5.txt file in [globPatterns], invoke [callback]
 # passing it full path and MD5 hash as arguments like
 #      callback($fullPath, $md5)
 sub findMd5s {
     my ($callback, @globPatterns) = @_;
     trace(VERBOSITY_DEBUG, 'findMd5s(...); with @globPatterns of', 
           (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (current dir)'));
-
     traverseFiles(
         sub { # isWanted
             my ($fullPath) = @_;
-
             my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
             if (-d $fullPath) {
                 # silently skip trash, traverse other dirs
@@ -1837,12 +1835,10 @@ sub findMd5s {
                 # only process md5.txt files
                 return (lc $filename eq 'md5.txt');
             }
-            
             die "Programmer Error: unknown object type for '$fullPath'";
         },
         sub { # callback
             my ($fullPath) = @_;
-            
             if (-f $fullPath) {
                 my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
                 my (undef, $md5Set) = readMd5File('<:crlf', $fullPath);
@@ -1865,19 +1861,16 @@ sub getMd5PathAndKey {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
+# Stores MD5 information for a path. If the the provided data is undef, removes
+# existing information via removeMd5ForPath. Returns the previous value.
 sub setMd5ForPath {
     my ($path, $md5Info) = @_;
     trace(VERBOSITY_DEBUG, "setMd5ForPath('$path', {...});");
-
     return removeMd5ForPath($path) unless $md5Info;
-
     my ($md5Path, $md5Key) = getMd5PathAndKey($path);
-
     my ($fh, $md5Set) = readOrCreateNewMd5File($md5Path);
-
     my $existingMd5Info = $md5Set->{$md5Key};
     $md5Set->{md5Key} = $md5Info;
-
     trace(VERBOSITY_2, "Writing '$md5Path' after setting MD5 for '$md5Key'");
     writeMd5File($fh, $md5Set);
     if (defined $existingMd5Info) {
@@ -1885,56 +1878,42 @@ sub setMd5ForPath {
     } else {
         printFileOp("Added MD5 for '@{[prettyPath($path)]}'\n");
     }
-
     # TODO: update the cache from the validate func?
-    
     return $existingMd5Info;
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# Removes the computed MD5 hash and other file metadata for the specified path.
-# Returns the data that was removed or undef if it wasn't there.
+# Removes MD5 information for a path from storage. Returns the previous value.
 sub removeMd5ForPath {
     my ($path) = @_;
     trace(VERBOSITY_DEBUG, "removeMd5ForPath('$path');");
-
     my ($md5Path, $md5Key) = getMd5PathAndKey($path);
-    
-    # If md5.txt is missing, there's nothing to do and the prev value is undef
     unless (-e $md5Path) {
         trace(VERBOSITY_DEBUG, "Non-existant '$md5Path' means we can't remove MD5 for '$md5Key'");
         return undef;
     }
-
     my ($fh, $md5Set) = readMd5File('+<:crlf', $md5Path);
-    
-    # If the MD5 is missing from md5.txt, we can stop here and the prev value is undef
     unless (exists $md5Set->{$md5Key}) {
         trace(VERBOSITY_DEBUG, "Leaving '$md5Path' alone since it doesn't contain MD5 for '$md5Key'");
         return undef;
     }
-
     my $existingMd5Info = $md5Set->{$md5Key};
     delete $md5Set->{$md5Key};
-    
-    # TODO: Should this if/else code move to writeMd5File such that
-    # any time someone tries to write an empty hashref, it deletes the file?
+    # TODO: Should this if/else code move to writeMd5File such that any time
+    #       someone tries to write an empty hashref, it deletes the file?
     if (%$md5Set) {
         trace(VERBOSITY_2, "Writing '$md5Path' after removing MD5 for '$md5Key'");
         writeMd5File($fh, $md5Set);
         printFileOp("Removed MD5 for '@{[prettyPath($path)]}'\n");
     } else {
-        # We removed the last entry, so delete the
-        # file rather than just leaving empty files
+        # Empty files create trouble down the line (especially with move-merges)
         trace(VERBOSITY_2, "Deleting '$md5Path' after removing MD5 for '$md5Key' (the last one)");
         close($fh);
-        unlink($md5Path)
-            or die "Couldn't delete '$md5Path': $!";
-        printFileOp("Removed MD5 for '@{[prettyPath($1)]}', and deleted empty file md5.txt\n");
+        unlink($md5Path) or die "Couldn't delete '$md5Path': $!";
+        printFileOp("Removed MD5 for '@{[prettyPath($1)]}', and\n",
+                    "  deleted empty '@{[prettyPath($md5Path)]}'\n");
     }
-
     # TODO: update the cache from the validate func?
-
     return $existingMd5Info;
 }
 
@@ -1945,12 +1924,9 @@ sub removeMd5ForPath {
 sub readOrCreateNewMd5File {
     my ($path) = @_;
     trace(VERBOSITY_DEBUG, "readOrCreateNewMd5File('$path');");
-
     if (-e $path) {
-        # Read existing contents
         return readMd5File('+<:crlf', $path);
     } else {
-        # File doesn't exist, create RW
         # TODO: should mode here have :crlf on the end?
         return (openOrDie('+>', $path), {});
     }
@@ -1962,13 +1938,10 @@ sub readOrCreateNewMd5File {
 sub readMd5File {
     my ($mode, $path) = @_;
     trace(VERBOSITY_2, "readMd5File('$mode', '$path');");
-
     # TODO: Should we validate filename is md5.txt or do we care?
-
     my $fh = openOrDie($mode, $path);
-    
     # If the first char is a open curly brace, treat as JSON,
-    # otherwise do the older simple name: md5 format parsing
+    # otherwise do the older simple "name: md5\n" format parsing
     my $useJson = 0;
     while (<$fh>) {
         if (/^\s*([^\s])/) {
@@ -1976,64 +1949,41 @@ sub readMd5File {
             last;
         }
     }
-    
-    seek($fh, 0, 0)
-        or die "Couldn't reset seek on file: $!";
-
+    seek($fh, 0, 0) or die "Couldn't reset seek on file: $!";
+    my $md5Set;
     if ($useJson) {
-        # Parse as JSON
-        my $md5s = JSON::decode_json(join '', <$fh>);
-        # TODO: Consider validating response - do a lc on  
-        # TODO: filename/md5s/whatever, and verify vs $md5pattern???
-        
+        $md5Set = JSON::decode_json(join '', <$fh>);
+        # TODO: Consider validating parsed content - do a lc on  
+        #       filename/md5s/whatever, and verify vs $md5pattern???
         # If there's no version data, then it is version 1. We didn't
         # start storing version information until version 2.
-        while (my ($key, $values) = each %$md5s) {
+        while (my ($key, $values) = each %$md5Set) {
             $values->{version} = 1 unless exists $values->{version};
         }
-        
-        return ($fh, $md5s);
     } else {
         # Parse as simple "name: md5" text
-        my %md5s = ();    
         for (<$fh>) {
-            /^([^:]+):\s*($md5pattern)$/ or
-                warn "unexpected line in MD5: $_";
-
+            /^([^:]+):\s*($md5pattern)$/ or die "Unexpected line in '$path': $_";
             # We use version 0 here for the very old way before we went to
             # JSON when we added more info than just the full file MD5
             my $fullMd5 = lc $2;
-            $md5s{lc $1} = { version => 0, md5 => $fullMd5, full_md5 => $fullMd5 };
+            $md5Set->{lc $1} = { version => 0, md5 => $fullMd5, full_md5 => $fullMd5 };
         }        
-
-        return ($fh, \%md5s);
     }
+    return ($fh, $md5Set);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Serialize OM into a md5.txt file handle
 sub writeMd5File {
-    my ($fh, $md5s) = @_;
-    trace(VERBOSITY_DEBUG, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5s ]} items });');    
-    
-    warn "Writing empty data to md5.txt" unless %$md5s;
-
-    # Clear MD5 file
-    seek($fh, 0, 0)
-        or die "Couldn't reset seek on file: $!";
-    truncate($fh, 0)
-        or die "Couldn't truncate file: $!";
-
-    # Update MD5 file
-    my $useJson = 1;
-    if ($useJson) {
-        # JSON output
-        print $fh JSON->new->allow_nonref->pretty->encode($md5s);
+    my ($fh, $md5Set) = @_;
+    trace(VERBOSITY_DEBUG, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5Set ]} items });');
+    seek($fh, 0, 0) or die "Couldn't reset seek on file: $!";
+    truncate($fh, 0) or die "Couldn't truncate file: $!";
+    if (%$md5Set) {
+        print $fh JSON->new->allow_nonref->pretty->encode($md5Set);
     } else {
-        # Simple "name: md5" text output
-        for (sort keys %$md5s) {
-            print $fh lc $_, ': ', $md5s->{$_}->{md5}, "\n";
-        }
+        warn "Writing empty data to md5.txt";
     }
 }
 
@@ -2043,13 +1993,11 @@ sub writeMd5File {
 sub canMakeMd5MetadataShortcut {
     my ($addOnly, $fullPath, $expectedMd5, $actualMd5) = @_;
     trace(VERBOSITY_DEBUG, 'canMakeMd5MetadataShortcut(...);');    
-    
     if (defined $expectedMd5) {
         if ($addOnly) {
             trace(VERBOSITY_DEBUG, "Skipping MD5 recalculation for '$fullPath' (add-only mode)");
             return 1;
         }
-    
         if (defined $expectedMd5->{size} and 
             defined $expectedMd5->{mtime} and 
             isMd5VersionUpToDate($fullPath, $expectedMd5->{version}) and
@@ -2059,7 +2007,6 @@ sub canMakeMd5MetadataShortcut {
             return 1;
         }
     }
-    
     return 0;
 }
 
@@ -2136,7 +2083,7 @@ sub getMimeType {
     # we want to consider the real extension
     $path =~ s/$backupSuffix$//;
     my ($basename, $ext) = splitExt($path);
-    my $key = uc $1;
+    my $key = uc $ext;
     exists $fileTypes{$key} or die "Unexpected file type $key for '$path'";
     return $fileTypes{$key}->{MIMETYPE};
 }
@@ -2626,18 +2573,15 @@ sub trashPath {
 #
 # Example 1: (nested with intermediate .Trash)
 #   trashPathWithRoot('.../root/A/B/.Trash/C/D/.Trash', '.../root')
-#   results in: 
-#   movePath('.../root/A/B/.Trash/C/D/.Trash', '.../root/.Trash/A/B/C/D')
+#   moves file to: '.../root/.Trash/A/B/C/D'
 #  
 # Example 2: (degenerate trashPath case)
 #   trashPathWithRoot('.../root/foo', '.../root')
-#   results in: 
-#   movePath('.../root/foo', '.../root/.Trash/foo')
+#   moves file to: '.../root/.Trash/foo'
 #  
 # Example 3: (edge case)
 #   trashPathWithRoot('.../root/.Trash/.Trash/.Trash', '.../root')
-#   results in: 
-#   movePath('.../root/.Trash/.Trash/.Trash', '.../root/.Trash')
+#   moves file to: '.../root/.Trash'
 sub trashPathWithRoot {
     my ($theFullPath, $rootFullPath) = @_;
     trace(VERBOSITY_DEBUG, "trashPathWithRoot('$theFullPath', '$rootFullPath');");
@@ -2806,9 +2750,7 @@ sub printFileOp(@) {
 sub trace($@) {
     my ($level, @args) = @_;
     if ($level <= $verbosity) {
-        # If the only arg we were passed is a code reference (in order to
-        # defer potentially expensive calculation), call it to generate the
-        # trace statements.
+        # If the only arg is a code reference, call it to get the real args.
         @args = $args[0]->() if @args == 1 and ref $args[0] eq 'CODE';
         if (@args) {
             # TODO: color coding by trace level
