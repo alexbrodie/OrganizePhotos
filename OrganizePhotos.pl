@@ -75,6 +75,7 @@
 #   rather than only doing it in verifyOrGenerateMd5ForFile
 # * Use constants for some of the standard paths like md5.txt, .Trash, thumbs.db, etc
 # * Use Cwd instead of File::Spec?
+# * Move all colored to view
 #
 =pod
 
@@ -667,6 +668,12 @@ my $verbosity = 0;
 use constant VERBOSITY_2 => 2;
 use constant VERBOSITY_DEBUG => 99;
 
+use constant CRUD_UNKNOWN => 0;
+use constant CRUD_CREATE => 1;
+use constant CRUD_READ => 2;
+use constant CRUD_UPDATE => 3;
+use constant CRUD_DELETE => 4;
+
 main();
 exit 0;
 
@@ -972,7 +979,7 @@ sub buildFindDupeFilesPrompt {
     for (my $i = 0; $i < @$group; $i++) {
         my $elt = $group->[$i];
 
-        push @prompt, "  $i. ";
+        push @prompt, '  ', colored(coloredByIndex("$i. ", $i), 'bold');
         push @prompt, coloredByIndex(prettyPath($elt->{fullPath}), $i);
         
         # Add file error suffix
@@ -1012,8 +1019,12 @@ sub buildFindDupeFilesPrompt {
 
     # Input options
     push @prompt, 'Choose action(s): ?/c/d/', $getMultiCommandOption->('o'), 
-                  '/q', $getMultiCommandOption->('t'), ' ';
-    push @prompt, "[$defaultCommand] " if $defaultCommand;
+                  '/q/', $getMultiCommandOption->('t'), ' ';
+    if ($defaultCommand) {
+        my @dcs = split(';', $defaultCommand);
+        @dcs = map { /^\w+(\d+)$/ ? coloredByIndex($_, $1) : $_ } @dcs;
+        push @prompt, '[', join(';', @dcs), '] ';
+    }
 
     return join '', @prompt;
 }
@@ -1643,16 +1654,11 @@ EOM
 # Print all the metadata values which differ in a set of paths
 sub metadataDiff {
     my ($excludeSidecars, @paths) = @_;
-
     # Get metadata for all files
     my @items = map { (-e) ? readMetadata($_, $excludeSidecars) : {} } @paths;
-
-    my @tagsToSkip = qw(
-        CurrentIPTCDigest DocumentID DustRemovalData
-        FileInodeChangeDate FileName HistoryInstanceID
-        IPTCDigest InstanceID OriginalDocumentID
-        PreviewImage RawFileName ThumbnailImage);
-
+    my @tagsToSkip = qw(CurrentIPTCDigest DocumentID DustRemovalData 
+        FileInodeChangeDate FileName HistoryInstanceID IPTCDigest InstanceID
+        OriginalDocumentID PreviewImage RawFileName ThumbnailImage);
     # Collect all the keys which whose values aren't all equal
     my %keys = ();
     for (my $i = 0; $i < @items; $i++) {
@@ -1669,9 +1675,7 @@ sub metadataDiff {
             }
         }
     }
-
-    # Pretty print all the keys and associated values
-    # which differ
+    # Pretty print all the keys and associated values which differ
     for my $key (sort keys %keys) {
         print colored("$key:", 'bold'), ' ' x (29 - length $key);
         for (my $i = 0; $i < @items; $i++) {
@@ -1793,7 +1797,7 @@ sub getDirectoryError {
     # or can we store this with MD5 info?
     trace(VERBOSITY_2, "Image::ExifTool::ImageInfo('$path', ...);");
     my $info = Image::ExifTool::ImageInfo($path, \@props, {DateFormat => '%F'});
-    printFileOp("Read metadata for '@{[prettyPath($path)]}' to get media date");
+    printCrud(CRUD_READ, "Read metadata for '@{[prettyPath($path)]}' to get media date");
 
     my $date;
     for (@props) {
@@ -1874,9 +1878,9 @@ sub setMd5ForPath {
     trace(VERBOSITY_2, "Writing '$md5Path' after setting MD5 for '$md5Key'");
     writeMd5File($fh, $md5Set);
     if (defined $existingMd5Info) {
-        printFileOp("Updated MD5 for '@{[prettyPath($path)]}'\n");
+        printCrud(CRUD_UPDATE, "Updated MD5 for '@{[prettyPath($path)]}'\n");
     } else {
-        printFileOp("Added MD5 for '@{[prettyPath($path)]}'\n");
+        printCrud(CRUD_CREATE, "Added MD5 for '@{[prettyPath($path)]}'\n");
     }
     # TODO: update the cache from the validate func?
     return $existingMd5Info;
@@ -1904,14 +1908,14 @@ sub removeMd5ForPath {
     if (%$md5Set) {
         trace(VERBOSITY_2, "Writing '$md5Path' after removing MD5 for '$md5Key'");
         writeMd5File($fh, $md5Set);
-        printFileOp("Removed MD5 for '@{[prettyPath($path)]}'\n");
+        printCrud(CRUD_DELETE, "Removed MD5 for '@{[prettyPath($path)]}'\n");
     } else {
         # Empty files create trouble down the line (especially with move-merges)
         trace(VERBOSITY_2, "Deleting '$md5Path' after removing MD5 for '$md5Key' (the last one)");
         close($fh);
         unlink($md5Path) or die "Couldn't delete '$md5Path': $!";
-        printFileOp("Removed MD5 for '@{[prettyPath($1)]}', and\n",
-                    "  deleted empty '@{[prettyPath($md5Path)]}'\n");
+        printCrud(CRUD_DELETE, "Removed MD5 for '@{[prettyPath($1)]}', ",
+                  " and deleted empty '@{[prettyPath($md5Path)]}'\n");
     }
     # TODO: update the cache from the validate func?
     return $existingMd5Info;
@@ -2303,7 +2307,7 @@ sub extractInfo {
     trace(VERBOSITY_2, "Image::ExifTool::ExtractInfo('$path');");
     $et->ExtractInfo($path) or die
         "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
-    printFileOp("Read metadata for '@{[prettyPath($path)]}'");
+    printCrud(CRUD_READ, "Read metadata for '@{[prettyPath($path)]}'");
     return $et;
 }
 
@@ -2642,24 +2646,23 @@ sub movePath {
             trace(VERBOSITY_2, "File::Copy::make_path('$newParentFullPath');");
             File::Path::make_path($newParentFullPath) or die
                 "Failed to make directory '$newParentFullPath': $!";
-            printFileOp("Created dir '@{[prettyPath($newParentFullPath)]}'\n");
+            printCrud(CRUD_CREATE, "Created dir '@{[prettyPath($newParentFullPath)]}'\n");
         }
         # Move the file/dir
         trace(VERBOSITY_2, "File::Copy::move('$oldFullPath', '$newFullPath');");
         File::Copy::move($oldFullPath, $newFullPath) or die
             "Failed to move '$oldFullPath' to '$newFullPath': $!";
-        # (caller is expected to printFileOp with more context)
+        # (caller is expected to printCrud with more context)
     };
     if (-f $oldFullPath) {
         # TODO: If both are md5.txt files, and newFullPath exists, 
         # then cat oldPath on to newFullPath, and delete oldPath
-        -e $newFullPath or die
-            "I can't overwrite files moving '$oldFullPath' to '$newFullPath')";
+        -e $newFullPath and die "Can't overwrite '$newFullPath' with '$oldFullPath'";
         $moveInternal->();
         my $md5 = removeMd5ForPath($oldFullPath);
         setMd5ForPath($newFullPath, $md5) if $md5;
-        printFileOp("Moved file  '@{[prettyPath($oldFullPath)]}'",
-                    " => '@{[prettyPath($newFullPath)]}'\n");
+        printCrud(CRUD_UPDATE, "Moved file '@{[prettyPath($oldFullPath)]}' ",
+                  "to '@{[prettyPath($newFullPath)]}'\n");
     } elsif (-d $oldFullPath) {
         if (-e $newFullPath) { 
             # Dest dir path already exists, need to move-merge.
@@ -2690,8 +2693,8 @@ sub movePath {
         } else {
             # Dest dir doesn't exist, so we can just move the whole directory
             $moveInternal->();
-            printFileOp("Moved dir   '@{[prettyPath($oldFullPath)]}'",
-                        " => '@{[prettyPath($newFullPath)]}'\n");
+            printCrud(CRUD_UPDATE, "Moved dir   '@{[prettyPath($oldFullPath)]}'",
+                      " to '@{[prettyPath($newFullPath)]}'\n");
         }
     } else {
         die "Programmer Error: unexpected type for object '$oldFullPath'";
@@ -2706,7 +2709,7 @@ sub tryRemoveEmptyDir {
     my ($path) = @_;
     trace(VERBOSITY_DEBUG, "tryRemoveEmptyDir('$path');");
     if (-d $path and rmdir $path) {
-        printFileOp("Deleted dir '@{[prettyPath($path)]}' (it was empty)\n");
+        printCrud(CRUD_DELETE, "Deleted empty dir '@{[prettyPath($path)]}'\n");
         return 1;
     } else {
         return 0;
@@ -2717,8 +2720,7 @@ sub tryRemoveEmptyDir {
 sub openOrDie {
     my ($mode, $path) = @_;
     trace(VERBOSITY_DEBUG, "openOrDie('$path');");
-    open(my $fh, $mode, $path) or die
-        "Couldn't open '$path' in $mode mode: $!";
+    open(my $fh, $mode, $path) or die "Couldn't open '$path' in $mode mode: $!";
     return $fh;
 }
 
@@ -2737,17 +2739,31 @@ sub coloredByIndex {
 sub colorByIndex {
     my ($colorIndex) = @_;
     my @colors = ('green', 'red', 'blue', 'yellow', 'magenta', 'cyan');
-    return $colors[$colorIndex % scalar @colors];
+    return 'bright_' . $colors[$colorIndex % scalar @colors];
 }
 
 # VIEW -------------------------------------------------------------------------
 # This should be called when any crud operations have been performed
-sub printFileOp(@) {
-    print map { colored("! $_", 'bright_cyan'), "\n" } split /\n/, join '', @_;
+sub printCrud {
+    my $type = shift @_;
+    my ($icon, $color) = ('', '');
+    if ($type == CRUD_CREATE) {
+        ($icon, $color) = ('(+)', 'cyan');
+    } elsif ($type == CRUD_READ) {   
+        ($icon, $color) = ('(<)', 'yellow');
+    } elsif ($type == CRUD_UPDATE) {
+        ($icon, $color) = ('(>)', 'blue');
+    } elsif ($type == CRUD_DELETE) {   
+        ($icon, $color) = ('(X)', 'magenta');
+    }
+    my @lines = map { colored($_, $color) } split /\n/, join '', @_;
+    $lines[0]  = colored($icon. ' ', "bold $color") . $lines[0];
+    $lines[$_] = (' ' * length($icon)) . ' ' . $lines[$_] for 1..$#lines;
+    print map { ($_, "\n") } @lines;
 }
 
 # VIEW -------------------------------------------------------------------------
-sub trace($@) {
+sub trace {
     my ($level, @args) = @_;
     if ($level <= $verbosity) {
         # If the only arg is a code reference, call it to get the real args.
