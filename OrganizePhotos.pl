@@ -1830,7 +1830,7 @@ sub deleteMd5Info {
         trace(VERBOSITY_2, "Deleting '$md5Path' after removing MD5 for '$md5Key' (the last one)");
         close($md5File);
         unlink($md5Path) or die "Couldn't delete '$md5Path': $!";
-        printCrud(CRUD_DELETE, "Removed MD5 for '@{[prettyPath($1)]}', ",
+        printCrud(CRUD_DELETE, "Removed MD5 for '@{[prettyPath($mediaPath)]}', ",
                   " and deleted empty '@{[prettyPath($md5Path)]}'\n");
     }
     return $oldMd5Info;
