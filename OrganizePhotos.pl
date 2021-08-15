@@ -1864,16 +1864,17 @@ sub deleteMd5Info {
 # Takes a list of Md5Paths, and stores the concatinated Md5Info to the first
 # specified file. Dies without writing anything on key collisions.
 sub appendMd5Files {
-    my ($targetPath, @sourcePaths) = @_;
-    my ($targetMd5File, $targetMd5Set) = readOrCreateNewMd5File($targetPath);
+    my ($targetMd5Path, @sourceMd5Paths) = @_;
+    my ($targetMd5File, $targetMd5Set) = readOrCreateNewMd5File($targetMd5Path);
+    my $oldTargetMd5SetCount = scalar keys %$targetMd5Set;
     my $dirty = 0;
-    for my $sourcePath (@sourcePaths) {
-        my (undef, $sourceMd5Set) = readMd5File('<:crlf', $sourcePath);
+    for my $sourceMd5Path (@sourceMd5Paths) {
+        my (undef, $sourceMd5Set) = readMd5File('<:crlf', $sourceMd5Path);
         while (my ($key, $sourceMd5Info) = each %$sourceMd5Set) {
             if (exists $targetMd5Set->{$key}) {
                 my $targetMd5Info = $targetMd5Set->{$key};
                 Data::Compare::Compare($sourceMd5Info, $targetMd5Info) or die
-                    "Can't append MD5 info to '@{[prettyPath($targetPath)]}'" .
+                    "Can't append MD5 info to '$targetMd5Path'" .
                     " due to key collision for $key";
             } else {
                 $targetMd5Set->{$key} = $sourceMd5Info;
@@ -1883,8 +1884,12 @@ sub appendMd5Files {
     }
     if ($dirty) {
         die "Not yet implemented";
-        #writeMd5File()
-        printCrud(CRUD_CREATE);
+        trace(VERBOSITY_2, "Writing '$targetMd5Path' after appending data from ",
+              scalar @sourceMd5Paths, " files");
+        writeMd5File($targetMd5Path, $targetMd5File, $targetMd5Set);
+        my $itemsAdded = (scalar keys %$targetMd5Set) - $oldTargetMd5SetCount;
+        printCrud(CRUD_CREATE, "Added $itemsAdded entries to '${\prettyPath($targetMd5Path)}' from\n",
+                  map { "  '${\prettyPath($_)}'\n" } @sourceMd5Paths);
     }
 }
 
@@ -2730,7 +2735,7 @@ sub movePath {
         } else {
             # Dest dir doesn't exist, so we can just move the whole directory
             $moveInternal->();
-            printCrud(CRUD_UPDATE, "Moved dir   '@{[prettyPath($oldFullPath)]}'",
+            printCrud(CRUD_UPDATE, "Moved dir '@{[prettyPath($oldFullPath)]}'",
                       " to '@{[prettyPath($newFullPath)]}'\n");
         }
     } else {
@@ -2795,30 +2800,30 @@ sub printCrud {
     if ($type == CRUD_CREATE) {
         ($icon, $color) = ('(+)', 'cyan');
     } elsif ($type == CRUD_READ) {
-        ($icon, $color) = ('(<)', 'bright_black');
+        ($icon, $color) = ('(<)', 'yellow');
     } elsif ($type == CRUD_UPDATE) {
         ($icon, $color) = ('(>)', 'blue');
     } elsif ($type == CRUD_DELETE) {
         ($icon, $color) = ('(X)', 'magenta');
     }
-    my @lines = map { colored($_, $color) } split /\n/, join '', @_;
-    $lines[0]  = colored($icon. ' ', "bold $color") . $lines[0];
-    $lines[$_] = (' ' x length $icon) . ' ' . $lines[$_] for 1..$#lines;
-    print map { ($_, "\n") } @lines;
+    printWithIcon($icon, $color, @_);
 }
 
 # VIEW -------------------------------------------------------------------------
 sub trace {
     my ($level, @args) = @_;
     if ($level <= $verbosity) {
-        # If the only arg is a code reference, call it to get the real args.
-        @args = $args[0]->() if @args == 1 and ref $args[0] eq 'CODE';
-        if (@args) {
-            # TODO: color coding by trace level
-            my ($package, $filename, $line) = caller;
-            print colored(sprintf("T%02d@%04d", $level, $line), 'bold white on_bright_black'), 
-                  join("\n" . (' ' x 8), map { colored(' ' . $_, 'bold bright_black') } split /\n/, join '', @args),
-                  "\n";
-        }
+        my ($package, $filename, $line) = caller;
+        my $icon = sprintf("T%02d@%04d", $level, $line);
+        printWithIcon($icon, 'bright_black', @args);
     }
+}
+
+# VIEW -------------------------------------------------------------------------
+sub printWithIcon {
+    my ($icon, $color, @statements) = @_;
+    my @lines = map { colored($_, $color) } split /\n/, join '', @statements;
+    $lines[0]  = colored($icon, "black on_$color") . ' ' . $lines[0];
+    $lines[$_] = (' ' x length $icon) . ' ' . $lines[$_] for 1..$#lines;
+    print map { ($_, "\n") } @lines;
 }
