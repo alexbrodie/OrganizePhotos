@@ -937,7 +937,7 @@ sub computeFindDupeFilesHashKeyByName {
 # TODO: Move this elsewhere in the file/package
 # ------------------------------------------------------------------------------
 sub buildFindDupeFilesPrompt {
-    my ($group, $fast, $matchType, $autoCommand, $defaultCommand, $progressNumber, $progressCount) = @_;
+    my ($group, $fast, $matchType, $defaultCommand, $progressNumber, $progressCount) = @_;
 
     # Build base of prompt - indexed paths
     my @prompt = ();
@@ -981,8 +981,6 @@ sub buildFindDupeFilesPrompt {
         }
     }
 
-    #push @prompt, colored("I suggest you $autoCommand", 'bold black on_red'), "\n" if $autoCommand;
-
     # Returns either something like 'x0/x1' or 'x0/.../x42'
     my $getMultiCommandOption = sub {
         my ($prefix) = @_;
@@ -1025,14 +1023,16 @@ sub doFindDupeFiles {
         # Convert current element from an array of full paths to
         # an array (per file, in storted order) to array of hash
         # references with some metadata in the same (desired) order
+        my $dupeGroup = $dupeGroups->[$dupeGroupsIdx];
         my @group = map {
             { fullPath => $_, exists => -e $_ }
-        } @{$dupeGroups->[$dupeGroupsIdx]};
+        } @$dupeGroup;
 
         # TODO: we do a lot of file reads here that maybe could be consolidated?
         #   * Image::ExifTool::ExtractInfo in getDirectoryError once per file per DUPEGROUP:
         #   * Image::ExifTool::ExtractInfo once per file per metadataDiff
         #   * getMd5 file read
+        # Possibly we can use verifyMd5
 
         # TODO: Should we sort groups so that missing files are at the end?
         # It's supposed to be sorted by importance. We would need to do that
@@ -1047,7 +1047,8 @@ sub doFindDupeFiles {
         unless ($fast) {
             # Want to tell if the files are identical, so we need hashes
             # TODO: if we're not doing this by name we can use the md5.txt file contents for  MD5 and other metadata
-            # if we can do a metadata shortcut (i.e. md5.txt is up to date)
+            #       if we can do a metadata shortcut (i.e. md5.txt is up to date)        
+            #       Possibly use verifyOrGenerateMd5ForFile here to get cached value
             $_->{exists} and $_ = { %$_, %{getMd5($_->{fullPath})} } for @group;
 
             my $fullMd5Match = 1;
@@ -1082,15 +1083,12 @@ sub doFindDupeFiles {
 
         # If there are still multiple items remove anything that's
         # in temp locations like staging areas (if it leaves anything)
-        if (@remainingIdx > 1) {
+        if (@remainingIdx > 1 and $matchType == MATCH_FULL) {
             my @idx = grep { 
                 $group[$_]->{fullPath} !~ /[\/\\]ToImport[\/\\]/
             } @remainingIdx;
             @remainingIdx = @idx if @idx;
         }
-
-        # If full match, just take the first (most important)
-        @remainingIdx = ($remainingIdx[0]) if $matchType == MATCH_FULL;
 
         # Now take everything that isn't in @reminingIdx and suggest trash it
         my @isTrashable = map { 1 } (0..$#group);
@@ -1115,7 +1113,7 @@ sub doFindDupeFiles {
         }
 
         my $prompt = buildFindDupeFilesPrompt(
-            \@group, $fast, $matchType, $autoCommand, $defaultCommand, 
+            \@group, $fast, $matchType, $defaultCommand, 
             $dupeGroupsIdx + 1, scalar @$dupeGroups);
 
         # TODO: somehow determine whether one is a superset of one or
@@ -1124,7 +1122,7 @@ sub doFindDupeFiles {
 
         # If you want t automate something (e.g. do $defaultCommand without
         # user confirmation), set that action here: 
-        my $command;
+        my $command = $autoCommand;
 
         # Get input until something sticks...
         PROMPT: while (1) {
@@ -1206,10 +1204,9 @@ EOM
             # This is the end of command processing if no one told us to go to
             # the next group (i.e. last PROMPT). Before re-processing this group
             # (i.e. redo DUPEGROUP), remove anything from the source that we
-            # undef'ed in in working collection @group while processing commands.
-            for (my $i = $#group; $i >= 0; $i--) {
-                splice @{$dupeGroups->[$dupeGroupsIdx]}, $i unless defined $group[$i];
-            }
+            # undef'ed in in working collection @group while processing commands
+            # so that it isn't processed.
+            @$dupeGroup = @$dupeGroup[grep { defined $group[$_] } 0..$#group];
             redo DUPEGROUP;
         } # PROMPT 
     } # DUPEGROUP
