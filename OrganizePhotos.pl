@@ -1870,26 +1870,25 @@ sub appendMd5Files {
     my $dirty = 0;
     for my $sourceMd5Path (@sourceMd5Paths) {
         my (undef, $sourceMd5Set) = readMd5File('<:crlf', $sourceMd5Path);
-        while (my ($key, $sourceMd5Info) = each %$sourceMd5Set) {
-            if (exists $targetMd5Set->{$key}) {
-                my $targetMd5Info = $targetMd5Set->{$key};
+        while (my ($md5Key, $sourceMd5Info) = each %$sourceMd5Set) {
+            if (exists $targetMd5Set->{$md5Key}) {
+                my $targetMd5Info = $targetMd5Set->{$md5Key};
                 Data::Compare::Compare($sourceMd5Info, $targetMd5Info) or die
                     "Can't append MD5 info to '$targetMd5Path'" .
-                    " due to key collision for $key";
+                    " due to key collision for '$md5Key'";
             } else {
-                $targetMd5Set->{$key} = $sourceMd5Info;
+                $targetMd5Set->{$md5Key} = $sourceMd5Info;
                 $dirty = 1;
             }
         }
     }
     if ($dirty) {
-        die "Not yet implemented";
         trace(VERBOSITY_2, "Writing '$targetMd5Path' after appending data from ",
               scalar @sourceMd5Paths, " files");
         writeMd5File($targetMd5Path, $targetMd5File, $targetMd5Set);
         my $itemsAdded = (scalar keys %$targetMd5Set) - $oldTargetMd5SetCount;
-        printCrud(CRUD_CREATE, "Added $itemsAdded entries to '${\prettyPath($targetMd5Path)}' from\n",
-                  map { "  '${\prettyPath($_)}'\n" } @sourceMd5Paths);
+        printCrud(CRUD_CREATE, "Added $itemsAdded entries to '${\prettyPath($targetMd5Path)}' from ",
+                  join ', ', map { "'${\prettyPath($_)}'" } @sourceMd5Paths);
     }
 }
 
@@ -2798,13 +2797,13 @@ sub printCrud {
     my $type = shift @_;
     my ($icon, $color) = ('', '');
     if ($type == CRUD_CREATE) {
-        ($icon, $color) = ('(+)', 'cyan');
+        ($icon, $color) = ('(+)', 'blue');
     } elsif ($type == CRUD_READ) {
-        ($icon, $color) = ('(<)', 'yellow');
+        ($icon, $color) = ('(<)', 'magenta');
     } elsif ($type == CRUD_UPDATE) {
-        ($icon, $color) = ('(>)', 'blue');
+        ($icon, $color) = ('(>)', 'cyan');
     } elsif ($type == CRUD_DELETE) {
-        ($icon, $color) = ('(X)', 'magenta');
+        ($icon, $color) = ('(X)', 'yellow');
     }
     printWithIcon($icon, $color, @_);
 }
