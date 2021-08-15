@@ -1038,30 +1038,6 @@ sub doFindDupeFiles {
         # It's supposed to be sorted by importance. We would need to do that
         # before starting to build $autoCommand
 
-        # TODO: should this change to a "I suggest you ____, sir" approach?
-        # If dupes are missing, we can auto-remove. I think that's done. Can
-        # we remove the below, and just use the $command = $autoCommand down
-        # before the PROMPT loop? 
-        my $autoRemoveMissingDuplicates = 0;
-        if ($autoRemoveMissingDuplicates) {
-            # Remove the metadata for all missing files, and
-            # keep track of what's still existing
-            my @newGroup = ();
-            for (@group) {
-                if ($_->{exists}) {
-                    push @newGroup, $_;
-                } else {
-                    removeMd5ForMediaPath($_->{fullPath});
-                }
-            }
-
-            # If there's still multiple in the group, continue
-            # with what was left over, else move to next group
-            next DUPEGROUP if @newGroup < 2;
-
-            @group = @newGroup;
-        }
-
         # TODO: my $matchType = getFindDupeFilesMatchType(\@group);
 
         # Except when trying to be fast, calculate the MD5 match
@@ -1216,7 +1192,7 @@ EOM
                         } else {
                             # File we're trying to trash doesn't exist, 
                             # so just remove its metadata
-                            removeMd5ForMediaPath($group[$1]->{fullPath});
+                            deleteMd5Info($group[$1]->{fullPath});
                         }
 
                         $group[$1] = undef;
@@ -1460,7 +1436,7 @@ sub doVerifyMd5 {
             }
         } else {
             # File doesn't exist
-            # TODO: prompt to see if we should remove this via removeMd5ForMediaPath
+            # TODO: prompt to see if we should remove this via deleteMd5Info
             warn "Missing file: '@{[prettyPath($fullPath)]}'";
         }
     }, @globPatterns);
@@ -1814,12 +1790,12 @@ sub getMd5PathAndMd5Key {
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Stores Md5Info for a MediaPath. If the the provided data is undef, removes
-# existing information via removeMd5ForMediaPath. Returns the previous Md5Info
+# existing information via deleteMd5Info. Returns the previous Md5Info
 # value if it existed (or undef if not).
 sub writeMd5Info {
     my ($mediaPath, $newMd5Info) = @_;
     trace(VERBOSITY_DEBUG, "writeMd5Info('$mediaPath', {...});");
-    return removeMd5ForMediaPath($mediaPath) unless $newMd5Info;
+    return deleteMd5Info($mediaPath) unless $newMd5Info;
     my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
     my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
     return setMd5InfoAndWriteMd5File($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set);
@@ -1830,7 +1806,7 @@ sub writeMd5Info {
 # value if it existed (or undef if not).
 sub deleteMd5Info {
     my ($mediaPath) = @_;
-    trace(VERBOSITY_DEBUG, "removeMd5ForMediaPath('$mediaPath');");
+    trace(VERBOSITY_DEBUG, "deleteMd5Info('$mediaPath');");
     my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
     unless (-e $md5Path) {
         trace(VERBOSITY_DEBUG, "Non-existant '$md5Path' means we can't remove MD5 for '$md5Key'");
