@@ -584,6 +584,11 @@ my %fileTypes = (
         EXTORDER => 0,
         MIMETYPE => 'video/quicktime'
     },
+    MP3 => {
+        SIDECARS => [],
+        EXTORDER => 0,
+        MIMETYPE => 'audio/mpeg'
+    },
     MP4 => {
         SIDECARS => [qw( LRV THM )],
         EXTORDER => 0,
@@ -713,7 +718,7 @@ sub main {
                          'by-name|n' => \$byName,
                          'default-last-action|l' => \$defaultLastAction);
             doCheckMd5(@ARGV);
-            doFindDupeFiles( $byName, $autoDiff, 
+            doFindDupeFiles($byName, $autoDiff, 
                             $defaultLastAction, @ARGV);
             doRemoveEmpties(@ARGV);
             doCollectTrash(@ARGV);
@@ -859,7 +864,9 @@ sub buildFindDupeFilesDupeGroups {
     # by decreasing importance (our best guess), and add it to the
     # @dupes collection for further processing.
     my @dupes = ();
+    my $fileCount = 0;
     while (my ($key, $fullPathList) = each %keyToFullPathList) {
+        $fileCount += @$fullPathList;
         if (@$fullPathList > 1) {
             push @dupes, [sort { comparePathWithExtOrder($a, $b) } @$fullPathList];
         }
@@ -870,7 +877,7 @@ sub buildFindDupeFilesDupeGroups {
     # are processed, so we want it extorder based as well.
     @dupes = sort { comparePathWithExtOrder($a->[0], $b->[0]) } @dupes;
 
-    trace(VERBOSITY_DEBUG, "Found @{[scalar @dupes]} groups with multiple files");
+    trace(0, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
 
     return \@dupes;
 }
@@ -1162,6 +1169,16 @@ EOM
                 } elsif ($_ eq 'd') {
                     # Diff
                     metadataDiff(undef, map { $_->{fullPath} } @group);
+                } elsif (/^f(\d+)$/) {
+                    if ($1 > $#group) {
+                        warn "$1 is out of range [0, $#group]";
+                    } elsif (!defined $group[$1]) {
+                        warn "$1 has already been trashed";
+                    } elsif ($^O eq 'MSWin32') {
+                        system("explorer.exe /select,\"$group[$1]->{fullPath}\"");
+                    } else {
+                        warn "Don't know how to open a folder on $^O\n";
+                    }
                 } elsif (/^m(\d+(?:,\d+)+)$/) {
                     # Merge 1,2,3,4,... into 0
                     my @matches = split ',', $1;
