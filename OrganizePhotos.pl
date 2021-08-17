@@ -14,7 +14,7 @@
 #  * get rid of texted photos (no metadata (e.g. camera make & model), small 
 #    files)
 #  * also report base name match when resolving groups
-#  * getMd5: content only match for tiff
+#  * calculateMd5Info: content only match for tiff
 #  * undo support (z)
 #  * get dates for HEIC. maybe just need to update ExifTools?
 #  * should notice new MD5 in one dir and missing MD5 in another dir with
@@ -76,6 +76,9 @@
 # * Use constants for some of the standard paths like md5.txt, .Trash, thumbs.db, etc
 # * Use Cwd instead of File::Spec?
 # * Move all colored to view
+# * traverseFiles should skip any dir which contains a special (zero byte?) unique
+#   file (named .notraverse.orph?) and add documentation (e.g. put this in the same
+#   dir as your lrcat file). Maybe if it's not zero byte, it can act like .gitignore
 #
 =pod
 
@@ -484,9 +487,10 @@ if ($^O eq 'MSWin32') {
 # TODO: be explicit with this and move usage to view layer
 use Term::ANSIColor;
 
-# Implementation version of getMd5 (useful when comparing older serialized
-# results, such as canMakeMd5MetadataShortcut and isMd5VersionUpToDate)
-my $getMd5Version = 4;
+# Implementation version of calculateMd5Info (useful when comparing
+# older serialized results, such as canUseCachedMd5InfoForBase and 
+# isMd5InfoVersionUpToDate)
+use constant CALCULATE_MD5_INFO_VERSION => 4;
 
 # What we expect an MD5 hash to look like
 my $md5DigestPattern = qr/[0-9a-f]{32}/;
@@ -868,14 +872,15 @@ sub buildFindDupeFilesDupeGroups {
     while (my ($key, $fullPathList) = each %keyToFullPathList) {
         $fileCount += @$fullPathList;
         if (@$fullPathList > 1) {
-            push @dupes, [sort { comparePathWithExtOrder($a, $b) } @$fullPathList];
+            @$fullPathList = sort { comparePathWithExtOrder($a, $b) } @$fullPathList;
+            push @dupes, [map { { fullPath => $_ } } @$fullPathList];
         }
     }
 
     # The 2nd level is properly sorted, now let's sort the groups
     # themselves - this will be the order in which the groups
     # are processed, so we want it extorder based as well.
-    @dupes = sort { comparePathWithExtOrder($a->[0], $b->[0]) } @dupes;
+    @dupes = sort { comparePathWithExtOrder($a->[0]->{fullPath}, $b->[0]->{fullPath}) } @dupes;
 
     trace(0, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
 
@@ -1030,44 +1035,46 @@ sub doFindDupeFiles {
         # Convert current element from an array of full paths to
         # an array (per file, in storted order) to array of hash
         # references with some metadata in the same (desired) order
-        my $dupeGroup = $dupeGroups->[$dupeGroupsIdx];
-        my @group = map {
-            { fullPath => $_, exists => -e $_ }
-        } @$dupeGroup;
+        my $group = $dupeGroups->[$dupeGroupsIdx];
+        @$group = grep { defined $_ } @$group;
+        for (@$group) {
+            $_->{exists} = -e $_->{fullPath};
+            if ($fast or !$_->{exists}) {
+                delete $_->{md5Info};
+            } elsif (!exists $_->{md5Info}) {
+                $_->{md5Info} = calculateMd5Info($_->{fullPath});
+            }
+        }
 
         # TODO: we do a lot of file reads here that maybe could be consolidated?
         #   * Image::ExifTool::ExtractInfo in getDirectoryError once per file per DUPEGROUP:
         #   * Image::ExifTool::ExtractInfo once per file per metadataDiff
-        #   * getMd5 file read
+        #   * calculateMd5Info file read
         # Possibly we can use verifyMd5
 
         # TODO: Should we sort groups so that missing files are at the end?
         # It's supposed to be sorted by importance. We would need to do that
         # before starting to build $autoCommand
 
-        # TODO: my $matchType = getFindDupeFilesMatchType(\@group);
+        # TODO: my $matchType = getFindDupeFilesMatchType($group);
 
         # Except when trying to be fast, calculate the MD5 match
         # TODO: get this pairwise and store it somehow for later
         # TODO: (hopefully for auto-delete)
         my $matchType = MATCH_UNKNOWN;
         unless ($fast) {
-            # Want to tell if the files are identical, so we need hashes
-            # TODO: if we're not doing this by name we can use the md5.txt file contents for  MD5 and other metadata
-            #       if we can do a metadata shortcut (i.e. md5.txt is up to date)        
-            #       Possibly use verifyOrGenerateMd5ForFile here to get cached value
-            $_->{exists} and $_ = { %$_, %{getMd5($_->{fullPath})} } for @group;
-
             my $fullMd5Match = 1;
             my $md5Match = 1;
 
             # If all the primary MD5s are the same report IDENTICAL
             # If any are missing, should be complete mismatch
-            my $md5 = $group[0]->{md5} || 'x';
-            my $fullMd5 = $group[0]->{full_md5} || 'x';
-            for (my $i = 1; $i < @group; $i++) {
-                $md5Match = 0 if $md5 ne ($group[$i]->{md5} || 'y');
-                $fullMd5Match = 0 if $fullMd5 ne ($group[$i]->{full_md5} || 'y');
+            my $md5Info = $group->[0]->{md5Info};
+            my $md5 = $md5Info->{md5} || 'x';
+            my $fullMd5 = $md5Info->{full_md5} || 'x';
+            for (my $i = 1; $i < @$group; $i++) {
+                $md5Info = $group->[$i]->{md5Info};
+                $md5Match = 0 if $md5 ne ($md5Info->{md5} || 'y');
+                $fullMd5Match = 0 if $fullMd5 ne ($md5Info->{full_md5} || 'y');
             }
 
             if ($fullMd5Match) {
@@ -1079,28 +1086,28 @@ sub doFindDupeFiles {
             }
         }
 
-        # TODO: my $autoCommand = getFindDupeFilesAutoCommands(\@group, ...);
+        # TODO: my $autoCommand = getFindDupeFilesAutoCommands($group, ...);
 
         # See if we can use some heuristics to guess what should be
         # done for this group
         my @autoCommands = ();
 
         # Figure out what's trashable, starting with any missing files
-        my @remainingIdx = grep { $group[$_]->{exists} } (0..$#group);
+        my @remainingIdx = grep { $group->[$_]->{exists} } (0..$#$group);
 
         # If there are still multiple items remove anything that's
         # in temp locations like staging areas (if it leaves anything)
         if (@remainingIdx > 1 and $matchType == MATCH_FULL) {
             my @idx = grep { 
-                $group[$_]->{fullPath} !~ /[\/\\]ToImport[\/\\]/
+                $group->[$_]->{fullPath} !~ /[\/\\]ToImport[\/\\]/
             } @remainingIdx;
             @remainingIdx = @idx if @idx;
         }
 
         # Now take everything that isn't in @reminingIdx and suggest trash it
-        my @isTrashable = map { 1 } (0..$#group);
+        my @isTrashable = map { 1 } (0..$#$group);
         $isTrashable[$_] = 0 for @remainingIdx;
-        for (my $i = 0; $i < @group; $i++) {
+        for (my $i = 0; $i < @$group; $i++) {
             push @autoCommands, "t$i" if $isTrashable[$i];
         }
 
@@ -1120,12 +1127,12 @@ sub doFindDupeFiles {
         }
 
         my $prompt = buildFindDupeFilesPrompt(
-            \@group, $fast, $matchType, $defaultCommand, 
+            $group, $fast, $matchType, $defaultCommand, 
             $dupeGroupsIdx + 1, scalar @$dupeGroups);
 
         # TODO: somehow determine whether one is a superset of one or
         # TODO: more of the others (hopefully for auto-delete) 
-        metadataDiff(undef, map { $_->{fullPath} } @group) if $autoDiff;
+        metadataDiff(undef, map { $_->{fullPath} } @$group) if $autoDiff;
 
         # If you want t automate something (e.g. do $defaultCommand without
         # user confirmation), set that action here: 
@@ -1149,10 +1156,10 @@ sub doFindDupeFiles {
                 print "$command\n";
             }
 
-            # TODO: processFindDupeFilesCommands(\@group, $command)
+            # TODO: processFindDupeFilesCommands($group, $command)
 
             # Process the command(s)
-            my $itemCount = @group;
+            my $itemCount = @$group;
             for (split /;/, $command) {
                 if ($_ eq '?') {
                     print <<'EOM';
@@ -1168,49 +1175,49 @@ EOM
                     last PROMPT;  # next group please
                 } elsif ($_ eq 'd') {
                     # Diff
-                    metadataDiff(undef, map { $_->{fullPath} } @group);
+                    metadataDiff(undef, map { $_->{fullPath} } @$group);
                 } elsif (/^f(\d+)$/) {
-                    if ($1 > $#group) {
-                        warn "$1 is out of range [0, $#group]";
-                    } elsif (!defined $group[$1]) {
+                    if ($1 > $#$group) {
+                        warn "$1 is out of range [0, $#$group]";
+                    } elsif (!defined $group->[$1]) {
                         warn "$1 has already been trashed";
                     } elsif ($^O eq 'MSWin32') {
-                        system("explorer.exe /select,\"$group[$1]->{fullPath}\"");
+                        system("explorer.exe /select,\"$group->[$1]->{fullPath}\"");
                     } else {
                         warn "Don't know how to open a folder on $^O\n";
                     }
                 } elsif (/^m(\d+(?:,\d+)+)$/) {
                     # Merge 1,2,3,4,... into 0
                     my @matches = split ',', $1;
-                    appendMetadata(map { $group[$_]->{fullPath} } @matches);
+                    appendMetadata(map { $group->[$_]->{fullPath} } @matches);
                 } elsif (/^o(\d+)$/) {
                     # Open Number
-                    if ($1 > $#group) {
-                        warn "$1 is out of range [0, $#group]";
-                    } elsif (!defined $group[$1]) {
+                    if ($1 > $#$group) {
+                        warn "$1 is out of range [0, $#$group]";
+                    } elsif (!defined $group->[$1]) {
                         warn "$1 has already been trashed";
                     } else {
-                        system("\"$group[$1]->{fullPath}\"");
+                        system("\"$group->[$1]->{fullPath}\"");
                     }
                 } elsif ($_ eq 'q') {
                     # Quit
                     exit 0;
                 } elsif (/^t(\d+)$/) {
                     # Trash Number
-                    if ($1 > $#group) {
-                        warn "$1 is out of range [0, $#group]";
-                    } elsif (!defined $group[$1]) {
+                    if ($1 > $#$group) {
+                        warn "$1 is out of range [0, $#$group]";
+                    } elsif (!defined $group->[$1]) {
                         warn "$1 has already been trashed";
                     } else {
-                        if ($group[$1]->{exists}) {
-                            trashPathAndSidecars($group[$1]->{fullPath});
+                        if ($group->[$1]->{exists}) {
+                            trashPathAndSidecars($group->[$1]->{fullPath});
                         } else {
                             # File we're trying to trash doesn't exist, 
                             # so just remove its metadata
-                            deleteMd5Info($group[$1]->{fullPath});
+                            deleteMd5Info($group->[$1]->{fullPath});
                         }
 
-                        $group[$1] = undef;
+                        $group->[$1] = undef;
                         $itemCount--;
                         last PROMPT if $itemCount < 2;
                     }
@@ -1218,12 +1225,6 @@ EOM
                     warn "Unrecognized command: '$_'";
                 }
             } 
-            # This is the end of command processing if no one told us to go to
-            # the next group (i.e. last PROMPT). Before re-processing this group
-            # (i.e. redo DUPEGROUP), remove anything from the source that we
-            # undef'ed in in working collection @group while processing commands
-            # so that it isn't processed.
-            @$dupeGroup = @$dupeGroup[grep { defined $group[$_] } 0..$#group];
             redo DUPEGROUP;
         } # PROMPT 
     } # DUPEGROUP
@@ -1425,7 +1426,7 @@ sub doVerifyMd5 {
         my ($fullPath, $expectedMd5) = @_;
         if (-e $fullPath) {
             # File exists
-            my $actualMd5 = getMd5($fullPath)->{md5};
+            my $actualMd5 = calculateMd5Info($fullPath)->{md5};
             if ($actualMd5 eq $expectedMd5) {
                 # Hash match
                 print "Verified MD5 for '@{[prettyPath($fullPath)]}'\n";
@@ -1465,7 +1466,7 @@ sub verifyOrGenerateMd5ForGlob {
         sub { # callback
             my ($fullPath) = @_;
             if (-f $fullPath) {
-                verifyOrGenerateMd5ForFile($addOnly, $fullPath);
+                verifyOrGenerateMd5ForFile($fullPath, $addOnly);
             }
         },
         @globPatterns);
@@ -1476,88 +1477,76 @@ sub verifyOrGenerateMd5ForGlob {
 # verifies it matches the current MD5.
 #
 # If the file's md5.txt file doesn't have a MD5 for the specified [path],
-# this adds the [path]'s current MD5 to it.
+# this adds the path's current MD5 to it.
+#
+# addOnly:       When this mode is true it causes the method to exit early if any cached info is available. If that cached information is available, the MediaFile is not accessed, the MD5 is not computed, and the cached value is returned without any verification. Note that if a cachedMd5Info is provided, this method will always simply return that value.
+#                
+# cachedMd5Info: previously saved Md5Info for this 
 sub verifyOrGenerateMd5ForFile {
-    my ($addOnly, $fullPath) = @_;
-    my ($md5Path, $md5Key) = getMd5PathAndMd5Key($fullPath);
-    my $newMd5Info = makeMd5InfoBase($fullPath);
-
-    # Check cache from last call (this can often be called
-    # repeatedly with files in same folder, so this prevents
-    # unnecessary rereads)
-    # TODO: unless force override if specified
+    my ($mediaPath, $addOnly, $cachedMd5Info) = @_;
+    # First try to get suitable Md5Info from various cache locations
+    # without opening or hashing the MediaFile
+    my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
+    my $newMd5Info = makeMd5InfoBase($mediaPath);
+    if (canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Info, $newMd5Info)) {
+        return Storable::dclone($cachedMd5Info); # Caller supplied cached Md5Info is up to date
+    }
     if ($md5Path eq $cachedMd5Path and
-        canMakeMd5MetadataShortcut($addOnly, $fullPath, $cachedMd5Set->{$md5Key}, $newMd5Info)) {
-        return $cachedMd5Set->{$md5Key}; # return memory cache of Md5Info
+        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Set->{$md5Key}, $newMd5Info)) {
+        return Storable::dclone($cachedMd5Set->{$md5Key}); # memory cache of Md5Info is up to date
     }
-
-    # Read MD5.txt file to consult
     my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
-
-    # Target hash and metadata from cache and/or md5.txt
     my $oldMd5Info = $md5Set->{$md5Key};
-
-    # Skip files whose date modified and file size haven't changed
-    # TODO: unless force override if specified
-    if (canMakeMd5MetadataShortcut($addOnly, $fullPath, $oldMd5Info, $newMd5Info)) {
-        return $oldMd5Info; # return md5.txt cache of Md5Info
+    if (canUseCachedMd5InfoForBase($mediaPath, $addOnly, $oldMd5Info, $newMd5Info)) {
+        return $oldMd5Info; # Md5File cache of Md5Info is up to date
     }
-
-    # We can't skip this, so compute MD5 now
+    # No suitable cache, so fill in/finalize the Md5Info that we'll return
     eval {
-        # TODO: consolidate opening file multiple times from stat and getMd5
-        $newMd5Info = { %$newMd5Info, %{getMd5($fullPath)} };
+        # TODO: consolidate opening file multiple times from stat and calculateMd5Info
+        $newMd5Info = { %$newMd5Info, %{calculateMd5Info($mediaPath)} };
     };
     if (my $error = $@) {
-        # Can't get the MD5
         # TODO: for now, skip but we'll want something better in the future
-        warn colored("UNAVAILABLE MD5 for '@{[prettyPath($fullPath)]}' with error:", 'red'), "\n\t$error\n";
-        return undef;
+        warn colored("UNAVAILABLE MD5 for '@{[prettyPath($mediaPath)]}' with error:", 'red'), "\n\t$error\n";
+        return undef; # Can't get the MD5
     }
-
-    # newMd5Info and oldMd5Info should now be fully populated and 
-    # ready for comparison
+    # Do verification on the old persisted Md5Info and the new calculated Md5Info
     if (defined $oldMd5Info) {
         if ($oldMd5Info->{md5} eq $newMd5Info->{md5}) {
             # Matches last recorded hash, but still continue and call
             # setMd5InfoAndWriteMd5File to handle other bookkeeping
-            print colored("Verified MD5 for '@{[prettyPath($fullPath)]}'", 'green'), "\n";
+            # to ensure we get a cache hit and short-circuit next time.
+            print colored("Verified MD5 for '@{[prettyPath($mediaPath)]}'", 'green'), "\n";
         } elsif ($oldMd5Info->{full_md5} eq $newMd5Info->{full_md5}) {
             # Full MD5 match and content mismatch. This should only be
             # expected when we change how to calculate content MD5s.
             # If that's the case (i.e. the expected version is not up to
             # date), then we should just update the MD5s. If it's not the
             # case, then it's unexpected and some kind of programer error.
-            if (isMd5VersionUpToDate($fullPath, $oldMd5Info->{version})) {
+            if (isMd5InfoVersionUpToDate($mediaPath, $oldMd5Info->{version})) {
                 die <<"EOM";
 Unexpected state: full MD5 match and content MD5 mismatch for
-$fullPath
+$mediaPath
              version  full_md5                          md5
   Expected:  $oldMd5Info->{version}        $oldMd5Info->{full_md5}  $oldMd5Info->{md5}
     Actual:  $newMd5Info->{version}        $newMd5Info->{full_md5}  $newMd5Info->{md5}
 EOM
             } else {
-                trace(VERBOSITY_2, "Content MD5 calculation has changed, updating version ",
-                      "$oldMd5Info->{version} to $newMd5Info->{version} for '$fullPath'");
+                trace(VERBOSITY_2, "Content MD5 calculation has changed, upgrading from version ",
+                      "$oldMd5Info->{version} to $newMd5Info->{version} for '$mediaPath'");
             }
         } else {
             # Mismatch and we can update MD5, needs resolving...
-            warn colored("MISMATCH OF MD5 for '@{[prettyPath($fullPath)]}'", 'red'), 
+            warn colored("MISMATCH OF MD5 for '@{[prettyPath($mediaPath)]}'", 'red'), 
                  " [$oldMd5Info->{md5} vs $newMd5Info->{md5}]\n";
-
-            # Do user action prompt
             while (1) {
                 print "Ignore, Overwrite, Quit (i/o/q)? ";
                 chomp(my $in = lc <STDIN>);
-
                 if ($in eq 'i') {
-                    # Ignore the error and return
                     return;
                 } elsif ($in eq 'o') {
-                    # Exit loop to fall through to save newMd5Info
                     last;
                 } elsif ($in eq 'q') {
-                    # User requested to terminate
                     exit 0;
                 } else {
                     warn "Unrecognized command: '$in'";
@@ -1565,8 +1554,7 @@ EOM
             }
         }
     }
-
-    setMd5InfoAndWriteMd5File($fullPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set);
+    setMd5InfoAndWriteMd5File($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set);
     return $newMd5Info;
 }
 
@@ -1989,9 +1977,12 @@ sub updateMd5FileCache {
     $cachedMd5Set = Storable::dclone($md5Set);
 }
 
+
+# TODO move verifyOrGenerateMd5Info here
+
 # MODEL (MD5) ------------------------------------------------------------------
 # Makes the base of a md5Info hash that can be used with
-# canMakeMd5MetadataShortcut or added to the results of getMd5 to produce
+# canUseCachedMd5InfoForBase or added to the results of calculateMd5Info to produce
 # a full md5Info.
 sub makeMd5InfoBase {
     my ($mediaPath) = @_;
@@ -2000,22 +1991,22 @@ sub makeMd5InfoBase {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# Check if we can shortcut based on metadata without evaluating MD5s
-# TODO: should this be a nested function?
-sub canMakeMd5MetadataShortcut {
-    my ($addOnly, $fullPath, $oldMd5Info, $newMd5Info) = @_;
-    trace(VERBOSITY_DEBUG, 'canMakeMd5MetadataShortcut(...);');
-    if (defined $oldMd5Info) {
+# Returns true if the cached full Md5Info can be used for the specified
+# base-only Md5Info without bothering to calculateMd5Info. 
+sub canUseCachedMd5InfoForBase {
+    my ($mediaPath, $addOnly, $cachedMd5Info, $currentMd5InfoBase) = @_;
+    trace(VERBOSITY_DEBUG, 'canUseCachedMd5InfoForBase(...);');
+    if (defined $cachedMd5Info) {
         if ($addOnly) {
-            trace(VERBOSITY_DEBUG, "Skipping MD5 recalculation for '$fullPath' (add-only mode)");
+            trace(VERBOSITY_DEBUG, "Skipping MD5 recalculation for '$mediaPath' (add-only mode)");
             return 1;
         }
-        if (defined $oldMd5Info->{size} and 
-            defined $oldMd5Info->{mtime} and 
-            isMd5VersionUpToDate($fullPath, $oldMd5Info->{version}) and
-            $newMd5Info->{size} == $oldMd5Info->{size} and
-            $newMd5Info->{mtime} == $oldMd5Info->{mtime}) {
-            trace(VERBOSITY_DEBUG, "Skipping MD5 recalculation for '$fullPath' (same size/date-modified)");
+        if (defined $cachedMd5Info->{size} and 
+            defined $cachedMd5Info->{mtime} and 
+            isMd5InfoVersionUpToDate($mediaPath, $cachedMd5Info->{version}) and
+            $currentMd5InfoBase->{size} == $cachedMd5Info->{size} and
+            $currentMd5InfoBase->{mtime} == $cachedMd5Info->{mtime}) {
+            trace(VERBOSITY_DEBUG, "Skipping MD5 recalculation for '$mediaPath' (same size/date-modified)");
             return 1;
         }
     }
@@ -2023,12 +2014,13 @@ sub canMakeMd5MetadataShortcut {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# The data returned by getMd5 is versioned, but not all version changes are
-# meaningful for every type of file. This method determines if the provided
-# version is equivalent to the current version for the specified file type.
-sub isMd5VersionUpToDate {
+# The data returned by calculateMd5Info is versioned, but not all version 
+# changes are meaningful for every type of file. This method determines if
+# the provided version is equivalent to the current version for the specified
+# file type.
+sub isMd5InfoVersionUpToDate {
     my ($mediaPath, $version) = @_;
-    trace(VERBOSITY_DEBUG, "isMd5VersionUpToDate('$mediaPath', $version);");
+    trace(VERBOSITY_DEBUG, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
     my $type = getMimeType($mediaPath);
     if ($type eq 'image/jpeg') {
         return ($version >= 1) ? 1 : 0; # unchanged since V1
@@ -2044,17 +2036,19 @@ sub isMd5VersionUpToDate {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# Calculates and returns the MD5 digest of a file.
-# properties:
-#   md5: primary MD5 comparison (excludes volitile data from calculation)
+# Calculates and returns the MD5 digest(s) of a file.
+# Returns these properties as a hashref which when combined with 
+# makeMd5InfoBase comprise a full Md5Info):
+#   version:  CALCULATE_MD5_INFO_VERSION
+#   md5:      primary MD5 comparison (excludes volitile data from calculation)
 #   full_md5: full MD5 calculation for exact match
-sub getMd5 {
+sub calculateMd5Info {
     my ($mediaPath) = @_;
     trace(VERBOSITY_2, "getMd5('$mediaPath');");
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
-    #!!!   $getMd5Version should be incremented whenever the output of this
-    #!!!   method changes in such a way that old values need to be recalculated,
-    #!!!   and isMd5VersionUpToDate should be updated accordingly.
+    #!!!   CALCULATE_MD5_INFO_VERSION should be incremented whenever the output
+    #!!!   of this method changes in such a way that old values need to be 
+    #!!!   recalculated, and isMd5InfoVersionUpToDate should be updated accordingly.
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
     my $fh = openOrDie('<:raw', $mediaPath);
     my $fullMd5Hash = getMd5Digest($mediaPath, $fh);
@@ -2082,7 +2076,7 @@ sub getMd5 {
     printCrud(CRUD_READ, "Computed MD5 hash of '@{[prettyPath($mediaPath)]}'",
               ($partialMd5Hash ? ", including content only hash" : ''), "\n");
     return {
-        version => $getMd5Version,
+        version => CALCULATE_MD5_INFO_VERSION,
         md5 => $partialMd5Hash || $fullMd5Hash,
         full_md5 => $fullMd5Hash,
     };
