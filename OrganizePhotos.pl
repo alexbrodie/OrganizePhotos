@@ -846,7 +846,7 @@ sub buildFindDupeFilesDupeGroups {
                 my ($fullPath) = @_;
                 if (-f $fullPath) {
                     my $key = computeFindDupeFilesHashKeyByName($fullPath);
-                    push @{$keyToFullPathList{$key}}, $fullPath;
+                    push @{$keyToFullPathList{$key}}, { fullPath => $fullPath };
                 }
             },
             @globPatterns);
@@ -854,8 +854,9 @@ sub buildFindDupeFilesDupeGroups {
         # Hash key is MD5
         findMd5s(
             sub {
-                my ($fullPath, $md5) = @_;
-                push @{$keyToFullPathList{$md5}}, $fullPath;
+                my ($fullPath, $md5Info) = @_;
+                push @{$keyToFullPathList{$md5Info->{md5}}}, 
+                    { fullPath => $fullPath, cachedMd5Info => $md5Info };
             }, 
             @globPatterns);
     }
@@ -872,8 +873,8 @@ sub buildFindDupeFilesDupeGroups {
     while (my ($key, $fullPathList) = each %keyToFullPathList) {
         $fileCount += @$fullPathList;
         if (@$fullPathList > 1) {
-            @$fullPathList = sort { comparePathWithExtOrder($a, $b) } @$fullPathList;
-            push @dupes, [map { { fullPath => $_ } } @$fullPathList];
+            my @group = sort { comparePathWithExtOrder($a->{fullPath}, $b->{fullPath}) } @$fullPathList;
+            push @dupes, \@group;
         }
     }
 
@@ -1037,12 +1038,13 @@ sub doFindDupeFiles {
         # references with some metadata in the same (desired) order
         my $group = $dupeGroups->[$dupeGroupsIdx];
         @$group = grep { defined $_ } @$group;
-        for (@$group) {
-            $_->{exists} = -e $_->{fullPath};
-            if ($fast or !$_->{exists}) {
-                delete $_->{md5Info};
-            } elsif (!exists $_->{md5Info}) {
-                $_->{md5Info} = calculateMd5Info($_->{fullPath});
+        for my $elt (@$group) {
+            $elt->{exists} = -e $elt->{fullPath};
+            if ($fast or !$elt->{exists}) {
+                delete $elt->{md5Info};
+            } else {
+                $elt->{md5Info} = verifyOrGenerateMd5ForFile($elt->{fullPath}, 0,
+                    exists $elt->{md5Info} ? $elt->{md5Info} : $elt->{cachedMd5Info});
             }
         }
 
@@ -1423,9 +1425,10 @@ sub doVerifyMd5 {
 
     my $all = 0;
     findMd5s(sub {
-        my ($fullPath, $expectedMd5) = @_;
+        my ($fullPath, $md5Info) = @_;
         if (-e $fullPath) {
             # File exists
+            my $expectedMd5 = $md5Info->{md5};
             my $actualMd5 = calculateMd5Info($fullPath)->{md5};
             if ($actualMd5 eq $expectedMd5) {
                 # Hash match
@@ -1775,7 +1778,7 @@ sub findMd5s {
                 my (undef, $md5Set) = readMd5File('<:crlf', $fullPath);
                 for (sort keys %$md5Set) {
                     my $otherFullPath = changeFilename($fullPath, $_);
-                    $callback->($otherFullPath, $md5Set->{$_}->{md5});
+                    $callback->($otherFullPath, $md5Set->{$_});
                 }
             }
         },
