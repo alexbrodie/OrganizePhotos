@@ -7,49 +7,35 @@
 #  * !! Fix bug where onsecutive sidecar MOV files for iPhone live photos in burst are recognized as content match
 #  * !! when trashing a dupe, make sure not to trash sidecars that don't match
 #  * glob in friendly sort order
-#  * add prefix/coloring to operations output to differntate (move, trash, etc)
 #  * look for zero duration videos (this hang's Lightroom's
 #    DynamicLinkMediaServer which pegs the CPU and blocks Lr preventing any
 #    video imports or other things requiring DLMS, e.g. purging video cache)
 #  * get rid of texted photos (no metadata (e.g. camera make & model), small 
 #    files)
-#  * also report base name match when resolving groups
+#  * consider multiple factors for resolving dupe group, not just {md5}, also
+#    existance, full_md5, size/mtime, filename, basename, extension. Possibly weighted.
+#    And examine the similarity between each pair of items in the group. Then
+#    sort by the sum of similarty value compared to all other items to determine
+#    priority. Or something along those lines.
 #  * calculateMd5Info: content only match for tiff
 #  * undo support (z)
 #  * get dates for HEIC. maybe just need to update ExifTools?
-#  * should notice new MD5 in one dir and missing MD5 in another dir with
-#    same file name for when files are moved outside of this script, e.g.
-#    Lightroom imports from ToImport folder as move
 #  * Offer to trash short sidecar movies with primary image tagged 'NoPeople'?
 #  * Consolidate filename/ext handling, e.g. the regex \.([^.]*)$
 #  * on enter in -l mode, print last command after pressing enter
-#  * Consolidate formatting (view) options for file operations output
-#  * Fix benign trash warning: 
-#         Can't cd to (/some/path.) .Trash: No such file or directory
 #  * Option for find-dupe-files to auto delete full duplicate files that match
 #    some conditions, e.g.:
 #       - MD5 match of another which doesn't hold the other conditions
 #       - with subset (or no "user applied"?) metadata
 #       - wrong folder
 #       - is in a user suppiled expected dupe dir, e.g. 'ToImport'
-#  * something much better than the (i/o/q) prompty for MD5 conflicts
-#  * restore trash
+#  * something much better than the (i/o/q) prompt for MD5 conflicts
 #  * dedupe IMG_XXXX.HEIC and IMG_EXXXX.JPG
 #  * ignore "resource fork" segments (files starting with "._" which can show
 #    up when data is copied from HFS on MacOS to shared exFAT drive and viewed 
 #    on Windows), and treat them sort of like sidecars (except, that we want
 #    the resource fork of each sidecar in some cases - maybe it should be lower
 #    level like moveFile, traverseFiles, etc)
-#  * Make sure all file-system/path stuff goes through File:: stuff, not the perlfunc
-#    stuff like: -X, glob, stat
-#  * Get rid of relative paths more and clean up use of rel2abs/abs2rel, and make
-#    File::Find::find callbacks take arguments rather than using File::Find::name
-#    and $_ (including using -X and regexp without implicit $_ argument)
-#  * Fix globbing on Windows. Currently at least spaces are delimiters, and surely
-#    there are other characters. This causes arguments like
-#    > perl OrganizePhotos.pl "Foo *.jpg"
-#    to be treated as <Foo *.jpg> which is the same as (<Foo>, <*.jpg>) rather than
-#    doing the cmd.exe shell expansion which would produce 'Foo 1.jpg', 'Foo 2.jpg', etc.
 #  * Replace some hashes whose key sets never change with Class::Struct
 #  * Standardize on naming for path pieces, e.g. have prefixes absPath (full absolute path),
 #    relPath (full friendly relative path ... from somewhere, but maybe not to CWD),
@@ -58,7 +44,6 @@
 #    including extenaion, and without trailing slash for directories except at root),
 #    ext (the extension only of the file including the period, or the empty string if
 #    no extension is present)
-# * Switch from print to trace where appropriate
 # * Namespace somehow for view/model/API/etc?
 # * Add param types to sub declaration? 
 # * Switch File::Find::find to traverseFiles
@@ -70,14 +55,11 @@
 #   halt/alert/inform/trace system for crashes/warnings/print statments/diagnositcs?
 # * Add a new restore-trash verb that searches for .Trash dirs and for each
 #   one calls consolidateTrash(self, self) and movePath(self, parent)
-# * readMd5File/writeMd5File should just do a Storable::dclone on the 
-#   hashref it's returning or is passed to cache last md5Path/md5Set for caching
-#   rather than only doing it in verifyOrGenerateMd5ForFile
 # * Use constants for some of the standard paths like md5.txt, .Trash, thumbs.db, etc
 # * Use Cwd instead of File::Spec?
 # * Move all colored to view
 # * traverseFiles should skip any dir which contains a special (zero byte?) unique
-#   file (named .notraverse.orph?) and add documentation (e.g. put this in the same
+#   file (named .orphignore?) and add documentation (e.g. put this in the same
 #   dir as your lrcat file). Maybe if it's not zero byte, it can act like .gitignore
 #
 =pod
@@ -1043,7 +1025,7 @@ sub doFindDupeFiles {
             if ($fast or !$elt->{exists}) {
                 delete $elt->{md5Info};
             } else {
-                $elt->{md5Info} = verifyOrGenerateMd5ForFile($elt->{fullPath}, 0,
+                $elt->{md5Info} = resolveMd5Info($elt->{fullPath}, 0,
                     exists $elt->{md5Info} ? $elt->{md5Info} : $elt->{cachedMd5Info});
             }
         }
@@ -1421,7 +1403,7 @@ sub doVerifyMd5 {
 
     # TODO: this verification code is really old (i think it is still
     # based on V1 md5.txt file, back when it was actually a text file)
-    # can we combine it with or reuse somehow verifyOrGenerateMd5ForFile?
+    # can we combine it with or reuse somehow resolveMd5Info?
 
     my $all = 0;
     findMd5s(sub {
@@ -1461,7 +1443,7 @@ sub doVerifyMd5 {
 }
 
 #-------------------------------------------------------------------------------
-# Call verifyOrGenerateMd5ForFile for each media file in the glob patterns
+# Call resolveMd5Info for each media file in the glob patterns
 sub verifyOrGenerateMd5ForGlob {
     my ($addOnly, @globPatterns) = @_;
     traverseFiles(
@@ -1469,7 +1451,7 @@ sub verifyOrGenerateMd5ForGlob {
         sub { # callback
             my ($fullPath) = @_;
             if (-f $fullPath) {
-                verifyOrGenerateMd5ForFile($fullPath, $addOnly);
+                resolveMd5Info($fullPath, $addOnly);
             }
         },
         @globPatterns);
@@ -1485,7 +1467,7 @@ sub verifyOrGenerateMd5ForGlob {
 # addOnly:       When this mode is true it causes the method to exit early if any cached info is available. If that cached information is available, the MediaFile is not accessed, the MD5 is not computed, and the cached value is returned without any verification. Note that if a cachedMd5Info is provided, this method will always simply return that value.
 #                
 # cachedMd5Info: previously saved Md5Info for this 
-sub verifyOrGenerateMd5ForFile {
+sub resolveMd5Info {
     my ($mediaPath, $addOnly, $cachedMd5Info) = @_;
     # First try to get suitable Md5Info from various cache locations
     # without opening or hashing the MediaFile
@@ -1981,7 +1963,7 @@ sub updateMd5FileCache {
 }
 
 
-# TODO move verifyOrGenerateMd5Info here
+# TODO move resolveMd5Info here
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Makes the base of a md5Info hash that can be used with
