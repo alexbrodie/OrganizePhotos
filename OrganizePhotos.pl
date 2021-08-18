@@ -1458,92 +1458,6 @@ sub verifyOrGenerateMd5ForGlob {
 }
 
 #-------------------------------------------------------------------------------
-# If the file's md5.txt file has a MD5 for the specified [path], this
-# verifies it matches the current MD5.
-#
-# If the file's md5.txt file doesn't have a MD5 for the specified [path],
-# this adds the path's current MD5 to it.
-#
-# addOnly:       When this mode is true it causes the method to exit early if any cached info is available. If that cached information is available, the MediaFile is not accessed, the MD5 is not computed, and the cached value is returned without any verification. Note that if a cachedMd5Info is provided, this method will always simply return that value.
-#                
-# cachedMd5Info: previously saved Md5Info for this 
-sub resolveMd5Info {
-    my ($mediaPath, $addOnly, $cachedMd5Info) = @_;
-    # First try to get suitable Md5Info from various cache locations
-    # without opening or hashing the MediaFile
-    my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
-    my $newMd5Info = makeMd5InfoBase($mediaPath);
-    if (canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Info, $newMd5Info)) {
-        return Storable::dclone($cachedMd5Info); # Caller supplied cached Md5Info is up to date
-    }
-    if ($md5Path eq $cachedMd5Path and
-        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Set->{$md5Key}, $newMd5Info)) {
-        return Storable::dclone($cachedMd5Set->{$md5Key}); # memory cache of Md5Info is up to date
-    }
-    my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
-    my $oldMd5Info = $md5Set->{$md5Key};
-    if (canUseCachedMd5InfoForBase($mediaPath, $addOnly, $oldMd5Info, $newMd5Info)) {
-        return $oldMd5Info; # Md5File cache of Md5Info is up to date
-    }
-    # No suitable cache, so fill in/finalize the Md5Info that we'll return
-    eval {
-        # TODO: consolidate opening file multiple times from stat and calculateMd5Info
-        $newMd5Info = { %$newMd5Info, %{calculateMd5Info($mediaPath)} };
-    };
-    if (my $error = $@) {
-        # TODO: for now, skip but we'll want something better in the future
-        warn colored("UNAVAILABLE MD5 for '@{[prettyPath($mediaPath)]}' with error:", 'red'), "\n\t$error\n";
-        return undef; # Can't get the MD5
-    }
-    # Do verification on the old persisted Md5Info and the new calculated Md5Info
-    if (defined $oldMd5Info) {
-        if ($oldMd5Info->{md5} eq $newMd5Info->{md5}) {
-            # Matches last recorded hash, but still continue and call
-            # setMd5InfoAndWriteMd5File to handle other bookkeeping
-            # to ensure we get a cache hit and short-circuit next time.
-            print colored("Verified MD5 for '@{[prettyPath($mediaPath)]}'", 'green'), "\n";
-        } elsif ($oldMd5Info->{full_md5} eq $newMd5Info->{full_md5}) {
-            # Full MD5 match and content mismatch. This should only be
-            # expected when we change how to calculate content MD5s.
-            # If that's the case (i.e. the expected version is not up to
-            # date), then we should just update the MD5s. If it's not the
-            # case, then it's unexpected and some kind of programer error.
-            if (isMd5InfoVersionUpToDate($mediaPath, $oldMd5Info->{version})) {
-                die <<"EOM";
-Unexpected state: full MD5 match and content MD5 mismatch for
-$mediaPath
-             version  full_md5                          md5
-  Expected:  $oldMd5Info->{version}        $oldMd5Info->{full_md5}  $oldMd5Info->{md5}
-    Actual:  $newMd5Info->{version}        $newMd5Info->{full_md5}  $newMd5Info->{md5}
-EOM
-            } else {
-                trace(VERBOSITY_2, "Content MD5 calculation has changed, upgrading from version ",
-                      "$oldMd5Info->{version} to $newMd5Info->{version} for '$mediaPath'");
-            }
-        } else {
-            # Mismatch and we can update MD5, needs resolving...
-            warn colored("MISMATCH OF MD5 for '@{[prettyPath($mediaPath)]}'", 'red'), 
-                 " [$oldMd5Info->{md5} vs $newMd5Info->{md5}]\n";
-            while (1) {
-                print "Ignore, Overwrite, Quit (i/o/q)? ";
-                chomp(my $in = lc <STDIN>);
-                if ($in eq 'i') {
-                    return;
-                } elsif ($in eq 'o') {
-                    last;
-                } elsif ($in eq 'q') {
-                    exit 0;
-                } else {
-                    warn "Unrecognized command: '$in'";
-                }
-            }
-        }
-    }
-    setMd5InfoAndWriteMd5File($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set);
-    return $newMd5Info;
-}
-
-#-------------------------------------------------------------------------------
 # Print all the metadata values which differ in a set of paths
 sub metadataDiff {
     my ($excludeSidecars, @paths) = @_;
@@ -1963,7 +1877,107 @@ sub updateMd5FileCache {
 }
 
 
-# TODO move resolveMd5Info here
+
+#-------------------------------------------------------------------------------
+# This high level MD5 method is used to retrieve, calculate, verify, and cache
+# Md5Info for a file. It is the primary method to get MD5 data for a file.
+#
+# The default behavior is to try to lookup the Md5Info from caches and return
+# that value if up to date. If there's a cache miss or the cache is stale (i.e.
+# the file has been modified since the last time this was called), the new
+# Md5Info is calculated, verified, and the cache updated.
+#
+# Returns the current Md5Info for the file.
+#
+# The default behavior explained above is altered by parameters:
+#
+# addOnly:
+#   When this mode is true it causes the method to exit early if *any* cached
+#   info is available whether it is up to date or not. If that cached Md5Info
+#   is available, the MediaFile is not accessed, the MD5 is not computed, and 
+#   the cached value is returned without any verification. Note that if a 
+#   cachedMd5Info parameter is provided, this method will always simply return
+#   that value.
+#
+# cachedMd5Info:
+#   Caller supplied cached Md5Info value that this method will check to see
+#   if it is up to date and return that value if so (in the same way and
+#   together with the other caches). 
+sub resolveMd5Info {
+    my ($mediaPath, $addOnly, $cachedMd5Info) = @_;
+    # First try to get suitable Md5Info from various cache locations
+    # without opening or hashing the MediaFile
+    my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
+    my $newMd5Info = makeMd5InfoBase($mediaPath);
+    if (canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Info, $newMd5Info)) {
+        return Storable::dclone($cachedMd5Info); # Caller supplied cached Md5Info is up to date
+    }
+    if ($md5Path eq $cachedMd5Path and
+        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Set->{$md5Key}, $newMd5Info)) {
+        return Storable::dclone($cachedMd5Set->{$md5Key}); # memory cache of Md5Info is up to date
+    }
+    my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
+    my $oldMd5Info = $md5Set->{$md5Key};
+    if (canUseCachedMd5InfoForBase($mediaPath, $addOnly, $oldMd5Info, $newMd5Info)) {
+        return $oldMd5Info; # Md5File cache of Md5Info is up to date
+    }
+    # No suitable cache, so fill in/finalize the Md5Info that we'll return
+    eval {
+        # TODO: consolidate opening file multiple times from stat and calculateMd5Info
+        $newMd5Info = { %$newMd5Info, %{calculateMd5Info($mediaPath)} };
+    };
+    if (my $error = $@) {
+        # TODO: for now, skip but we'll want something better in the future
+        warn colored("UNAVAILABLE MD5 for '@{[prettyPath($mediaPath)]}' with error:", 'red'), "\n\t$error\n";
+        return undef; # Can't get the MD5
+    }
+    # Do verification on the old persisted Md5Info and the new calculated Md5Info
+    if (defined $oldMd5Info) {
+        if ($oldMd5Info->{md5} eq $newMd5Info->{md5}) {
+            # Matches last recorded hash, but still continue and call
+            # setMd5InfoAndWriteMd5File to handle other bookkeeping
+            # to ensure we get a cache hit and short-circuit next time.
+            print colored("Verified MD5 for '@{[prettyPath($mediaPath)]}'", 'green'), "\n";
+        } elsif ($oldMd5Info->{full_md5} eq $newMd5Info->{full_md5}) {
+            # Full MD5 match and content mismatch. This should only be
+            # expected when we change how to calculate content MD5s.
+            # If that's the case (i.e. the expected version is not up to
+            # date), then we should just update the MD5s. If it's not the
+            # case, then it's unexpected and some kind of programer error.
+            if (isMd5InfoVersionUpToDate($mediaPath, $oldMd5Info->{version})) {
+                die <<"EOM";
+Unexpected state: full MD5 match and content MD5 mismatch for
+$mediaPath
+             version  full_md5                          md5
+  Expected:  $oldMd5Info->{version}        $oldMd5Info->{full_md5}  $oldMd5Info->{md5}
+    Actual:  $newMd5Info->{version}        $newMd5Info->{full_md5}  $newMd5Info->{md5}
+EOM
+            } else {
+                trace(VERBOSITY_2, "Content MD5 calculation has changed, upgrading from version ",
+                      "$oldMd5Info->{version} to $newMd5Info->{version} for '$mediaPath'");
+            }
+        } else {
+            # Mismatch and we can update MD5, needs resolving...
+            warn colored("MISMATCH OF MD5 for '@{[prettyPath($mediaPath)]}'", 'red'), 
+                 " [$oldMd5Info->{md5} vs $newMd5Info->{md5}]\n";
+            while (1) {
+                print "Ignore, Overwrite, Quit (i/o/q)? ";
+                chomp(my $in = lc <STDIN>);
+                if ($in eq 'i') {
+                    return;
+                } elsif ($in eq 'o') {
+                    last;
+                } elsif ($in eq 'q') {
+                    exit 0;
+                } else {
+                    warn "Unrecognized command: '$in'";
+                }
+            }
+        }
+    }
+    setMd5InfoAndWriteMd5File($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set);
+    return $newMd5Info;
+}
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Makes the base of a md5Info hash that can be used with
