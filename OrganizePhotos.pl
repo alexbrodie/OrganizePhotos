@@ -1876,8 +1876,6 @@ sub updateMd5FileCache {
     $cachedMd5Set = Storable::dclone($md5Set);
 }
 
-
-
 #-------------------------------------------------------------------------------
 # This high level MD5 method is used to retrieve, calculate, verify, and cache
 # Md5Info for a file. It is the primary method to get MD5 data for a file.
@@ -1887,7 +1885,8 @@ sub updateMd5FileCache {
 # the file has been modified since the last time this was called), the new
 # Md5Info is calculated, verified, and the cache updated.
 #
-# Returns the current Md5Info for the file.
+# Returns the current Md5Info for the file, or undef if the MD5 can't be
+# computed (e.g. can't open the file to hash it).
 #
 # The default behavior explained above is altered by parameters:
 #
@@ -1964,7 +1963,9 @@ EOM
                 print "Ignore, Overwrite, Quit (i/o/q)? ";
                 chomp(my $in = lc <STDIN>);
                 if ($in eq 'i') {
-                    return;
+                    # Ignore newMd5Info, so we don't want to return that. Return
+                    # what is/was in the cache.
+                    return $oldMd5Info;
                 } elsif ($in eq 'o') {
                     last;
                 } elsif ($in eq 'q') {
