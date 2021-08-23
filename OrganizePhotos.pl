@@ -469,6 +469,10 @@ if ($^O eq 'MSWin32') {
 # TODO: be explicit with this and move usage to view layer
 use Term::ANSIColor;
 
+# Filename only portion of the path to Md5File which stores
+# Md5Info data for other files in the same directory
+use constant MD5_FILENAME => 'md5.txt';
+
 # Implementation version of calculateMd5Info (useful when comparing
 # older serialized results, such as canUseCachedMd5InfoForBase and 
 # isMd5InfoVersionUpToDate)
@@ -1242,7 +1246,7 @@ sub doRemoveEmpties {
                 # These files don't count - they're trashible, ignore them (by 
                 # not processing) as if they didn't exist and let them get
                 # cleaned up if the folder
-                return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', 'md5.txt');
+                return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', MD5_FILENAME);
 
                 # TODO: exclude zero byte or hidden files as well?
 
@@ -1267,7 +1271,7 @@ sub doRemoveEmpties {
                     delete $dirSubItemsMap{$fullPath};
 
                     # If this dir is empty, then we'll want to trash it and have the
-                    # parent dir ignore it like trashable files (e.g. md5.txt). If
+                    # parent dir ignore it like trashable files (e.g. MD5_FILENAME). If
                     # it's not trashable, then fall through to add this to its parent
                     # dir's list (to prevent the parent from being trashed).
                     unless ($subItems) {
@@ -1401,9 +1405,14 @@ EOM
 sub doVerifyMd5 {
     my (@globPatterns) = @_;
 
-    # TODO: this verification code is really old (i think it is still
-    # based on V1 md5.txt file, back when it was actually a text file)
-    # can we combine it with or reuse somehow resolveMd5Info?
+    # TODO: this verification code is really old, based on V0 Md5File (back when
+    # it was actually a plain text file), before the check-md5 verb (when it was
+    # add/verify twostep), and predates any source history (back when we were all
+    # using Source Depot and couldn't easily set up a repo for a new codebase).
+    # Before the git and json wave took over MS and well before Mac compat, c2007?
+    # Can we delete it, rewrite it, or combine-with/reuse resolveMd5Info? I haven't
+    # used add-md5 or verify-md5 for many years at this point - the only marginal
+    # value is that it can be better at finding orphaned Md5Info data.
 
     my $all = 0;
     findMd5s(sub {
@@ -1422,7 +1431,6 @@ sub doVerifyMd5 {
                     while (1) {
                         print "Ignore, ignore All, Quit (i/a/q)? ";
                         chomp(my $in = lc <STDIN>);
-
                         if ($in eq 'i') {
                             last;
                         } elsif ($in eq 'a') {
@@ -1648,7 +1656,7 @@ sub getDirectoryError {
 # Md5Digest..The result when computing the MD5 for chunk(s) of data of
 #            the form $md5DigestPattern.
 
-#-------------------------------------------------------------------------------
+# MODEL (MD5) ------------------------------------------------------------------
 # This high level MD5 method is used to retrieve, calculate, verify, and cache
 # Md5Info for a file. It is the primary method to get MD5 data for a file.
 #
@@ -1729,6 +1737,7 @@ EOM
             }
         } else {
             # Mismatch and we can update MD5, needs resolving...
+            # TODO: This doesn't belong here in the model, it should be moved
             warn colored("MISMATCH OF MD5 for '@{[prettyPath($mediaPath)]}'", 'red'), 
                  " [$oldMd5Info->{md5} vs $newMd5Info->{md5}]\n";
             while (1) {
@@ -1767,7 +1776,7 @@ sub findMd5s {
             if (-d $fullPath) {
                 return (lc $filename ne '.trash'); # process non-trash dirs
             } elsif (-f $fullPath) {
-                return (lc $filename eq 'md5.txt'); # only process md5.txt files
+                return (lc $filename eq MD5_FILENAME); # only process Md5File files
             }
             die "Programmer Error: unknown object type for '$fullPath'";
         },
@@ -1789,7 +1798,7 @@ sub findMd5s {
 # Gets the Md5Path, Md5Key for a MediaPath.
 sub getMd5PathAndMd5Key {
     my ($mediaPath) = @_;
-    my ($md5Path, $md5Key) = changeFilename($mediaPath, 'md5.txt');
+    my ($md5Path, $md5Key) = changeFilename($mediaPath, MD5_FILENAME);
     return ($md5Path, lc $md5Key);
 }
 
@@ -1894,7 +1903,7 @@ sub readOrCreateNewMd5File {
 sub readMd5File {
     my ($openMode, $md5Path) = @_;
     trace(VERBOSITY_2, "readMd5File('$openMode', '$md5Path');");
-    # TODO: Should we validate filename is md5.txt or do we care?
+    # TODO: Should we validate filename is MD5_FILENAME or do we care?
     my $md5File = openOrDie($openMode, $md5Path);
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple "name: md5\n" format parsing
@@ -1938,6 +1947,7 @@ sub readMd5File {
 # newMd5Info represent the new data. Returns the previous md5Info value. 
 sub setMd5InfoAndWriteMd5File {
     my ($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set) = @_;
+    # TODO: Should we validate filename is MD5_FILENAME or do we care?
     my $oldMd5Info = $md5Set->{$md5Key};
     unless ($oldMd5Info and Data::Compare::Compare($oldMd5Info, $newMd5Info)) {
         $md5Set->{$md5Key} = $newMd5Info;
@@ -1962,6 +1972,7 @@ sub writeMd5File {
     #       and writing out the "\x{FEFF}" BOM. Not sure how to do that in
     #       a fully cross compatable way (older file versions as well as
     #       Windows/Mac compat)
+    # TODO: Should we validate filename is MD5_FILENAME or do we care?
     trace(VERBOSITY_DEBUG, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5Set ]} items });');
     seek($md5File, 0, 0) or die "Couldn't reset seek on file: $!";
     truncate($md5File, 0) or die "Couldn't truncate file: $!";
@@ -2103,14 +2114,14 @@ sub getJpgContentDataMd5 {
     my ($mediaPath, $fh) = @_;
     # Read Start of Image [SOI]
     seek($fh, 0, 0) or die "Failed to reset seek for '$mediaPath': $!";
-    read($fh, my $fileData, 2) or die "Failed to read SOI from '$mediaPath': $!";
+    read($fh, my $fileData, 2) or die "Failed to read JPEG SOI from '$mediaPath': $!";
     my ($soi) = unpack('n', $fileData);
-    $soi == 0xffd8 or die "JPG file didn't start with SOI marker: '$mediaPath'";
+    $soi == 0xffd8 or die "File didn't start with JPEG SOI marker: '$mediaPath'";
     # Read blobs until SOS
     my $tags = '';
     while (1) {
         read($fh, my $fileData, 4) or die
-            "Failed to read from '$mediaPath' at @{[tell $fh]} after $tags: $!";
+            "Failed to read JPEG tag header from '$mediaPath' at @{[tell $fh]} after $tags: $!";
         my ($tag, $size) = unpack('nn', $fileData);
         # Take all the file after the SOS
         return getMd5Digest($mediaPath, $fh) if $tag == 0xffda;
@@ -2140,7 +2151,7 @@ sub getMp4ContentDataMd5 {
         my $seekStartOfAtom = tell($fh);
         # Read atom header
         read($fh, my $fileData, 8) or die
-            "Failed to read MP4 atom from '$mediaPath' at $seekStartOfAtom: $!";
+            "Failed to read MP4 atom header from '$mediaPath' at $seekStartOfAtom: $!";
         my ($atomSize, $atomType) = unpack('NA4', $fileData);
         if ($atomSize == 0) {
             # 0 means the atom goes to the end of file
@@ -2152,7 +2163,7 @@ sub getMp4ContentDataMd5 {
         if ($atomSize == 1) {
             # 1 means it's 64 bit size
             read($fh, $fileData, 8) or die
-                "Failed to read MP4 atom from '$mediaPath': $!";
+                "Failed to read MP4 atom extended size from '$mediaPath': $!";
             $atomSize = unpack('Q>', $fileData);
             $dataSize = $atomSize - 16;
         }
@@ -2174,12 +2185,12 @@ sub getPngContentDataMd5 {
     my @actualHeader = unpack('C8', $fileData);
     my @pngHeader = ( 137, 80, 78, 71, 13, 10, 26, 10 );
     Data::Compare::Compare(\@actualHeader, \@pngHeader) or die
-        "PNG file didn't start with correct header: '$mediaPath'";
+        "File didn't start with PNG header: '$mediaPath'";
     my $md5 = new Digest::MD5;
     while (!eof($fh)) {
         # Read chunk header
         read($fh, $fileData, 8) or die
-            "Failed to read PNG chunk from '$mediaPath' at @{[tell $fh]}: $!";
+            "Failed to read PNG chunk header from '$mediaPath' at @{[tell $fh]}: $!";
         my ($size, $type) = unpack('NA4', $fileData);
         my $seekStartOfData = tell($fh);
         # TODO: Check that 'IHDR' chunk comes first and 'IEND' last?
@@ -2226,7 +2237,7 @@ sub addToMd5Digest {
         for (my $remaining = $size; $remaining > 0; $remaining -= $chunkSize) {
             my $readSize = $chunkSize < $remaining ? $chunkSize : $remaining;
             read($fh, my $fileData, $readSize)
-                or die "Failed to read from '$mediaPath' at @{[tell $fh]}: $!";
+                or die "Failed to read $readSize bytes from '$mediaPath' at @{[tell $fh]}: $!";
             $md5->add($fileData);
         }
     }
@@ -2415,8 +2426,10 @@ sub wantNonTrashMedia {
     my ($fullPath) = @_;
     my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
     if (-d $fullPath) {
+        return 0 if -e File::Spec->catfile($fullPath, '.orphignore');
         return (lc $filename ne '.trash'); # process non-trash dirs
     } elsif (-f $fullPath) {
+        return 0 if lc $filename eq '.orphignore'; # Skip the ignore marker file
         return ($filename =~ /$mediaType/); # process media files
     }
     die "Programmer Error: unknown object type for '$fullPath'";
@@ -2672,7 +2685,7 @@ sub movePath {
             # then cat old on to new, and delete old.
             my (undef, undef, $oldFilename) = File::Spec->splitpath($oldFullPath);
             my (undef, undef, $newFilename) = File::Spec->splitpath($newFullPath);
-            if (lc $oldFilename eq 'md5.txt' and lc $newFilename eq 'md5.txt') {
+            if (lc $oldFilename eq MD5_FILENAME and lc $newFilename eq MD5_FILENAME) {
                 appendMd5Files($newFullPath, $oldFullPath);
                 unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
                 printCrud(CRUD_DELETE, "Deleted '@{[prettyPath($oldFullPath)]}' after ",
@@ -2708,7 +2721,7 @@ sub movePath {
                 my $newChildFullPath = File::Spec->canonpath(File::Spec->catfile($newFullPath, $_));
                 # If we move the last media from a folder in previous iteration
                 # of this loop, it can delete an empty Md5File via deleteMd5Info.
-                next if lc $_ eq 'md5.txt' and !(-e $oldChildFullPath);
+                next if lc $_ eq MD5_FILENAME and !(-e $oldChildFullPath);
                 movePath($oldChildFullPath, $newChildFullPath); 
             }
             # If we've emptied out $oldFullPath my moving all its contents into
