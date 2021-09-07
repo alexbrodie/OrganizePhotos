@@ -952,23 +952,22 @@ sub buildFindDupeFilesPrompt {
     }
     push @prompt, "\n";
 
+    my @paths = map { prettyPath($_->{fullPath}) } @$group;
+    my $maxPathLength = max map { length } @paths;
+
     # The list of all files in the group
     for (my $i = 0; $i < @$group; $i++) {
         my $elt = $group->[$i];
+        my $path = $paths[$i];
 
         push @prompt, '  ', colored(coloredByIndex("$i. ", $i), 'bold');
-        push @prompt, coloredByIndex(prettyPath($elt->{fullPath}), $i);
+        push @prompt, coloredByIndex($path, $i), ' ' x ($maxPathLength - length $path);
 
         # Add file error suffix
-        if ($elt->{exists}) {
-            # Don't bother cracking the file to get metadata if we're in fast mode
-            # TODO: this file access and computation doesn't seem to belong here
-            unless ($fast) {
-                if (my $err = getDirectoryError($elt->{fullPath})) {
-                    push @prompt, ' ', colored("** $err **", 'bright_white on_' . colorByIndex($i));
-                }
-            }
-        } else {
+        if (my $md5Info = $elt->{md5Info}) {
+            push @prompt, ' ', scalar localtime $md5Info->{mtime}, ' ', $md5Info->{size};
+        }
+        unless ($elt->{exists}) {
             push @prompt, ' ', colored('[MISSING]', 'bold red on_white');
         }
 
@@ -1033,12 +1032,6 @@ sub doFindDupeFiles {
                     exists $elt->{md5Info} ? $elt->{md5Info} : $elt->{cachedMd5Info});
             }
         }
-
-        # TODO: we do a lot of file reads here that maybe could be consolidated?
-        #   * Image::ExifTool::ExtractInfo in getDirectoryError once per file per DUPEGROUP:
-        #   * Image::ExifTool::ExtractInfo once per file per metadataDiff
-        #   * calculateMd5Info file read
-        # Possibly we can use verifyMd5
 
         # TODO: Should we sort groups so that missing files are at the end?
         # It's supposed to be sorted by importance. We would need to do that
@@ -1601,42 +1594,6 @@ sub appendMetadata {
             # failure
             die "Couldn't WriteInfo for $target";
         }
-    }
-}
-
-#-------------------------------------------------------------------------------
-# If specified media [path] is in the right directory, returns the falsy
-# empty string. If it is in the wrong directory, a short truthy error
-# string for display (colored by [colorIndex]) is returned.
-sub getDirectoryError {
-    my ($path) = @_;
-
-    my @props = qw(DateTimeOriginal MediaCreateDate);
-
-    # TODO: should this use readMetadata to pick up date taken from XMP?
-    # or can we store this with Md5Info?
-    trace(VERBOSITY_2, "Image::ExifTool::ImageInfo('$path', ...);");
-    my $info = Image::ExifTool::ImageInfo($path, \@props, {DateFormat => '%F'});
-    printCrud(CRUD_READ, "Read metadata for '@{[prettyPath($path)]}' to get media date");
-
-    my $date;
-    for (@props) {
-        if (exists $info->{$_}) {
-            $date = $info->{$_};
-            last;
-        }
-    }
-
-    return 'Can\'t find media date' if !defined $date;
-
-    my $yyyy = substr $date, 0, 4;
-    my $date2 = join '', $date =~ /^..(..)-(..)-(..)$/;
-    my @dirs = File::Spec->splitdir((File::Spec->splitpath($path))[1]);
-    if ($dirs[-3] eq $yyyy and
-        $dirs[-2] =~ /^(?:$date|$date2)/) {
-        return ''; # No error
-    } else {
-        return "Wrong dir for item with data $date";
     }
 }
 
