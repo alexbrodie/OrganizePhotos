@@ -494,6 +494,9 @@ my $md5DigestPattern = qr/[0-9a-f]{32}/;
 #   can't form cycles such that a sidecar of a sicecar ... of a sidecar is
 #   not the original type.
 #
+#   The default if not specified (or the type is not known and is
+#   missing from the list altogether) is an empty list.
+#
 # EXTORDER
 #   Defines the sort order when displaying a group of duplicate files with
 #   the lower values coming first. Typically the "primary" files are displayed
@@ -501,22 +504,22 @@ my $md5DigestPattern = qr/[0-9a-f]{32}/;
 #   EXTORDER of the sidecar type must be strictly greater if it exists. Thus
 #   this is also used to control processing order so that primary files are
 #   handled before their sidecars - e.g. raf files are handled before jpg
-#   sidecars
-# TODO: verify this EXTORDER/SIDECAR claim, perhaps in tests somewhere. It would
-# also ensure the statement in SIDECARS that there are no cycles.
+#   sidecars. 
+#
+#   The default if not specified (or the type is not known and is
+#   missing from the list altogether) is zero.
+#
+#   TODO: verify this EXTORDER/SIDECAR claim, perhaps in tests somewhere. It 
+#   would also ensure the statement in SIDECARS that there are no cycles.
 #
 # MIMETYPE
-#   The mime type of the file type.
-#   Reference: filext.com
-#   For types without a MIME type, we fabricate a "non-standard" one
-#   based on extension.
+#   The mime type of the file type (source: filext.com). For types without 
+#   a MIME type, we fabricate a "non-standard" one based on extension.
 #
 # TODO: flesh this out
 # TODO: convert to Class::Struct
 my %fileTypes = (
     AVI => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'video/x-msvideo'
     },
     CRW => {
@@ -534,24 +537,16 @@ my %fileTypes = (
         EXTORDER => -1,
         MIMETYPE => 'image/cr3' # Non-standard
     },
-    ICNS => {
-        SIDECARS => [],
-        EXTORDER => 0,
-        MIMETYPE => 'image/x-icns'
-    },
-    ICO => {
-        SIDECARS => [],
-        EXTORDER => 0,
-        MIMETYPE => 'image/x-icon'
-    },
+    #ICNS => {
+    #    MIMETYPE => 'image/x-icns'
+    #},
+    #ICO => {
+    #    MIMETYPE => 'image/x-icon'
+    #},
     JPEG => {
-        SIDECARS => [],
-        EXTORDER => 1,
         MIMETYPE => 'image/jpeg'
     },
     JPG => {
-        SIDECARS => [],
-        EXTORDER => 1,
         MIMETYPE => 'image/jpeg'
     },
     HEIC => {
@@ -560,38 +555,26 @@ my %fileTypes = (
         MIMETYPE => 'image/heic'
     },
     M2TS => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'video/mp2t'
     },
     M4V => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'video/mp4v-es'
     },
     MOV => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'video/quicktime'
     },
     MP3 => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'audio/mpeg'
     },
     MP4 => {
         SIDECARS => [qw( LRV THM )],
-        EXTORDER => 0,
+        EXTORDER => -1,
         MIMETYPE => 'video/mp4v-es'
     },
     MPG => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'video/mpeg'
     },
     MTS => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'video/mp2t'
     },
     NEF => {
@@ -599,24 +582,16 @@ my %fileTypes = (
         EXTORDER => -1,
         MIMETYPE => 'image/nef' # Non-standard
     },
-    PDF => {
-        SIDECARS => [],
-        EXTORDER => 0,
-        MIMETYPE => 'application/pdf'
-    },
+    #PDF => {
+    #    MIMETYPE => 'application/pdf'
+    #},
     PNG => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'image/png'
     },
     PSB => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'image/psb' # Non-standard
     },
     PSD => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'image/photoshop'
     },
     RAF => {
@@ -625,20 +600,14 @@ my %fileTypes = (
         MIMETYPE => 'image/raf' # Non-standard
     },
     TIF => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'image/tiff'
     },
     TIFF => {
-        SIDECARS => [],
-        EXTORDER => 0,
         MIMETYPE => 'image/tiff'
     },
-    ZIP => {
-        SIDECARS => [],
-        EXTORDER => 0,
-        MIMETYPE => 'application/zip'
-    }
+    #ZIP => {
+    #    MIMETYPE => 'application/zip'
+    #}
 );
 
 my $backupSuffix = qr/
@@ -2059,9 +2028,7 @@ sub getMimeType {
     # we want to consider the real extension
     $mediaPath =~ s/$backupSuffix$//;
     my ($basename, $ext) = splitExt($mediaPath);
-    my $key = uc $ext;
-    exists $fileTypes{$key} or die "Unexpected file type $key for '$mediaPath'";
-    return $fileTypes{$key}->{MIMETYPE};
+    return $fileTypes{uc $ext}->{MIMETYPE} || '';
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -2220,20 +2187,12 @@ sub getSidecarPaths {
         return ();
     } else {
         # Using extension as a key, look up associated sidecar types (if any)
+        # and return the paths to the other types which exist
         my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
         my ($basename, $ext) = splitExt($filename);
-        my $key = uc $ext;
-        if (exists $fileTypes{$key}) {
-            # Return the other types which exist
-            # TODO: use path functions (do we need to add a catExt as
-            # reciprocal of splitExt like we have splitpath and catpath)
-            my @sidecars = @{$fileTypes{$key}->{SIDECARS}};
-            @sidecars = map { combinePath($vol, $dir, "$basename.$_") } @sidecars;
-            return grep { -e } @sidecars;
-        } else {
-            # Unknown file type (based on extension)
-            die "Unknown type '$key' to determine sidecars for '$fullPath'"; 
-        }
+        my @sidecars = @{$fileTypes{uc $ext}->{SIDECARS} || []};
+        @sidecars = map { combinePath($vol, $dir, catExt($basename, $_)) } @sidecars;
+        return grep { -e } @sidecars;
     }
 }
 
@@ -2324,21 +2283,10 @@ sub compareFilenameWithExtOrder {
     my $c = lc $basenameA cmp lc $basenameB;
     return $c if $c;
     # Next by extorder
-    if (defined $fileTypes{uc $extA}) {
-        if (defined $fileTypes{uc $extB}) {
-            # Both known types, so ncreasing by extorder if they're different
-            my $c = $fileTypes{uc $extA}->{EXTORDER} <=> $fileTypes{uc $extB}->{EXTORDER};
-            return $c if $c;
-        } else {
-            return -1; # A is known, B is not, so A comes first
-        }
-    } else {
-        if (defined $fileTypes{uc $extB}) {
-            # Neither types are known, do nothing here
-        } else {
-            return 1; # B is known, A is not, so B comes first
-        }
-    }
+    my $extOrderA = $fileTypes{uc $extA}->{EXTORDER} || 0;
+    my $extOrderB = $fileTypes{uc $extB}->{EXTORDER} || 0;
+    $c = $extOrderA <=> $extOrderB;
+    return $c if $c;
     # And then just the extension as a string
     return lc $extA cmp lc $extB;
 }
@@ -2365,15 +2313,23 @@ sub combinePath {
 }
 
 # MODEL (Path Operations) ------------------------------------------------------
+# The inverse of splitExt, this combines a basename and extension into a
+# filename.
+sub catExt {
+    my ($basename, $ext) = @_;
+    return $ext ? "$basename.$ext" : $basename;
+}
+
+# MODEL (Path Operations) ------------------------------------------------------
 # Splits the filename into basename and extension. (Both without a dot.) It
 # is usually used like the following example
 #       my ($vol, $dir, $filename) = File::Spec->splitpath($path);
 #       my ($basename, $ext) = splitExt($filename);
 sub splitExt {
     my ($path) = @_;
-    my ($filename, $ext) = $path =~ /^(.*)\.([^.]*)/;
+    my ($basename, $ext) = $path =~ /^(.*)\.([^.]*)/;
     # TODO: handle case without extension - if no re match then just return ($path, '')
-    return ($filename, $ext);
+    return ($basename, $ext);
 }
 
 # MODEL (File Operations) ------------------------------------------------------
