@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 #
 # Commands to regenerate documentation:
+#   cpanm Pod::Markdown
 #   pod2markdown OrganizePhotos.pl > README.md
 #
 # TODO LIST
@@ -70,14 +71,11 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 =head1 SYNOPSIS
 
-# Help:
-OrganizePhotos.pl -h
+    # Get help
+    $ OrganizePhotos -h
 
-# Typical workflow:
-# Import via Image Capture to local folder as originals (unmodified copy)
-# Import that folder in Lightroom as move
-OrganizePhotos.pl checkup /photos/root/dir
-# Archive /photos/root/dir (see help)
+    # Run checkup on a directory
+    $ OrganizePhotos c /photos/root/dir
 
 =head1 DESCRIPTION
 
@@ -86,253 +84,253 @@ managed by Adobe Lightroom. This helps with tasks not covered by
 Lightroom such as: backup/archive, integrity checks, consolidation,
 and other OCD metadata organization.
 
-Metadata this program needs to persist are stored in md5.txt files in
+Metadata this program needs to persist are stored in C<md5.txt> files in
 the same directory as the files that data was generated for. If they 
 are separated, the metadata will no longer be associated and the separated
 media files will be treated as new. The expectation is that if files move,
-the md5.txt file is also moved or copied.
+the C<md5.txt> file is also moved or copied.
 
-Metadata operations are powered by Image::ExifTool.
+Metadata operations are powered by L<C<Image::ExifTool>>.
 
 The calling pattern for each command follows the pattern:
 
     OrganizePhotos <verb> [options...]
 
+Options are managed with L<C<Getopt::Long>>, and thus may appear anywhere
+after the verb, with remaining arguments being used as input for the verb.
+Most verbs' non-option arguments are glob patterns describing which files
+to operate on.
+
 The following verbs are available:
 
-=over 5
 
-=item B<add-md5> [glob patterns...]
-
-=item B<check-md5> [glob patterns...]
-
-=item B<checkup> [-d] [-l] [-n] [glob patterns...]
-
-=item B<collect-trash> [glob patterns...]
-
-=item B<find-dupe-files> [-d] [-l] [-n] [glob patterns...]
-
-=item B<metadata-diff> <files...>
-
-=item B<remove-empties> [glob patterns...]
-
-=item B<verify-md5> [glob patterns...]
-
-=back
-
-=head2 add-md5 [glob patterns...]
-
-I<Alias: a5>
-
-For each media file under the current directory that doesn't have a
-MD5 computed, generate the MD5 hash and add to md5.txt file.
-
-This does not modify media files or their sidecars, it only adds entries
-to the md5.txt files.
-
-=head3 Options
-
-=over 24
-
-=item B<glob patterns>
-
-Rather than operate on files under the current directory, operate on
-the specified glob pattern.
-
-=back
-
-=head2 append-metadata <dir>
-
-I<Alias: am>
-
-Not yet implemented
-
-=head2 check-md5 [glob patterns...]
-
-I<Alias: c5>
+=head2 B<C<check-md5>> I<(C<c5>)>
 
 For each media file under the current directory, generate the MD5 hash
-and either add to md5.txt file if missing or verify hashes match if
+and either add to C<md5.txt> file if missing or verify hashes match if
 already present.
 
-This method is read/write for MD5s, if you want to perform read-only
-MD5 checks (i.e., don't write to md5.txt), then use verify-md5.
+This method is read/write for C<md5.txt> files. If you want to perform
+read-only MD5 checks (i.e., don't write to C<md5.txt>), then use the
+C<verify-md5> verb.
 
 This does not modify media files or their sidecars, it only modifies
-the md5.txt files.
+the C<md5.txt> files.
 
-=head3 Options
+=head3 Options & Arguments
 
 =over 24
+
+=item B<C<--add-only>>
+
+Only operate on files that haven't had their MD5 computed and stored
+yet. This option means that no existing MD5s will be verified.
 
 =item B<glob patterns>
 
 Rather than operate on files under the current directory, operate on
-the specified glob pattern.
+the specified glob pattern(s).
 
 =back
 
 =head3 Examples
 
-    # Check or add MD5 for all CR2 files in the current directory
-    $ OrganizePhotos.pl c5 *.CR2
+    # Check or add MD5 for several types of video files in the
+    # current directory
+    $ OrganizePhotos c5 *.mp4 *.m4v *.mov
 
-=head2 checkup [glob patterns...]
-
-I<Alias: c>
+=head2 B<C<checkup>> I<(C<c>)>
 
 This command runs the following suggested suite of commands:
 
-    check-md5 [options] [glob patterns...]
-    find-dupe-files [options] [glob patterns...]
-    remove-empties [options] [glob patterns...]
-    collect-trash [options] [glob patterns...]
+    check-md5
+    find-dupe-files
+    remove-empties
+    collect-trash
 
-=head3 Options
+=head3 Options & Arguments
 
 =over 24
 
-=item B<-d, --auto-diff>
+=item B<C<--auto-diff>> I<(C<-d>)>
 
-Automatically do the 'd' diff command for every new group of files
+Automatically do the C<d> diff command for every new group of files
 
-=item B<-l, --default-last-action>
+=item B<C<--default-last-action>> I<(C<-l>)>
 
-Enter repeats last command
-
-=item B<-n, --by-name>
-
-Search for items based on name rather than the default of MD5
+Use the last action as the default action (what is used if an
+empty command is specified, i.e. you just press Enter)
 
 =item B<glob patterns>
 
 Rather than operate on files under the current directory, operate on
-the specified glob pattern.
+the specified glob pattern(s).
 
 =back
 
-=head2 collect-trash [glob patterns...]
+=head3 Examples
 
-I<Alias: ct>
+    # Performs a checkup of directory foo doing auto-diff during
+    # the find-dupe-files phase
+    $ OrganizePhotos c foo -d
 
-Looks recursively for .Trash subdirectories under the current directory
-and moves that content to the current directory's .Trash perserving
+    # These next 4 together are equivalent to the previous statement 
+    $ OrganizePhotos c5 foo
+    $ OrganizePhotos fdf --auto-diff foo 
+    $ OrganizePhotos re foo
+    $ OrganizePhotos ct foo
+
+=head2 B<C<collect-trash>> I<(C<ct>)>
+
+Looks recursively for C<.Trash> subdirectories under the current directory
+and moves that content to the current directory's C<.Trash> perserving
 directory structure.
 
 For example if we had the following trash:
 
     ./Foo/.Trash/1.jpg
     ./Foo/.Trash/2.jpg
-    ./Bar/.Trash/1.jpg
+    ./Bar/.Trash/3.jpg
+    ./Bar/Baz/.Trash/4.jpg
 
 After collection we would have:
 
     ./.Trash/Foo/1.jpg
     ./.Trash/Foo/2.jpg
-    ./.Trash/Bar/1.jpg
+    ./.Trash/Bar/3.jpg
+    ./.Trash/Bar/Baz/4.jpg
 
-=head3 Options
+=head3 Options & Arguments
 
 =over 24
 
 =item B<glob patterns>
 
 Rather than operate on files under the current directory, operate on
-the specified glob pattern.
+the specified glob pattern(s).
 
 =back
 
-=head2 find-dupe-files [  patterns...]
+=head3 Examples
 
-I<Alias: fdf>
+    # Collect trash in directories starting with Do, e.g.
+    # Documents/.Trash, Downloads/.Trash, etc.
+    $ OrganizePhotos ct Do*
 
-Find files that have multiple copies under the current directory.
+=head2 B<C<find-dupe-files>> I<(C<fdf>)>
 
-=head3 Options
+Find files that have multiple copies under the current directory,
+and walks through a series of interactive prompts for resolution.
+
+=head3 Options & Arguments
 
 =over 24
 
-=item B<-d, --auto-diff>
+=item B<C<--auto-diff>> I<(C<-d>)>
 
-Automatically do the 'd' diff command for every new group of files
+Automatically do the C<d> diff command for every new group of files
 
-=item B<-l, --default-last-action>
+=item B<C<--default-last-action>> I<(C<-l>)>
 
-Enter repeats last command
+Use the last action as the default action (what is used if an
+empty command is specified, i.e. you just press Enter)
 
-=item B<-n, --by-name>
+=item B<C<--by-name>> I<(C<-n>)>
 
-Search for items based on name rather than the default of MD5
+Search for duplicates based on name rather than the default of MD5
 
 =item B<glob patterns>
 
 Rather than operate on files under the current directory, operate on
-the specified glob pattern.
+the specified glob pattern(s).
 
 =back
 
-=head2 metadata-diff <files...>
+=head3 Examples
 
-I<Alias: md>
+    # Find duplicate files across Alpha and Bravo directories
+    $ OrganizePhotos fdf Alpha Bravo
+
+=head2 B<C<metadata-diff>> I<(C<md>)>
 
 Do a diff of the specified media files (including their sidecar metadata).
 
 This method does not modify any file.
 
-=head3 Options
+=head3 Options & Arguments
 
 =over 24
 
-=item B<-x, --exclude-sidecars>
+=item B<C<--exclude-sidecars>> I<(C<-x>)>
 
 Don't include sidecar metadata for a file. For example, a CR2 file wouldn't 
 include any metadata from a sidecar XMP which typically is the place where
 user added tags like rating and keywords are placed.
 
+=item B<files>
+
+Specifies which files to diff
+
 =back
 
-=head2 remove-empties [glob patterns...]
+=head3 Examples
 
-I<Alias: re>
+    # Do a three way diff between the metadata in the JPGs
+    $ OrganizePhotos md one.jpg two.jpg three.jpg
 
-Remove any subdirectories that are empty save an md5.txt file.
+=head2 B<C<remove-empties>> I<(C<re>)>
 
-=head3 Options
+Remove any subdirectories that are empty save an C<md5.txt> file.
+
+=head3 Options & Arguments
 
 =over 24
 
 =item B<glob patterns>
 
 Rather than operate on files under the current directory, operate on
-the specified glob pattern.
+the specified glob pattern(s).
 
 =back
 
-=head2 verify-md5 [glob patterns...]
+=head3 Examples
 
-I<Alias: v5>
+    # Removes empty directories that are descendants of directories
+    # in the current directory that have 'abc' in their name
+    $ OrganizePhotos re *abc*
 
-Verifies the MD5 hashes for all contents of all md5.txt files below
+=head2 B<C<verify-md5>> I<(C<v5>)>
+
+Verifies the MD5 hashes for all contents of all C<md5.txt> files below
 the current directory.
 
-This method is read-only, if you want to add/update MD5s, use check-md5.
+This method is read-only, if you want to add/update MD5s, use C<check-md5>.
 
 This method does not modify any file.
 
-=head3 Options
+=head3 Options & Arguments
 
 =over 24
 
 =item B<glob patterns>
 
 Rather than operate on files under the current directory, operate on
-the specified glob pattern.
+the specified glob pattern(s).
 
 =back
+
+=head3 Examples
+
+    # Verifies the MD5 for all MP4 files in the current directory
+    $ OrganizePhotos v5 *.mp4
 
 =begin comment
 
 =head1 TODO
+
+=head2 AppendMetadata
+
+Find files that aren't in a directory appropriate for their date
 
 =head2 FindMisplacedFiles
 
@@ -358,8 +356,6 @@ Find XMP or THM files that don't have a cooresponding main file
 
 Flag for CheckMd5/VerifyMd5 to only check files created/modified since
 the provided timestamp or timestamp at last MD5 check
-
-=end comment
 
 =head1 Related commands
 
@@ -431,6 +427,8 @@ the provided timestamp or timestamp at last MD5 check
     # Mirror SOURCE to TARGET
     robocopy /MIR SOURCE TARGET
 
+=end comment
+
 =head1 AUTHOR
 
 Copyright 2017, Alex Brodie
@@ -440,7 +438,13 @@ under the same terms as Perl itself.
 
 =head1 SEE ALSO
 
-L<Image::ExifTool>
+=over
+
+=item L<C<Image::ExifTool>>
+
+=item L<C<Getopt::Long>>
+
+=back
 
 =cut
 
@@ -662,21 +666,23 @@ sub main {
         Getopt::Long::Configure('bundling');
         my $rawVerb = shift @ARGV;
         my $verb = lc $rawVerb;
-        if ($verb eq 'add-md5' or $verb eq 'a5') {
-            myGetOptions();
-            doAddMd5(@ARGV);
-        } elsif ($verb eq 'append-metadata' or $verb eq 'am') {
+        if ($verb eq 'append-metadata' or $verb eq 'am') {
             myGetOptions();
             doAppendMetadata(@ARGV);
         } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
-            myGetOptions();
-            doCheckMd5(@ARGV);
+            my $addOnly = 0;
+            myGetOptions('add-only' => \$addOnly);
+            doCheckMd5($addOnly, @ARGV);
         } elsif ($verb eq 'checkup' or $verb eq 'c') {
-            my ($autoDiff, $byName, $defaultLastAction) = (0, 0, 0);
-            myGetOptions('auto-diff|d' => \$autoDiff,
+            my $addOnly = 0;
+            my $autoDiff = 0;
+            my $byName = 0;
+            my $defaultLastAction = 0;
+            myGetOptions('add-only' => \$addOnly,
+                         'auto-diff|d' => \$autoDiff,
                          'by-name|n' => \$byName,
                          'default-last-action|l' => \$defaultLastAction);
-            doCheckMd5(@ARGV);
+            doCheckMd5($addOnly, @ARGV);
             doFindDupeFiles($byName, $autoDiff, 
                             $defaultLastAction, @ARGV);
             doRemoveEmpties(@ARGV);
@@ -689,14 +695,16 @@ sub main {
             @ARGV and die "Unexpected parameters: @ARGV";
             doFindDupeDirs();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
-            my ($autoDiff, $byName, $defaultLastAction) = (0, 0, 0);
+            my $autoDiff = 0;
+            my $byName = 0;
+            my $defaultLastAction = 0;
             myGetOptions('auto-diff|d' => \$autoDiff,
                          'by-name|n' => \$byName,
                          'default-last-action|l' => \$defaultLastAction);
             doFindDupeFiles($byName, $autoDiff, 
                             $defaultLastAction, @ARGV);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
-            my ($excludeSidecars) = (0);
+            my $excludeSidecars = 0;
             myGetOptions('exclude-sidecars|x' => \$excludeSidecars);
             doMetadataDiff($excludeSidecars, @ARGV);
         } elsif ($verb eq 'remove-empties' or $verb eq 're') {
@@ -714,12 +722,6 @@ sub main {
 }
 
 # API ==========================================================================
-# Execute add-md5 verb
-sub doAddMd5 {
-    verifyOrGenerateMd5ForGlob(1, @_);
-}
-
-# API ==========================================================================
 # EXPERIMENTAL
 # Execute append-metadata verb
 sub doAppendMetadata {
@@ -729,7 +731,15 @@ sub doAppendMetadata {
 # API ==========================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
-    verifyOrGenerateMd5ForGlob(0, @_);
+    my ($addOnly, @globPatterns) = @_;
+    traverseFiles(
+        undef, # isDirWanted
+        undef, # isFileWanted
+        sub {  # callback
+            my ($fullPath, $rootFullPath) = @_;
+            -f $fullPath and resolveMd5Info($fullPath, $addOnly);
+        },
+        @globPatterns);
 }
 
 # API ==========================================================================
@@ -737,13 +747,13 @@ sub doCheckMd5 {
 sub doCollectTrash {
     my (@globPatterns) = @_;
     traverseFiles(
-        sub { # isDirWanted
+        sub {  # isDirWanted
             return 1;
         },
-        sub { # isFileWanted
+        sub {  # isFileWanted
             return 0;
         },
-        sub { # callback
+        sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
             my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
             if (lc $filename eq '.trash') {
@@ -800,8 +810,8 @@ sub buildFindDupeFilesDupeGroups {
         traverseFiles(
             undef, # isDirWanted
             undef, # isFileWanted
-            sub { # callback
-                my ($fullPath) = @_;
+            sub {  # callback
+                my ($fullPath, $rootFullPath) = @_;
                 if (-f $fullPath) {
                     my $key = computeFindDupeFilesHashKeyByName($fullPath);
                     push @{$keyToFullPathList{$key}}, { fullPath => $fullPath };
@@ -811,7 +821,9 @@ sub buildFindDupeFilesDupeGroups {
     } else {
         # Hash key is MD5
         findMd5s(
-            sub {
+            undef, # isDirWanted
+            undef, # isFileWanted
+            sub {  # callback
                 my ($fullPath, $md5Info) = @_;
                 push @{$keyToFullPathList{$md5Info->{md5}}}, 
                     { fullPath => $fullPath, cachedMd5Info => $md5Info };
@@ -1198,7 +1210,7 @@ sub doRemoveEmpties {
     my %dirSubItemsMap = ();
     traverseFiles(
         undef, # isDirWanted
-        sub { # isFileWanted
+        sub {  # isFileWanted
             my ($fullPath, $rootFullPath, $filename) = @_;
             # These files don't count - they're trashible, ignore them (by 
             # not processing) as if they didn't exist and let them get
@@ -1208,7 +1220,7 @@ sub doRemoveEmpties {
             # TODO: exclude zero byte or hidden files as well?
             return 1; # Other files count
         },
-        sub { # callback 
+        sub {  # callback 
             my ($fullPath, $rootFullPath) = @_;
             if (-d $fullPath) {
                 # at this point, all the sub-items should be processed, see how many
@@ -1361,55 +1373,42 @@ sub doVerifyMd5 {
     # value is that it can be better at finding orphaned Md5Info data.
 
     my $all = 0;
-    findMd5s(sub {
-        my ($fullPath, $md5Info) = @_;
-        if (-e $fullPath) {
-            # File exists
-            my $expectedMd5 = $md5Info->{md5};
-            my $actualMd5 = calculateMd5Info($fullPath)->{md5};
-            if ($actualMd5 eq $expectedMd5) {
-                # Hash match
-                print "Verified MD5 for '@{[prettyPath($fullPath)]}'\n";
-            } else {
-                # Has MIS-match, needs input
-                warn "ERROR: MD5 mismatch for '@{[prettyPath($fullPath)]}' ($actualMd5 != $expectedMd5)";
-                unless ($all) {
-                    while (1) {
-                        print "Ignore, ignore All, Quit (i/a/q)? ";
-                        chomp(my $in = lc <STDIN>);
-                        if ($in eq 'i') {
-                            last;
-                        } elsif ($in eq 'a') {
-                            $all = 1;
-                            last;
-                        } elsif ($in eq 'q') {
-                            exit 0;
+    findMd5s(
+        undef, # isDirWanted
+        undef, # isFileWanted
+        sub {  #callback
+            my ($fullPath, $md5Info) = @_;
+            if (-e $fullPath) {
+                # File exists
+                my $expectedMd5 = $md5Info->{md5};
+                my $actualMd5 = calculateMd5Info($fullPath)->{md5};
+                if ($actualMd5 eq $expectedMd5) {
+                    # Hash match
+                    print "Verified MD5 for '@{[prettyPath($fullPath)]}'\n";
+                } else {
+                    # Has MIS-match, needs input
+                    warn "ERROR: MD5 mismatch for '@{[prettyPath($fullPath)]}' ($actualMd5 != $expectedMd5)";
+                    unless ($all) {
+                        while (1) {
+                            print "Ignore, ignore All, Quit (i/a/q)? ";
+                            chomp(my $in = lc <STDIN>);
+                            if ($in eq 'i') {
+                                last;
+                            } elsif ($in eq 'a') {
+                                $all = 1;
+                                last;
+                            } elsif ($in eq 'q') {
+                                exit 0;
+                            }
                         }
                     }
                 }
+            } else {
+                # File doesn't exist
+                # TODO: prompt to see if we should remove this via deleteMd5Info
+                warn "Missing file: '@{[prettyPath($fullPath)]}'";
             }
-        } else {
-            # File doesn't exist
-            # TODO: prompt to see if we should remove this via deleteMd5Info
-            warn "Missing file: '@{[prettyPath($fullPath)]}'";
-        }
-    }, @globPatterns);
-}
-
-#-------------------------------------------------------------------------------
-# Call resolveMd5Info for each media file in the glob patterns
-sub verifyOrGenerateMd5ForGlob {
-    my ($addOnly, @globPatterns) = @_;
-    traverseFiles(
-        undef, # isDirWanted
-        undef, # isFileWanted
-        sub { # callback
-            my ($fullPath) = @_;
-            if (-f $fullPath) {
-                resolveMd5Info($fullPath, $addOnly);
-            }
-        },
-        @globPatterns);
+        }, @globPatterns);
 }
 
 #-------------------------------------------------------------------------------
@@ -1677,23 +1676,26 @@ EOM
 # passing it full path and MD5 hash as arguments like
 #      callback($fullPath, $md5)
 sub findMd5s {
-    my ($callback, @globPatterns) = @_;
+    my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
+    $isFileWanted = \&defaultIsFileWanted unless $isFileWanted;
     trace(VERBOSITY_DEBUG, 'findMd5s(...); with @globPatterns of', 
           (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (current dir)'));
     traverseFiles(
-        undef, # isDirWanted
-        sub { # isFileWanted
+        $isDirWanted,
+        sub {  # isFileWanted
             my ($fullPath, $rootFullPath, $filename) = @_;
             return (lc $filename eq MD5_FILENAME); # only process Md5File files
         },
-        sub { # callback
-            my ($fullPath) = @_;
+        sub {  # callback
+            my ($fullPath, $rootFullPath) = @_;
             if (-f $fullPath) {
                 my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
                 my (undef, $md5Set) = readMd5File('<:crlf', $fullPath);
-                for (sort keys %$md5Set) {
-                    my $otherFullPath = changeFilename($fullPath, $_);
-                    $callback->($otherFullPath, $md5Set->{$_});
+                for my $otherFilename (sort keys %$md5Set) {
+                    my $otherFullPath = changeFilename($fullPath, $otherFilename);
+                    if ($isFileWanted->($otherFullPath, $rootFullPath, $otherFilename)) {
+                        $callback->($otherFullPath, $md5Set->{$otherFilename});
+                    }
                 }
             }
         },
@@ -2357,7 +2359,7 @@ sub defaultIsFileWanted {
 #
 # Note that if glob patterns overlap, then some files might invoke the 
 # callbacks more than once. For example, 
-#   traverseFiles(sub { ... }, sub {...}, 'Al*.jpg', '*ex.jpg');
+#   traverseFiles(..., 'Al*.jpg', '*ex.jpg');
 # would match Alex.jpg twice, and invoke isFileWanted/callback twice as well.
 sub traverseFiles {
     my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
