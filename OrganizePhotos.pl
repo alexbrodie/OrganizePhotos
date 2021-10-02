@@ -737,9 +737,11 @@ sub doCheckMd5 {
 sub doCollectTrash {
     my (@globPatterns) = @_;
     traverseFiles(
-        sub { # isWanted
-            my ($fullPath) = @_;
-            return -d $fullPath;
+        sub { # isDirWanted
+            return 1;
+        },
+        sub { # isFileWanted
+            return 0;
         },
         sub { # callback
             my ($fullPath, $rootFullPath) = @_;
@@ -796,7 +798,8 @@ sub buildFindDupeFilesDupeGroups {
     if ($byName) {
         # Hash key based on file/dir name
         traverseFiles(
-            \&wantNonTrashMedia,
+            undef, # isDirWanted
+            undef, # isFileWanted
             sub { # callback
                 my ($fullPath) = @_;
                 if (-f $fullPath) {
@@ -1191,68 +1194,49 @@ sub doMetadataDiff {
 # Execute remove-empties verb
 sub doRemoveEmpties {
     my (@globPatterns) = @_;
-
     # Map from directory absolute path to sub-item count
     my %dirSubItemsMap = ();
-
     traverseFiles(
-        sub { # isWanted
-            my ($fullPath) = @_;
-
-            my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+        undef, # isDirWanted
+        sub { # isFileWanted
+            my ($fullPath, $rootFullPath, $filename) = @_;
+            # These files don't count - they're trashible, ignore them (by 
+            # not processing) as if they didn't exist and let them get
+            # cleaned up if the folder gets trashed
             my $lcfn = lc $filename;
-            if (-d $fullPath) {
-                # silently skip trash, traverse other dirs
-                return ($lcfn ne '.trash');
-            } elsif (-f $fullPath) {
-                # These files don't count - they're trashible, ignore them (by 
-                # not processing) as if they didn't exist and let them get
-                # cleaned up if the folder
-                return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', MD5_FILENAME);
-
-                # TODO: exclude zero byte or hidden files as well?
-
-                # Other files count
-                return 1;
-            }
-
-            die "Programmer Error: unknown object type for '$fullPath'";
+            return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', MD5_FILENAME);
+            # TODO: exclude zero byte or hidden files as well?
+            return 1; # Other files count
         },
         sub { # callback 
             my ($fullPath, $rootFullPath) = @_;
-
-                if (-d $fullPath) {
-                    # at this point, all the sub-items should be processed, see how many
-                    my $subItems = $dirSubItemsMap{$fullPath};
-                    #trace(VERBOSITY_DEBUG, "Directory '$fullPath' contains @{[ $subItems || 0 ]} subitems");
-
-                    # As part of a later verification check, we'll remove this dir
-                    # from our map. Then if other sub-items are added after we process
-                    # this parent dir right now, then we could have accidentally trashed
-                    # a non-trashable dir. 
-                    delete $dirSubItemsMap{$fullPath};
-
-                    # If this dir is empty, then we'll want to trash it and have the
-                    # parent dir ignore it like trashable files (e.g. MD5_FILENAME). If
-                    # it's not trashable, then fall through to add this to its parent
-                    # dir's list (to prevent the parent from being trashed).
-                    unless ($subItems) {
-                        trashPath($fullPath);
-                        return;
-                    }
+            if (-d $fullPath) {
+                # at this point, all the sub-items should be processed, see how many
+                my $subItemCount = $dirSubItemsMap{$fullPath};
+                # As part of a later verification check, we'll remove this dir
+                # from our map. Then if other sub-items are added after we process
+                # this parent dir right now, then we could have accidentally trashed
+                # a non-trashable dir. 
+                delete $dirSubItemsMap{$fullPath};
+                # If this dir is empty, then we'll want to trash it and have the
+                # parent dir ignore it like trashable files (e.g. MD5_FILENAME). If
+                # it's not trashable, then fall through to add this to its parent
+                # dir's list (to prevent the parent from being trashed).
+                unless ($subItemCount) {
+                    trashPath($fullPath);
+                    return;
                 }
-
-                # We don't mark the root item (file or dir) like all the subitems, because
-                # we're not looking to remove the root's parent based on some partial knowledge
-                # (e.g. if dir Alex has a lot of non-empty stuff in it and a child dir named
-                # Quinn, then we wouldn't want to consider trashing Alex if we check only Quinn)
-                if ($fullPath ne $rootFullPath) {
-                    my $parentFullPath = parentPath($fullPath);
-                    $dirSubItemsMap{$parentFullPath}++;
-                }
+            }
+            # We don't mark the root item (file or dir) like all the subitems, because
+            # we're not looking to remove the root's parent based on some partial knowledge
+            # (e.g. if dir Alex has a lot of non-empty stuff in it and a child dir named
+            # Quinn, then we wouldn't want to consider trashing Alex if we check only Quinn)
+            if ($fullPath ne $rootFullPath) {
+                my $parentFullPath = parentPath($fullPath);
+                $dirSubItemsMap{$parentFullPath}++;
+            }
         },
         @globPatterns);
-
     if (%dirSubItemsMap) {
         # See notes in above callback 
         die "Programmer Error: unprocessed items in doRemoveEmpties map";
@@ -1417,7 +1401,8 @@ sub doVerifyMd5 {
 sub verifyOrGenerateMd5ForGlob {
     my ($addOnly, @globPatterns) = @_;
     traverseFiles(
-        \&wantNonTrashMedia,
+        undef, # isDirWanted
+        undef, # isFileWanted
         sub { # callback
             my ($fullPath) = @_;
             if (-f $fullPath) {
@@ -1696,15 +1681,10 @@ sub findMd5s {
     trace(VERBOSITY_DEBUG, 'findMd5s(...); with @globPatterns of', 
           (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (current dir)'));
     traverseFiles(
-        sub { # isWanted
-            my ($fullPath) = @_;
-            my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-            if (-d $fullPath) {
-                return (lc $filename ne '.trash'); # process non-trash dirs
-            } elsif (-f $fullPath) {
-                return (lc $filename eq MD5_FILENAME); # only process Md5File files
-            }
-            die "Programmer Error: unknown object type for '$fullPath'";
+        undef, # isDirWanted
+        sub { # isFileWanted
+            my ($fullPath, $rootFullPath, $filename) = @_;
+            return (lc $filename eq MD5_FILENAME); # only process Md5File files
         },
         sub { # callback
             my ($fullPath) = @_;
@@ -2020,8 +2000,7 @@ sub calculateMd5Info {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# Gets the mime type from a path for all types supported by $mediaType
-# TODO: Should this be categorized as MP5 sub? Seems more generic like Metadata.
+# Gets the mime type from a path
 sub getMimeType {
     my ($mediaPath) = @_;
     # If the file is a backup (has some "bak"/"original" suffix), 
@@ -2333,19 +2312,17 @@ sub splitExt {
 }
 
 # MODEL (File Operations) ------------------------------------------------------
-# Implementation for traverseFiles' isWanted that causes processing
-# of non-trash media files.
-sub wantNonTrashMedia {
-    my ($fullPath) = @_;
-    my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-    if (-d $fullPath) {
-        return 0 if -e File::Spec->catfile($fullPath, '.orphignore');
-        return (lc $filename ne '.trash'); # process non-trash dirs
-    } elsif (-f $fullPath) {
-        return 0 if lc $filename eq '.orphignore'; # Skip the ignore marker file
-        return ($filename =~ /$mediaType/); # process media files
-    }
-    die "Programmer Error: unknown object type for '$fullPath'";
+# Default behavior if isDirWanted is undefined for traverseFiles
+sub defaultIsDirWanted {
+    my ($fullPath, $rootFullPath, $filename) = @_;
+    return (lc $filename ne '.trash');
+}
+
+# MODEL (File Operations) ------------------------------------------------------
+# Default behavior if isDirWanted is undefined for traverseFiles
+sub defaultIsFileWanted {
+    my ($fullPath, $rootFullPath, $filename) = @_;
+    return ($filename =~ /$mediaType/);
 }
 
 # MODEL (File Operations) ------------------------------------------------------
@@ -2353,49 +2330,46 @@ sub wantNonTrashMedia {
 #  * Provides some common functionality such as glob handling
 #  * Standardizes on bydepth and no_chdir which seems to be the best context
 #    for authoring the callbacks
-#  * Provide consistent and type safe path object to callback, and eliminate
+#  * Provide consistent and safely qualified path to callback, and eliminate
 #    the params via nonhomogeneous globals pattern
 #
-# Unrolls globs and traverses directories and files recursively for everything
-# that yields a truthy call to isWanted, and calls callback for each file or
-# directory that is to be processed.
+# Unrolls globs and traverses directories and files breadth first.
 #
-# Returning false from isWanted for a file prevents callback from being called.
-# Returning false from isWanted for a directory prevents callback from being
+# Returning false from isDirWanted prevents callback from being
 # called on that directory and prevents further traversal such that descendants
-# won't have calls to isWanted or callback.
+# won't have calls to isDirWanted, isFileWanted, or callback.
 #
-# Don't do anything in isWanted other than return 0 or 1 to specify whether 
-# these dirs or files should be processed. That method is called breadth first,
-# such that traversal of a subtree can be short circuited. Then process is
-# called depth first such that the process of a dir doesn't occur until all
-# the subitems have been processed. 
+# Returning false from isFileWanted prevents callback from being called for
+# that file only.
 #
-# Example: if you wanted to report all the friendly names of all files that 
-# aren't in a .Trash directory, you'd do:
-#   traverseFiles(
-#       sub { #isWanted
-#           my ($fullPath) = @_; 
-#           return !(-d $fullPath) 
-#               or (lc File::Spec::splitpath($fullPath)[2] ne '.trash');
-#       },
-#       sub { # callback
-#           my ($fullPath) = @_; 
-#           print("Processing '@{[prettyPath($fullPath)]}'\n") if -f $fullPath; 
-#       });
+# If isDirWanted is truthy for ancestor directories, and isFileWanted is
+# truthy, then callback is called for a file.
+#
+# Once all decendant items have been been processed, callback is called
+# for a directory.
+#
+# It's important to not do anything with a side effect in isDirWanted or 
+# isFileWanted other than return 0 or 1 to specify whether these dirs or files
+# should be processed. That method is called breadth first, such that
+# traversal of a subtree can be short circuited. Then process is called
+# depth first such that the process of a dir doesn't occur until all the
+# subitems have been processed.
 #
 # Note that if glob patterns overlap, then some files might invoke the 
 # callbacks more than once. For example, 
 #   traverseFiles(sub { ... }, sub {...}, 'Al*.jpg', '*ex.jpg');
-# would match Alex.jpg twice, and invoke isWanted/callback twice as well.
+# would match Alex.jpg twice, and invoke isFileWanted/callback twice as well.
 sub traverseFiles {
-    my ($isWanted, $callback, @globPatterns) = @_;
+    my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
+    $isDirWanted = \&defaultIsDirWanted unless $isDirWanted;
+    $isFileWanted = \&defaultIsFileWanted unless $isFileWanted;
     # Record base now so that no_chdir doesn't affect rel2abs/abs2rel below
     # (and - bonus - just resolve and canonicalize once)
-    my $baseFullPath = File::Spec->rel2abs(File::Spec->curdir());
+    my $curDir = File::Spec->curdir();
+    my $baseFullPath = File::Spec->rel2abs($curDir);
     $baseFullPath = File::Spec->canonpath($baseFullPath);
-    # the isWanted and callback methods take the same params, that share
-    # the following computations
+    # the isDirWanted, isFileWanted, and callback methods take the same params
+    # which share the following computations
     my $makeFullPath = sub {
         my ($partialPath) = @_;
         my $fullPath = File::Spec->rel2abs($partialPath, $baseFullPath);
@@ -2410,7 +2384,10 @@ sub traverseFiles {
         my $rootFullPath = $makeFullPath->($rootDir);
         # The final wanted call for $rootDir doesn't have a matching preprocess
         # call, so force one up front for symetry with all other pairs.
-        return if $isWanted and !$isWanted->($rootFullPath, $rootFullPath);
+        my (undef, undef, $rootFilename) = File::Spec->splitpath($rootFullPath);
+        # TODO - this should check for .orphignore too. can we consolidate this
+        # block with what's in grep and the glob handler as a helper sub for all 3?
+        return unless $isDirWanted->($rootFullPath, $rootFullPath, $rootFilename);
         my $preprocess = sub {
             return grep {
                 # Skip .. because it doesn't matter what we do, this isn't going
@@ -2425,17 +2402,30 @@ sub traverseFiles {
                 # pretend these don't exist.
                 if (($_ eq '.') or ($_ eq '..') or /^\._/) {
                     0; # skip
-                } elsif ($isWanted) {
+                } else {
                     # The values used here to compute the path 
                     # relative to $baseFullPath matches the values of wanted's
                     # implementation, and both work the same whether no_chdir is
                     # set or not. 
                     my $fullPath = $makeFullPath->(
                         File::Spec->catfile($File::Find::dir, $_));
-                    local $_ = undef; # prevent use in isWanted
-                    $isWanted->($fullPath, $rootFullPath);
-                } else {
-                    1; # process
+                    local $_ = undef; # prevent use in the wanted callbacks
+                    my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+                    if (-d $fullPath) {
+                        if (-e File::Spec->catfile($fullPath, '.orphignore')) {
+                            0; # Don't process dir containing marker file
+                        } else {
+                            $isDirWanted->($fullPath, $rootFullPath, $filename);
+                        }
+                    } elsif (-f $fullPath) {
+                        if (lc $filename eq '.orphignore') {
+                            0; # Skip the ignore marker file
+                        } else {
+                            $isFileWanted->($fullPath, $rootFullPath, $filename);
+                        }
+                    } else {
+                        die "Programmer Error: unknown object type for '$fullPath'";
+                    }
                 }
             } @_;
         };
@@ -2462,8 +2452,9 @@ sub traverseFiles {
                     $helper->($_);
                 } elsif (-f) {
                     my $fullPath = $makeFullPath->($_);
-                    local $_ = undef; # prevent use in isWanted/callback
-                    if (!$isWanted or $isWanted->($fullPath, $fullPath)) {
+                    my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+                    local $_ = undef; # prevent use in isFileWanted/callback
+                    if ($isFileWanted->($fullPath, $fullPath, $filename)) {
                         $callback->($fullPath, $fullPath);
                     }
                 } else {
@@ -2473,7 +2464,7 @@ sub traverseFiles {
         }
     } else {
         # If no glob patterns are provided, just search current directory
-        $helper->(File::Spec->curdir());
+        $helper->($curDir);
     }
 }
 
