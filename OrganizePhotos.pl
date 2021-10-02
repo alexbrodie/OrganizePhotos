@@ -452,6 +452,7 @@ use strict;
 use warnings;
 use warnings FATAL => qw(uninitialized);
 
+use Const::Fast qw(const);
 use Data::Compare ();
 use Data::Dumper ();
 use DateTime::Format::HTTP ();
@@ -475,15 +476,15 @@ use Term::ANSIColor;
 
 # Filename only portion of the path to Md5File which stores
 # Md5Info data for other files in the same directory
-use constant MD5_FILENAME => 'md5.txt';
+const my $md5Filename => 'md5.txt';
 
 # Implementation version of calculateMd5Info (useful when comparing
 # older serialized results, such as canUseCachedMd5InfoForBase and 
 # isMd5InfoVersionUpToDate)
-use constant CALCULATE_MD5_INFO_VERSION => 4;
+const my $calculateMd5InfoVersion => 4;
 
 # What we expect an MD5 hash to look like
-my $md5DigestPattern = qr/[0-9a-f]{32}/;
+const my $md5DigestPattern => qr/[0-9a-f]{32}/;
 
 # A map of supported file extensions to several different aspects:
 #
@@ -522,7 +523,7 @@ my $md5DigestPattern = qr/[0-9a-f]{32}/;
 #
 # TODO: flesh this out
 # TODO: convert to Class::Struct
-my %fileTypes = (
+const my %fileTypes => (
     AVI => {
         MIMETYPE => 'video/x-msvideo'
     },
@@ -614,12 +615,12 @@ my %fileTypes = (
     #}
 );
 
-my $backupSuffix = qr/
+const my $backupSuffix => qr/
     [._] (?i) (?:bak|original) \d*
     /x;
 
 # Media file extensions
-my $mediaType = qr/
+const my $mediaType => qr/
     # Media extension
     (?: \. (?i) (?: @{[ join '|', keys %fileTypes ]}))
     # Backup file
@@ -1216,7 +1217,7 @@ sub doRemoveEmpties {
             # not processing) as if they didn't exist and let them get
             # cleaned up if the folder gets trashed
             my $lcfn = lc $filename;
-            return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', MD5_FILENAME);
+            return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', $md5Filename);
             # TODO: exclude zero byte or hidden files as well?
             return 1; # Other files count
         },
@@ -1231,7 +1232,7 @@ sub doRemoveEmpties {
                 # a non-trashable dir. 
                 delete $dirSubItemsMap{$fullPath};
                 # If this dir is empty, then we'll want to trash it and have the
-                # parent dir ignore it like trashable files (e.g. MD5_FILENAME). If
+                # parent dir ignore it like trashable files (e.g. $md5Filename). If
                 # it's not trashable, then fall through to add this to its parent
                 # dir's list (to prevent the parent from being trashed).
                 unless ($subItemCount) {
@@ -1550,6 +1551,19 @@ sub appendMetadata {
     }
 }
 
+# MODEL ------------------------------------------------------------------------
+sub getFileTypeInfo {
+    my ($ext, $property) = @_;
+    my $key = uc $ext;
+    if (exists $fileTypes{$key}) {
+        my $fileType = $fileTypes{$key};
+        if (exists $fileType->{$property}) {
+            return $fileType->{$property};
+        }
+    }
+    return undef;
+}
+
 # When dealing with MD5 related data, we have these naming conventions:
 # MediaPath..The path to the media file for which MD5 data is calculated (not
 #            just path as to differentiate from Md5Path).
@@ -1684,7 +1698,7 @@ sub findMd5s {
         $isDirWanted,
         sub {  # isFileWanted
             my ($fullPath, $rootFullPath, $filename) = @_;
-            return (lc $filename eq MD5_FILENAME); # only process Md5File files
+            return (lc $filename eq $md5Filename); # only process Md5File files
         },
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
@@ -1706,7 +1720,7 @@ sub findMd5s {
 # Gets the Md5Path, Md5Key for a MediaPath.
 sub getMd5PathAndMd5Key {
     my ($mediaPath) = @_;
-    my ($md5Path, $md5Key) = changeFilename($mediaPath, MD5_FILENAME);
+    my ($md5Path, $md5Key) = changeFilename($mediaPath, $md5Filename);
     return ($md5Path, lc $md5Key);
 }
 
@@ -1811,7 +1825,7 @@ sub readOrCreateNewMd5File {
 sub readMd5File {
     my ($openMode, $md5Path) = @_;
     trace(VERBOSITY_2, "readMd5File('$openMode', '$md5Path');");
-    # TODO: Should we validate filename is MD5_FILENAME or do we care?
+    # TODO: Should we validate filename is $md5Filename or do we care?
     my $md5File = openOrDie($openMode, $md5Path);
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple "name: md5\n" format parsing
@@ -1855,7 +1869,7 @@ sub readMd5File {
 # newMd5Info represent the new data. Returns the previous md5Info value. 
 sub setMd5InfoAndWriteMd5File {
     my ($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set) = @_;
-    # TODO: Should we validate filename is MD5_FILENAME or do we care?
+    # TODO: Should we validate filename is $md5Filename or do we care?
     my $oldMd5Info = $md5Set->{$md5Key};
     unless ($oldMd5Info and Data::Compare::Compare($oldMd5Info, $newMd5Info)) {
         $md5Set->{$md5Key} = $newMd5Info;
@@ -1880,7 +1894,7 @@ sub writeMd5File {
     #       and writing out the "\x{FEFF}" BOM. Not sure how to do that in
     #       a fully cross compatable way (older file versions as well as
     #       Windows/Mac compat)
-    # TODO: Should we validate filename is MD5_FILENAME or do we care?
+    # TODO: Should we validate filename is $md5Filename or do we care?
     trace(VERBOSITY_DEBUG, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5Set ]} items });');
     seek($md5File, 0, 0) or die "Couldn't reset seek on file: $!";
     truncate($md5File, 0) or die "Couldn't truncate file: $!";
@@ -1958,14 +1972,14 @@ sub isMd5InfoVersionUpToDate {
 # Calculates and returns the MD5 digest(s) of a file.
 # Returns these properties as a hashref which when combined with 
 # makeMd5InfoBase comprise a full Md5Info):
-#   version:  CALCULATE_MD5_INFO_VERSION
+#   version:  $calculateMd5InfoVersion
 #   md5:      primary MD5 comparison (excludes volitile data from calculation)
 #   full_md5: full MD5 calculation for exact match
 sub calculateMd5Info {
     my ($mediaPath) = @_;
     trace(VERBOSITY_2, "getMd5('$mediaPath');");
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
-    #!!!   CALCULATE_MD5_INFO_VERSION should be incremented whenever the output
+    #!!!   $calculateMd5InfoVersion should be incremented whenever the output
     #!!!   of this method changes in such a way that old values need to be 
     #!!!   recalculated, and isMd5InfoVersionUpToDate should be updated accordingly.
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
@@ -1995,7 +2009,7 @@ sub calculateMd5Info {
     printCrud(CRUD_READ, "Computed MD5 hash of '@{[prettyPath($mediaPath)]}'",
               ($partialMd5Hash ? ", including content only hash" : ''), "\n");
     return {
-        version => CALCULATE_MD5_INFO_VERSION,
+        version => $calculateMd5InfoVersion,
         md5 => $partialMd5Hash || $fullMd5Hash,
         full_md5 => $fullMd5Hash,
     };
@@ -2171,7 +2185,7 @@ sub getSidecarPaths {
         # and return the paths to the other types which exist
         my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
         my ($basename, $ext) = splitExt($filename);
-        my @sidecars = @{$fileTypes{uc $ext}->{SIDECARS} || []};
+        my @sidecars = @{getFileTypeInfo($ext, 'SIDECARS') || []};
         @sidecars = map { combinePath($vol, $dir, catExt($basename, $_)) } @sidecars;
         return grep { -e } @sidecars;
     }
@@ -2264,8 +2278,8 @@ sub compareFilenameWithExtOrder {
     my $c = lc $basenameA cmp lc $basenameB;
     return $c if $c;
     # Next by extorder
-    my $extOrderA = $fileTypes{uc $extA}->{EXTORDER} || 0;
-    my $extOrderB = $fileTypes{uc $extB}->{EXTORDER} || 0;
+    my $extOrderA = getFileTypeInfo($extA, 'EXTORDER') || 0;
+    my $extOrderB = getFileTypeInfo($extB, 'EXTORDER') || 0;
     $c = $extOrderA <=> $extOrderB;
     return $c if $c;
     # And then just the extension as a string
@@ -2602,7 +2616,7 @@ sub movePath {
             # then cat old on to new, and delete old.
             my (undef, undef, $oldFilename) = File::Spec->splitpath($oldFullPath);
             my (undef, undef, $newFilename) = File::Spec->splitpath($newFullPath);
-            if (lc $oldFilename eq MD5_FILENAME and lc $newFilename eq MD5_FILENAME) {
+            if (lc $oldFilename eq $md5Filename and lc $newFilename eq $md5Filename) {
                 appendMd5Files($newFullPath, $oldFullPath);
                 unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
                 printCrud(CRUD_DELETE, "Deleted '@{[prettyPath($oldFullPath)]}' after ",
@@ -2638,7 +2652,7 @@ sub movePath {
                 my $newChildFullPath = File::Spec->canonpath(File::Spec->catfile($newFullPath, $_));
                 # If we move the last media from a folder in previous iteration
                 # of this loop, it can delete an empty Md5File via deleteMd5Info.
-                next if lc $_ eq MD5_FILENAME and !(-e $oldChildFullPath);
+                next if lc $_ eq $md5Filename and !(-e $oldChildFullPath);
                 movePath($oldChildFullPath, $newChildFullPath); 
             }
             # If we've emptied out $oldFullPath my moving all its contents into
