@@ -2368,8 +2368,8 @@ sub traverseFiles {
     my $curDir = File::Spec->curdir();
     my $baseFullPath = File::Spec->rel2abs($curDir);
     $baseFullPath = File::Spec->canonpath($baseFullPath);
-    # the isDirWanted, isFileWanted, and callback methods take the same params
-    # which share the following computations
+    # the isDirWanted, isFileWanted, and callback methods take the same
+    # params which share the following computations
     my $makeFullPath = sub {
         my ($partialPath) = @_;
         my $fullPath = File::Spec->rel2abs($partialPath, $baseFullPath);
@@ -2378,68 +2378,92 @@ sub traverseFiles {
             "Programmer Error: enumerated file doesn't exist: '$fullPath'";
         return $fullPath;
     };
+    # Returns 'f' if it's a wanted file, 'd' if it's a wanted dir
+    # or falsy if not wanted
+    my $isWanted = sub {
+        my ($fullPath, $rootFullPath) = @_;
+        my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+        if (-d $fullPath) {
+            if (-e File::Spec->catfile($fullPath, '.orphignore')) {
+                return ''; # Don't process dir containing marker file
+            }
+            local $_ = undef; # prevent use in the isDirWanted
+            if ($isDirWanted->($fullPath, $rootFullPath, $filename)) {
+                return 'd';
+            }
+        } elsif (-f $fullPath) {
+            # When MacOS copies files with alternate streams (e.g. from APFS)
+            # to a volume that doesn't support it, they put the alternate
+            # stream data in a file with the same path, but with a "._"
+            # filename prefix. Though it's not a complete fix, for now, we'll
+            # pretend these don't exist.
+            if ($filename =~ /^\._/ or
+                lc $filename eq '.orphignore') {
+                return ''; # Always skip
+            }
+            local $_ = undef; # prevent use in the isFileWanted
+            if ($isFileWanted->($fullPath, $rootFullPath, $filename)) {
+                return 'f';
+            }
+        } else {
+            die "Programmer Error: unknown object type for '$fullPath'";
+        }
+    };
     # Method to be called for each directory found in globPatterns
-    my $helper = sub {
-        my ($rootDir) = @_;
-        my $rootFullPath = $makeFullPath->($rootDir);
-        # The final wanted call for $rootDir doesn't have a matching preprocess
-        # call, so force one up front for symetry with all other pairs.
-        my (undef, undef, $rootFilename) = File::Spec->splitpath($rootFullPath);
-        # TODO - this should check for .orphignore too. can we consolidate this
-        # block with what's in grep and the glob handler as a helper sub for all 3?
-        return unless $isDirWanted->($rootFullPath, $rootFullPath, $rootFilename);
-        my $preprocess = sub {
-            return grep {
-                # Skip .. because it doesn't matter what we do, this isn't going
-                # to get passed to wanted, and it doesn't really make sense to
-                # traverse up in a recursive down enumeration. Also, skip '.'
-                # because we would otherwise process each dir twice, and $rootDir
-                # once. This makes subdirs once and $rootDir not at all.
-                # When MacOS copies files with alternate streams (e.g. from APFS)
-                # to a volume that doesn't support it, they put the alternate
-                # stream data in a file with the same path, but with a "._"
-                # filename prefix. Though it's not a complete fix, for now, we'll
-                # pretend these don't exist.
-                if (($_ eq '.') or ($_ eq '..') or /^\._/) {
-                    0; # skip
-                } else {
-                    # The values used here to compute the path 
-                    # relative to $baseFullPath matches the values of wanted's
-                    # implementation, and both work the same whether no_chdir is
-                    # set or not. 
-                    my $fullPath = $makeFullPath->(
-                        File::Spec->catfile($File::Find::dir, $_));
-                    local $_ = undef; # prevent use in the wanted callbacks
-                    my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-                    if (-d $fullPath) {
-                        if (-e File::Spec->catfile($fullPath, '.orphignore')) {
-                            0; # Don't process dir containing marker file
-                        } else {
-                            $isDirWanted->($fullPath, $rootFullPath, $filename);
-                        }
-                    } elsif (-f $fullPath) {
-                        if (lc $filename eq '.orphignore') {
-                            0; # Skip the ignore marker file
-                        } else {
-                            $isFileWanted->($fullPath, $rootFullPath, $filename);
-                        }
+    my $innerTraverse = sub {
+        my ($rootPartialPath) = @_;
+        my $rootFullPath = $makeFullPath->($rootPartialPath);
+        my $myCaller = 'unknown';
+        for (my $i = 2; $i < 16; $i++) {
+            $myCaller = $1 and last if (caller($i))[3] =~ /^main::do(.*)/;
+        }
+        trace(0, "$myCaller is traversing '$rootPartialPath' ('$rootFullPath')");
+        # Find::find's final wanted call for $rootFullPath doesn't have a 
+        # matching preprocess call, so doing one up front for symetry with
+        # all other pairs while also doing the other filtering we want.
+        my $isWantedResult = $isWanted->($rootFullPath, $rootFullPath);
+        if ($isWantedResult eq 'd') {
+            my $preprocess = sub {
+                return grep {
+                    # Skip .. because it doesn't matter what we do, this isn't
+                    # going to get passed to wanted, and it doesn't really make
+                    # sense to traverse up in a recursive down enumeration. 
+                    # Also, skip '.' because we would otherwise process each
+                    # dir twice, and $rootFullPath once. This makes subdirs
+                    # once and $rootFullPath not at all.
+                    if (($_ eq '.') or ($_ eq '..')) {
+                        ''; # skip
                     } else {
-                        die "Programmer Error: unknown object type for '$fullPath'";
+                        # The values used here to compute the path relative
+                        # to $baseFullPath matches the values of wanted's
+                        # implementation, and both work the same whether
+                        # no_chdir is set or not. 
+                        my $fullPath = $makeFullPath->(
+                            File::Spec->catfile($File::Find::dir, $_));
+                        $isWanted->($fullPath, $rootFullPath);
                     }
-                }
-            } @_;
-        };
-        my $wanted = sub {
-            # The values used here to compute the path 
-            # relative to $baseFullPath matches the values of preprocess' 
-            # implementation, and both work the same whether no_chdir is
-            # set or not.
-            my $fullPath = $makeFullPath->($File::Find::name);
+                } @_;
+            };
+            my $wanted = sub {
+                # The values used here to compute the path relative
+                # to $baseFullPath matches the values of preprocess'
+                # implementation, and both work the same whether
+                # no_chdir is set or not.
+                my $fullPath = $makeFullPath->($File::Find::name);
+                local $_ = undef; # prevent use in callback
+                $callback->($fullPath, $rootFullPath);
+            };
+            File::Find::find({ bydepth => 1, no_chdir => 1, 
+                            preprocess => $preprocess,
+                            wanted => $wanted }, $rootFullPath);
+        } elsif ($isWantedResult eq 'f') {
             local $_ = undef; # prevent use in callback
-            $callback->($fullPath, $rootFullPath);
-        };
-        File::Find::find({ bydepth => 1, no_chdir => 1, preprocess => $preprocess,
-                         wanted => $wanted }, $rootFullPath);
+            $callback->($rootFullPath, $rootFullPath);
+        } elsif (!$isWantedResult) {
+            # Not wanted, no-op
+        } else {
+            die "Programmer Error: unknown return value from isWanted: $isWantedResult";
+        }
     };
     if (@globPatterns) {
         for my $globPattern (@globPatterns) {
@@ -2447,24 +2471,11 @@ sub traverseFiles {
             # Windows compatible with MacOS (with and without spaces)? Does it
             # work okay with single quotes in file/dir names on each platform?
             $globPattern = "'$globPattern'";
-            for (glob $globPattern) {
-                if (-d) {
-                    $helper->($_);
-                } elsif (-f) {
-                    my $fullPath = $makeFullPath->($_);
-                    my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-                    local $_ = undef; # prevent use in isFileWanted/callback
-                    if ($isFileWanted->($fullPath, $fullPath, $filename)) {
-                        $callback->($fullPath, $fullPath);
-                    }
-                } else {
-                    die "Don't know how to deal with glob result '$_'";
-                }
-            }
+            $innerTraverse->($_) for glob $globPattern;
         }
     } else {
         # If no glob patterns are provided, just search current directory
-        $helper->($curDir);
+        $innerTraverse->($curDir);
     }
 }
 
