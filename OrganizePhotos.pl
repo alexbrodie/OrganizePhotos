@@ -634,15 +634,18 @@ use constant MATCH_UNKNOWN => 0;
 use constant MATCH_NONE => 1;
 use constant MATCH_FULL => 2;
 use constant MATCH_CONTENT => 3;
-use constant VERBOSITY_2 => 2;
-use constant VERBOSITY_DEBUG => 99;
+use constant VERBOSITY_NONE => 0;    # all traces off
+use constant VERBOSITY_LOW => 1;     # only important traces on
+use constant VERBOSITY_MEDIUM => 2;  # moderate amount of traces on
+use constant VERBOSITY_HIGH => 3;    # most traces on
+use constant VERBOSITY_ALL => 4;     # all traces on
 use constant CRUD_UNKNOWN => 0;
 use constant CRUD_CREATE => 1;
 use constant CRUD_READ => 2;
 use constant CRUD_UPDATE => 3;
 use constant CRUD_DELETE => 4;
 
-my $verbosity = 0;
+my $verbosity = VERBOSITY_NONE;
 my $cachedMd5Path = '';
 my $cachedMd5Set = {};
 my $filenameFilter = $mediaType;
@@ -668,9 +671,9 @@ sub main {
             } elsif ($filter =~ /^qr(.*)$/) {
                 $filenameFilter = qr/$1/;
             } else {
-                die "Unknown filter: '$filter'";
+                die "Unknown filter: $filter\n";
             }
-            trace(0, "Filter set to: ", $filenameFilter);
+            trace(VERBOSITY_LOW, "Filter set to: ", $filenameFilter);
         }
     }
 
@@ -709,7 +712,7 @@ sub main {
             doCollectTrash(@ARGV);
         } elsif ($verb eq 'find-dupe-dirs' or $verb eq 'fdd') {
             myGetOptions();
-            @ARGV and die "Unexpected parameters: @ARGV";
+            @ARGV and die "Unexpected parameters: @ARGV\n";
             doFindDupeDirs();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
             my $autoDiff = 0;
@@ -733,7 +736,7 @@ sub main {
             myGetOptions();
             doVerifyMd5(@ARGV);
         } else {
-            die "Unknown verb: '$rawVerb'";
+            die "Unknown verb: $rawVerb\n";
         }
     }
 }
@@ -848,7 +851,7 @@ sub buildFindDupeFilesDupeGroups {
             @globPatterns);
     }
 
-    trace(VERBOSITY_DEBUG, "Found @{[scalar keys %keyToFullPathList]} initial groups");
+    trace(VERBOSITY_ALL, "Found @{[scalar keys %keyToFullPathList]} initial groups");
 
     # Go through each element in the %keyToFullPathList map, and we'll 
     # want the ones with multiple things in the array of paths. If
@@ -870,7 +873,7 @@ sub buildFindDupeFilesDupeGroups {
     # are processed, so we want it extorder based as well.
     @dupes = sort { comparePathWithExtOrder($a->[0]->{fullPath}, $b->[0]->{fullPath}) } @dupes;
 
-    trace(0, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
+    trace(VERBOSITY_LOW, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
 
     return \@dupes;
 }
@@ -1308,7 +1311,7 @@ sub doTest2 {
 
     # Look for a QR code
     my @results = `qrscan '$filename'`;
-    trace(VERBOSITY_DEBUG, "qrscan: ", Data::Dumper::Dumper(@results));
+    trace(VERBOSITY_ALL, "qrscan: ", Data::Dumper::Dumper(@results));
 
     # Parse QR codes
     my $messageDate;
@@ -1317,7 +1320,7 @@ sub doTest2 {
             or die "Unexpected qrscan output: $_";
 
         my $message = JSON::decode_json($1);
-        trace(VERBOSITY_DEBUG, "message: ", Data::Dumper::Dumper($message));
+        trace(VERBOSITY_ALL, "message: ", Data::Dumper::Dumper($message));
 
         if (exists $message->{date}) {
             my $date = $message->{date};
@@ -1331,12 +1334,12 @@ sub doTest2 {
         # Get file metadata
         my @props = qw(DateTimeOriginal TimeZone TimeZoneCity DaylightSavings 
                        Make Model SerialNumber);
-        trace(VERBOSITY_2, "Image::ExifTool::ImageInfo('$filename', ...);");
+        trace(VERBOSITY_MEDIUM, "Image::ExifTool::ImageInfo('$filename', ...);");
         my $info = Image::ExifTool::ImageInfo($filename, \@props, {DateFormat => '%FT%TZ'});
-        trace(VERBOSITY_DEBUG, "$filename: ", Data::Dumper::Dumper($info));
+        trace(VERBOSITY_ALL, "$filename: ", Data::Dumper::Dumper($info));
 
         my $metadataDate = $info->{DateTimeOriginal};
-        trace(VERBOSITY_DEBUG, "$messageDate vs $metadataDate");
+        trace(VERBOSITY_ALL, "$messageDate vs $metadataDate");
 
         # The metadata date is an absolute time (the local time where
         # it was taken without any time zone information). The message
@@ -1349,14 +1352,14 @@ sub doTest2 {
         # time zone.
         $messageDate =~ s/([+-][\d:]*)$/Z/;
         my $messageTimeZone = $1;
-        trace(VERBOSITY_DEBUG, "$messageDate vs $metadataDate");
+        trace(VERBOSITY_ALL, "$messageDate vs $metadataDate");
 
         $messageDate = DateTime::Format::HTTP->parse_datetime($messageDate);
         $metadataDate = DateTime::Format::HTTP->parse_datetime($metadataDate);
 
         my $diff = $messageDate->subtract_datetime($metadataDate);
 
-        trace(VERBOSITY_DEBUG, "$messageDate - $messageDate = ", Data::Dumper::Dumper($diff));
+        trace(VERBOSITY_ALL, "$messageDate - $messageDate = ", Data::Dumper::Dumper($diff));
 
         my $days = ($diff->is_negative ? -1 : 1) * 
             ($diff->days + ($diff->hours + ($diff->minutes + $diff->seconds / 60) / 60) / 24);
@@ -1480,7 +1483,7 @@ sub appendMetadata {
     my $etTarget = extractInfo($target);
     my $infoTarget = $etTarget->GetInfo(@properties);
 
-    trace(VERBOSITY_DEBUG, "$target: ", Data::Dumper::Dumper($infoTarget));
+    trace(VERBOSITY_ALL, "$target: ", Data::Dumper::Dumper($infoTarget));
 
     my $rating = $infoTarget->{Rating};
     my $oldRating = $rating;
@@ -1499,7 +1502,7 @@ sub appendMetadata {
         my $etSource = extractInfo($source);
         my $infoSource = $etSource->GetInfo(@properties);
 
-        trace(VERBOSITY_DEBUG, "$source: ", Data::Dumper::Dumper($infoSource));
+        trace(VERBOSITY_ALL, "$source: ", Data::Dumper::Dumper($infoSource));
 
         # Add rating if we don't already have one
         unless (defined $rating) {
@@ -1672,7 +1675,7 @@ $mediaPath
     Actual:  $newMd5Info->{version}        $newMd5Info->{full_md5}  $newMd5Info->{md5}
 EOM
             } else {
-                trace(VERBOSITY_2, "Content MD5 calculation has changed, upgrading from version ",
+                trace(VERBOSITY_MEDIUM, "Content MD5 calculation has changed, upgrading from version ",
                       "$oldMd5Info->{version} to $newMd5Info->{version} for '$mediaPath'");
             }
         } else {
@@ -1708,7 +1711,7 @@ EOM
 sub findMd5s {
     my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
     $isFileWanted = \&defaultIsFileWanted unless $isFileWanted;
-    trace(VERBOSITY_DEBUG, 'findMd5s(...); with @globPatterns of', 
+    trace(VERBOSITY_ALL, 'findMd5s(...); with @globPatterns of', 
           (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (current dir)'));
     traverseFiles(
         $isDirWanted,
@@ -1746,7 +1749,7 @@ sub getMd5PathAndMd5Key {
 # value if it existed (or undef if not).
 sub writeMd5Info {
     my ($mediaPath, $newMd5Info) = @_;
-    trace(VERBOSITY_DEBUG, "writeMd5Info('$mediaPath', {...});");
+    trace(VERBOSITY_ALL, "writeMd5Info('$mediaPath', {...});");
     return deleteMd5Info($mediaPath) unless $newMd5Info;
     my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
     my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
@@ -1758,15 +1761,15 @@ sub writeMd5Info {
 # value if it existed (or undef if not).
 sub deleteMd5Info {
     my ($mediaPath) = @_;
-    trace(VERBOSITY_DEBUG, "deleteMd5Info('$mediaPath');");
+    trace(VERBOSITY_ALL, "deleteMd5Info('$mediaPath');");
     my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
     unless (-e $md5Path) {
-        trace(VERBOSITY_DEBUG, "Non-existant '$md5Path' means we can't remove MD5 for '$md5Key'");
+        trace(VERBOSITY_ALL, "Non-existant '$md5Path' means we can't remove MD5 for '$md5Key'");
         return undef;
     }
     my ($md5File, $md5Set) = readMd5File('+<:crlf', $md5Path);
     unless (exists $md5Set->{$md5Key}) {
-        trace(VERBOSITY_DEBUG, "Leaving '$md5Path' alone since it doesn't contain MD5 for '$md5Key'");
+        trace(VERBOSITY_ALL, "Leaving '$md5Path' alone since it doesn't contain MD5 for '$md5Key'");
         return undef;
     }
     my $oldMd5Info = $md5Set->{$md5Key};
@@ -1774,12 +1777,12 @@ sub deleteMd5Info {
     # TODO: Should this if/else code move to writeMd5File/setMd5InfoAndWriteMd5File such
     #       that any time someone tries to write an empty hashref, it deletes the file?
     if (%$md5Set) {
-        trace(VERBOSITY_2, "Writing '$md5Path' after removing MD5 for '$md5Key'");
+        trace(VERBOSITY_MEDIUM, "Writing '$md5Path' after removing MD5 for '$md5Key'");
         writeMd5File($md5Path, $md5File, $md5Set);
         printCrud(CRUD_DELETE, "Removed MD5 for '@{[prettyPath($mediaPath)]}'\n");
     } else {
         # Empty files create trouble down the line (especially with move-merges)
-        trace(VERBOSITY_2, "Deleting '$md5Path' after removing MD5 for '$md5Key' (the last one)");
+        trace(VERBOSITY_MEDIUM, "Deleting '$md5Path' after removing MD5 for '$md5Key' (the last one)");
         close($md5File);
         unlink($md5Path) or die "Couldn't delete '$md5Path': $!";
         printCrud(CRUD_DELETE, "Removed MD5 for '@{[prettyPath($mediaPath)]}', ",
@@ -1811,7 +1814,7 @@ sub appendMd5Files {
         }
     }
     if ($dirty) {
-        trace(VERBOSITY_2, "Writing '$targetMd5Path' after appending data from ",
+        trace(VERBOSITY_MEDIUM, "Writing '$targetMd5Path' after appending data from ",
               scalar @sourceMd5Paths, " files");
         writeMd5File($targetMd5Path, $targetMd5File, $targetMd5Set);
         my $itemsAdded = (scalar keys %$targetMd5Set) - $oldTargetMd5SetCount;
@@ -1825,7 +1828,7 @@ sub appendMd5Files {
 # it. Returns the Md5File and Md5Set.
 sub readOrCreateNewMd5File {
     my ($md5Path) = @_;
-    trace(VERBOSITY_DEBUG, "readOrCreateNewMd5File('$md5Path');");
+    trace(VERBOSITY_ALL, "readOrCreateNewMd5File('$md5Path');");
     if (-e $md5Path) {
         return readMd5File('+<:crlf', $md5Path);
     } else {
@@ -1840,7 +1843,7 @@ sub readOrCreateNewMd5File {
 # on that. Returns the Md5File and Md5Set.
 sub readMd5File {
     my ($openMode, $md5Path) = @_;
-    trace(VERBOSITY_2, "readMd5File('$openMode', '$md5Path');");
+    trace(VERBOSITY_MEDIUM, "readMd5File('$openMode', '$md5Path');");
     # TODO: Should we validate filename is $md5Filename or do we care?
     my $md5File = openOrDie($openMode, $md5Path);
     # If the first char is a open curly brace, treat as JSON,
@@ -1889,7 +1892,7 @@ sub setMd5InfoAndWriteMd5File {
     my $oldMd5Info = $md5Set->{$md5Key};
     unless ($oldMd5Info and Data::Compare::Compare($oldMd5Info, $newMd5Info)) {
         $md5Set->{$md5Key} = $newMd5Info;
-        trace(VERBOSITY_2, "Writing '$md5Path' after setting MD5 for '$md5Key'");
+        trace(VERBOSITY_MEDIUM, "Writing '$md5Path' after setting MD5 for '$md5Key'");
         writeMd5File($md5Path, $md5File, $md5Set);
         if (defined $oldMd5Info) {
             printCrud(CRUD_UPDATE, "Updated MD5 for '@{[prettyPath($mediaPath)]}'\n");
@@ -1911,7 +1914,7 @@ sub writeMd5File {
     #       a fully cross compatable way (older file versions as well as
     #       Windows/Mac compat)
     # TODO: Should we validate filename is $md5Filename or do we care?
-    trace(VERBOSITY_DEBUG, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5Set ]} items });');
+    trace(VERBOSITY_ALL, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5Set ]} items });');
     seek($md5File, 0, 0) or die "Couldn't reset seek on file: $!";
     truncate($md5File, 0) or die "Couldn't truncate file: $!";
     if (%$md5Set) {
@@ -1944,10 +1947,10 @@ sub makeMd5InfoBase {
 # base-only Md5Info without bothering to calculateMd5Info. 
 sub canUseCachedMd5InfoForBase {
     my ($mediaPath, $addOnly, $cachedMd5Info, $currentMd5InfoBase) = @_;
-    trace(VERBOSITY_DEBUG, 'canUseCachedMd5InfoForBase(...);');
+    trace(VERBOSITY_ALL, 'canUseCachedMd5InfoForBase(...);');
     if (defined $cachedMd5Info) {
         if ($addOnly) {
-            trace(VERBOSITY_DEBUG, "Skipping MD5 recalculation for '$mediaPath' (add-only mode)");
+            trace(VERBOSITY_ALL, "Skipping MD5 recalculation for '$mediaPath' (add-only mode)");
             return 1;
         }
         if (defined $cachedMd5Info->{size} and 
@@ -1955,7 +1958,7 @@ sub canUseCachedMd5InfoForBase {
             isMd5InfoVersionUpToDate($mediaPath, $cachedMd5Info->{version}) and
             $currentMd5InfoBase->{size} == $cachedMd5Info->{size} and
             $currentMd5InfoBase->{mtime} == $cachedMd5Info->{mtime}) {
-            trace(VERBOSITY_DEBUG, "Skipping MD5 recalculation for '$mediaPath' (same size/date-modified)");
+            trace(VERBOSITY_ALL, "Skipping MD5 recalculation for '$mediaPath' (same size/date-modified)");
             return 1;
         }
     }
@@ -1969,7 +1972,7 @@ sub canUseCachedMd5InfoForBase {
 # file type.
 sub isMd5InfoVersionUpToDate {
     my ($mediaPath, $version) = @_;
-    trace(VERBOSITY_DEBUG, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
+    trace(VERBOSITY_ALL, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
     my $type = getMimeType($mediaPath);
     if ($type eq 'image/jpeg') {
         return ($version >= 1) ? 1 : 0; # unchanged since V1
@@ -1993,7 +1996,7 @@ sub isMd5InfoVersionUpToDate {
 #   full_md5: full MD5 calculation for exact match
 sub calculateMd5Info {
     my ($mediaPath) = @_;
-    trace(VERBOSITY_2, "getMd5('$mediaPath');");
+    trace(VERBOSITY_MEDIUM, "getMd5('$mediaPath');");
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
     #!!!   $calculateMd5InfoVersion should be incremented whenever the output
     #!!!   of this method changes in such a way that old values need to be 
@@ -2243,7 +2246,7 @@ sub readMetadata {
 sub extractInfo {
     my ($path, $et) = @_;
     $et = new Image::ExifTool unless $et;
-    trace(VERBOSITY_2, "Image::ExifTool::ExtractInfo('$path');");
+    trace(VERBOSITY_MEDIUM, "Image::ExifTool::ExtractInfo('$path');");
     $et->ExtractInfo($path) or die
         "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
     printCrud(CRUD_READ, "Read metadata for '@{[prettyPath($path)]}'");
@@ -2354,7 +2357,7 @@ sub defaultIsDirWanted {
 # Default behavior if isDirWanted is undefined for traverseFiles
 sub defaultIsFileWanted {
     my ($fullPath, $rootFullPath, $filename) = @_;
-    return ($filename =~ /$filenameFilter/);
+    return (lc $filename ne $md5Filename and $filename =~ /$filenameFilter/);
 }
 
 # MODEL (File Operations) ------------------------------------------------------
@@ -2449,7 +2452,7 @@ sub traverseFiles {
         for (my $i = 2; $i < 16; $i++) {
             $myCaller = $1 and last if (caller($i))[3] =~ /^main::do(.*)/;
         }
-        trace(0, "$myCaller is traversing '$rootPartialPath' ('$rootFullPath')");
+        trace(VERBOSITY_LOW, "$myCaller is traversing '$rootPartialPath' ('$rootFullPath')");
         # Find::find's final wanted call for $rootFullPath doesn't have a 
         # matching preprocess call, so doing one up front for symetry with
         # all other pairs while also doing the other filtering we want.
@@ -2516,7 +2519,7 @@ sub traverseFiles {
 # except for extension)
 sub trashPathAndSidecars {
     my ($fullPath) = @_;
-    trace(VERBOSITY_DEBUG, "trashPathAndSidecars('$fullPath');");
+    trace(VERBOSITY_ALL, "trashPathAndSidecars('$fullPath');");
     # TODO: check all for existance before performing any operations to
     # make file+sidecar opererations more atomic
     trashPath($_) for ($fullPath, getSidecarPaths($fullPath));
@@ -2527,7 +2530,7 @@ sub trashPathAndSidecars {
 # its entry from the md5.txt file
 sub trashPath {
     my ($fullPath) = @_;
-    trace(VERBOSITY_DEBUG, "trashPath('$fullPath');");
+    trace(VERBOSITY_ALL, "trashPath('$fullPath');");
     # If it's an empty directory, just delete it. Trying to trash
     # a dir with no items proves problematic for future move-merges
     # and we wind up with a lot of orphaned empty containers.
@@ -2560,7 +2563,7 @@ sub trashPath {
 #   moves file to: '.../root/.Trash'
 sub trashPathWithRoot {
     my ($theFullPath, $rootFullPath) = @_;
-    trace(VERBOSITY_DEBUG, "trashPathWithRoot('$theFullPath', '$rootFullPath');");
+    trace(VERBOSITY_ALL, "trashPathWithRoot('$theFullPath', '$rootFullPath');");
     # Split the directories into pieces assuming root is a dir
     # Note the careful use of splitdir and catdir - splitdir can return
     # empty string entries in the array, notably at beginning and end
@@ -2609,19 +2612,19 @@ sub trashPathWithRoot {
 # necessary and possible
 sub movePath {
     my ($oldFullPath, $newFullPath) = @_;
-    trace(VERBOSITY_DEBUG, "movePath('$oldFullPath', '$newFullPath');");
+    trace(VERBOSITY_ALL, "movePath('$oldFullPath', '$newFullPath');");
     return if $oldFullPath eq $newFullPath;
     my $moveInternal = sub {
         # Ensure parent dir exists
         my $newParentFullPath = parentPath($newFullPath);
         unless (-d $newParentFullPath) {
-            trace(VERBOSITY_2, "File::Copy::make_path('$newParentFullPath');");
+            trace(VERBOSITY_MEDIUM, "File::Copy::make_path('$newParentFullPath');");
             File::Path::make_path($newParentFullPath) or die
                 "Failed to make directory '$newParentFullPath': $!";
             printCrud(CRUD_CREATE, "Created dir '@{[prettyPath($newParentFullPath)]}'\n");
         }
         # Move the file/dir
-        trace(VERBOSITY_2, "File::Copy::move('$oldFullPath', '$newFullPath');");
+        trace(VERBOSITY_MEDIUM, "File::Copy::move('$oldFullPath', '$newFullPath');");
         File::Copy::move($oldFullPath, $newFullPath) or die
             "Failed to move '$oldFullPath' to '$newFullPath': $!";
         # (caller is expected to printCrud with more context)
@@ -2650,7 +2653,7 @@ sub movePath {
     } elsif (-d $oldFullPath) {
         if (-e $newFullPath) { 
             # Dest dir path already exists, need to move-merge.
-            trace(VERBOSITY_DEBUG, "Move merge '$oldFullPath' to '$newFullPath'");
+            trace(VERBOSITY_ALL, "Move merge '$oldFullPath' to '$newFullPath'");
             -d $newFullPath or die
                 "Can't move a directory - file already exists " .
                 "at destination ('$oldFullPath' => '$newFullPath')";
@@ -2692,7 +2695,7 @@ sub movePath {
 # and return falsy.
 sub tryRemoveEmptyDir {
     my ($path) = @_;
-    trace(VERBOSITY_DEBUG, "tryRemoveEmptyDir('$path');");
+    trace(VERBOSITY_ALL, "tryRemoveEmptyDir('$path');");
     if (-d $path and rmdir $path) {
         printCrud(CRUD_DELETE, "Deleted empty dir '@{[prettyPath($path)]}'\n");
         return 1;
@@ -2704,7 +2707,7 @@ sub tryRemoveEmptyDir {
 # MODEL (File Operations) ------------------------------------------------------
 sub openOrDie {
     my ($mode, $path) = @_;
-    trace(VERBOSITY_DEBUG, "openOrDie('$path');");
+    trace(VERBOSITY_ALL, "openOrDie('$path');");
     open(my $fh, $mode, $path) or die "Couldn't open '$path' in $mode mode: $!";
     return $fh;
 }
@@ -2743,6 +2746,7 @@ sub printCrud {
     if ($type == CRUD_CREATE) {
         ($icon, $color) = ('(+)', 'blue');
     } elsif ($type == CRUD_READ) {
+        return if $verbosity <= VERBOSITY_NONE;
         ($icon, $color) = ('(<)', 'magenta');
     } elsif ($type == CRUD_UPDATE) {
         ($icon, $color) = ('(>)', 'cyan');
