@@ -71,11 +71,8 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 =head1 SYNOPSIS
 
-    # Get help
     $ OrganizePhotos -h
-
-    # Run checkup on a directory
-    $ OrganizePhotos c /photos/root/dir
+    $ OrganizePhotos checkup directory/to/process
 
 =head1 DESCRIPTION
 
@@ -646,9 +643,9 @@ use constant CRUD_UPDATE => 3;
 use constant CRUD_DELETE => 4;
 
 my $verbosity = VERBOSITY_NONE;
+my $filenameFilter = $mediaType;
 my $cachedMd5Path = '';
 my $cachedMd5Set = {};
-my $filenameFilter = $mediaType;
 
 main();
 exit 0;
@@ -676,7 +673,6 @@ sub main {
             trace(VERBOSITY_LOW, "Filter set to: ", $filenameFilter);
         }
     }
-
     # Parse args (using GetOptions) and delegate to the doVerb methods...
     unless (@ARGV) {
         Pod::Usage::pod2usage();
@@ -745,7 +741,99 @@ sub main {
 # EXPERIMENTAL
 # Execute append-metadata verb
 sub doAppendMetadata {
-    appendMetadata(@_);
+    my ($target, @sources) = @_;
+
+    my @properties = qw(XPKeywords Rating Subject HierarchicalSubject LastKeywordXMP Keywords);
+
+    # Extract current metadata in target
+    my $etTarget = extractInfo($target);
+    my $infoTarget = $etTarget->GetInfo(@properties);
+
+    trace(VERBOSITY_ALL, "$target: ", Data::Dumper::Dumper($infoTarget));
+
+    my $rating = $infoTarget->{Rating};
+    my $oldRating = $rating;
+
+    my %keywordTypes = ();
+    for (qw(XPKeywords Subject HierarchicalSubject LastKeywordXMP Keywords)) {
+        my $old = $infoTarget->{$_};
+        $keywordTypes{$_} = {
+            OLD => $old, 
+            NEW => {map { $_ => 1 } split /\s*,\s*/, ($old || '')}
+        };
+    }
+
+    for my $source (@sources) {
+        # Extract metadata in source to merge in
+        my $etSource = extractInfo($source);
+        my $infoSource = $etSource->GetInfo(@properties);
+
+        trace(VERBOSITY_ALL, "$source: ", Data::Dumper::Dumper($infoSource));
+
+        # Add rating if we don't already have one
+        unless (defined $rating) {
+            $rating = $infoSource->{Rating};
+        }
+
+        # For each field, loop over each component of the source's value
+        # and add it to the set of new values
+        while (my ($name, $value) = each %keywordTypes) {
+            for (split /\s*,\s*/, $infoSource->{$name}) {
+                $value->{NEW}->{$_} = 1;
+            }
+        }
+    }
+
+    my $dirty = 0;
+
+    # Update rating if it's changed
+    if (defined $rating and (!defined $oldRating or $rating ne $oldRating)) {
+        print "Rating: ", 
+            defined $oldRating ? $oldRating : "(null)", 
+            " -> $rating\n";
+        $etTarget->SetNewValue('Rating', $rating)
+            or die "Couldn't set Rating";
+        $dirty = 1;
+    }
+
+    while (my ($name, $value) = each %keywordTypes) {
+        my $old = $value->{OLD};
+        my $new = join ', ', sort keys %{$value->{NEW}};
+        if (($old || '') ne $new) {
+            print "$name: ",
+                defined $old ? "\"$old\"" : "(null)",
+                " -> \"$new\"\n";
+            $etTarget->SetNewValue($name, $new)
+                or die "Couldn't set $name";
+            $dirty = 1;
+        }
+    }
+
+    # Write file if metadata is dirty
+    if ($dirty) {
+        # Compute backup path
+        my $backup = "${target}_bak";
+        for (my $i = 2; -s $backup; $i++) {
+            $backup =~ s/_bak\d*$/_bak$i/;
+        }
+
+        # Make backup
+        File::Copy::copy($target, $backup)
+            or die "Couldn't copy $target to $backup: $!";
+
+        # Update metadata in target file
+        my $write = $etTarget->WriteInfo($target);
+        if ($write == 1) {
+            # updated
+            print "Updated $target\nOriginal backed up to $backup\n";
+        } elsif ($write == 2) {
+            # noop
+            print "$target was already up to date\n";
+        } else {
+            # failure
+            die "Couldn't WriteInfo for $target";
+        }
+    }
 }
 
 # API ==========================================================================
@@ -788,9 +876,7 @@ sub doCollectTrash {
 # EXPERIMENTAL
 # Execute find-dupe-dirs verb
 sub doFindDupeDirs {
-
     # TODO: clean this up and use traverseFiles
-
     my %keyToPaths = ();
     File::Find::find({
         preprocess => sub {
@@ -806,7 +892,6 @@ sub doFindDupeDirs {
             }
         }
     }, '.');
-
     #while (my ($key, $paths) = each %keyToPaths) {
     for my $key (sort keys %keyToPaths) {
         my $paths = $keyToPaths{$key};
@@ -817,214 +902,21 @@ sub doFindDupeDirs {
     }
 }
 
-# TODO: Move this elsewhere in the file/package
-# ------------------------------------------------------------------------------
-sub buildFindDupeFilesDupeGroups {
-    my ($byName, @globPatterns) = @_;
-
-    # Create the initial groups in various ways with key that is opaque
-    # and ignored from the outside
-    my %keyToFullPathList = ();
-    if ($byName) {
-        # Hash key based on file/dir name
-        traverseFiles(
-            undef, # isDirWanted
-            undef, # isFileWanted
-            sub {  # callback
-                my ($fullPath, $rootFullPath) = @_;
-                if (-f $fullPath) {
-                    my $key = computeFindDupeFilesHashKeyByName($fullPath);
-                    push @{$keyToFullPathList{$key}}, { fullPath => $fullPath };
-                }
-            },
-            @globPatterns);
-    } else {
-        # Hash key is MD5
-        findMd5s(
-            undef, # isDirWanted
-            undef, # isFileWanted
-            sub {  # callback
-                my ($fullPath, $md5Info) = @_;
-                push @{$keyToFullPathList{$md5Info->{md5}}}, 
-                    { fullPath => $fullPath, cachedMd5Info => $md5Info };
-            }, 
-            @globPatterns);
-    }
-
-    trace(VERBOSITY_ALL, "Found @{[scalar keys %keyToFullPathList]} initial groups");
-
-    # Go through each element in the %keyToFullPathList map, and we'll 
-    # want the ones with multiple things in the array of paths. If
-    # there  are multiple paths for an element, sort the paths array
-    # by decreasing importance (our best guess), and add it to the
-    # @dupes collection for further processing.
-    my @dupes = ();
-    my $fileCount = 0;
-    while (my ($key, $fullPathList) = each %keyToFullPathList) {
-        $fileCount += @$fullPathList;
-        if (@$fullPathList > 1) {
-            my @group = sort { comparePathWithExtOrder($a->{fullPath}, $b->{fullPath}) } @$fullPathList;
-            push @dupes, \@group;
-        }
-    }
-
-    # The 2nd level is properly sorted, now let's sort the groups
-    # themselves - this will be the order in which the groups
-    # are processed, so we want it extorder based as well.
-    @dupes = sort { comparePathWithExtOrder($a->[0]->{fullPath}, $b->[0]->{fullPath}) } @dupes;
-
-    trace(VERBOSITY_LOW, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
-
-    return \@dupes;
-}
-
-# TODO: Move this elsewhere in the file/package
-# ------------------------------------------------------------------------------
-sub computeFindDupeFilesHashKeyByName {
-    my ($fullPath) = @_;
-
-    my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-    my ($basename, $ext) = splitExt($filename);
-
-    # 1. Start with extension
-    my $key = lc $ext . ';';
-
-    # 2. Add basename
-    my $nameRegex = qr/^
-        (
-            # things like DCF_1234
-            [a-zA-Z\d_]{4} \d{4} |
-            # things like 2009-08-11 12_31_45
-            \d{4} [-_] \d{2} [-_] \d{2} [-_\s] 
-            \d{2} [-_] \d{2} [-_] \d{2}
-        ) \b /x;
-
-    if ($basename =~ /$nameRegex/) {
-        # This is an understood filename format, so just take
-        # the root so that we can ignore things like "Copy (2)"
-        $key .= lc $1 . ';';
-    } else {
-        # Unknown file format, just use all of basename? It's not
-        # nothing, but will only work with exact filename matches
-        warn "Unknown filename format for '$basename' in '@{[prettyPath($fullPath)]}'";
-        $key .= lc $basename . ';';
-    }
-
-    #. Directory info
-    my $nameKeyIncludesDir = 1;
-    if ($nameKeyIncludesDir) {
-        # parent dir should be similar (based on date format)
-        my $dirRegex = qr/^
-            # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
-            (?:19|20)?(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
-            /x;
-
-        my $dirKey = '';
-        for (reverse File::Spec->splitdir($dir)) {
-            if (/$dirRegex/) {
-                $dirKey = lc "$1$2$3;";
-                last;
-            }
-        }
-
-        if ($dirKey) {
-            $key .= $dirKey;
-        } else {
-            warn "Unknown directory format in '@{[prettyPath($fullPath)]}'";
-        }
-    }
-
-    return $key;
-}
-
-# TODO: Move this elsewhere in the file/package
-# ------------------------------------------------------------------------------
-sub buildFindDupeFilesPrompt {
-    my ($group, $fast, $matchType, $defaultCommand, $progressNumber, $progressCount) = @_;
-
-    # Build base of prompt - indexed paths
-    my @prompt = ();
-
-    # Main heading for group
-    push @prompt, 'Resolving duplicate group ', $progressNumber, ' of ', $progressCount, ' ';
-    if ($matchType == MATCH_FULL) {
-        push @prompt, colored('[Match: FULL]', 'bold blue on_white');
-    } elsif ($matchType == MATCH_CONTENT) {
-        push @prompt, '[Match: Content]';
-    } else {
-        push @prompt, colored('[Match: UNKNOWN]', 'bold red on_white');
-    }
-    push @prompt, "\n";
-
-    my @paths = map { prettyPath($_->{fullPath}) } @$group;
-    my $maxPathLength = max map { length } @paths;
-
-    # The list of all files in the group
-    for (my $i = 0; $i < @$group; $i++) {
-        my $elt = $group->[$i];
-        my $path = $paths[$i];
-
-        push @prompt, '  ', colored(coloredByIndex("$i. ", $i), 'bold');
-        push @prompt, coloredByIndex($path, $i), ' ' x ($maxPathLength - length $path);
-
-        # Add file error suffix
-        if (my $md5Info = $elt->{md5Info}) {
-            push @prompt, ' ', scalar localtime $md5Info->{mtime}, ' ', $md5Info->{size};
-        }
-        unless ($elt->{exists}) {
-            push @prompt, ' ', colored('[MISSING]', 'bold red on_white');
-        }
-
-        push @prompt, "\n";
-
-        # Collect all sidecars and add to prompt
-        for (getSidecarPaths($elt->{fullPath})) {
-            push @prompt, '     ', coloredByIndex(colored(prettyPath($_), 'faint'), $i), "\n";
-        }
-    }
-
-    # Returns either something like 'x0/x1' or 'x0/.../x42'
-    my $getMultiCommandOption = sub {
-        my ($prefix) = @_;
-
-        if (@$group <= 3) {
-            return join '/', map { coloredByIndex("$prefix$_", $_) } (0..$#$group);
-        } else {
-            return coloredByIndex("${prefix}0", 0) . '/.../' . 
-                   coloredByIndex("$prefix$#$group", $#$group);
-        }
-    };
-
-    # Input options
-    push @prompt, 'Choose action(s): ?/c/d/', $getMultiCommandOption->('o'), 
-                  '/q/', $getMultiCommandOption->('t'), ' ';
-    if ($defaultCommand) {
-        my @dcs = split(';', $defaultCommand);
-        @dcs = map { /^\w+(\d+)$/ ? coloredByIndex($_, $1) : $_ } @dcs;
-        push @prompt, '[', join(';', @dcs), '] ';
-    }
-
-    return join '', @prompt;
-}
-
 # TODO: break up this nearly 400 line behemoth
 # API ==========================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
     my ($byName, $autoDiff, $defaultLastAction, @globPatterns) = @_;
-
     my $fast = 0; # avoid slow operations, potentially with less precision?
-
     my $dupeGroups = buildFindDupeFilesDupeGroups($byName, @globPatterns);
-
-    # TODO: merge sidecars
-
     # Process each group of duplicates
     my $lastCommand = '';
     DUPEGROUP: for (my $dupeGroupsIdx = 0; $dupeGroupsIdx < @$dupeGroups; $dupeGroupsIdx++) {
-        # Convert current element from an array of full paths to
-        # an array (per file, in storted order) to array of hash
-        # references with some metadata in the same (desired) order
+        # TODO: move this and match calculations with improvements to populateFindDupeFilesDupeGroup
+        # Tidy and populate group metadata where each element is a hash:
+        #   fullPath: path to file
+        #   exists: cached result of -e check
+        #   md5Info: Md5Info data
         my $group = $dupeGroups->[$dupeGroupsIdx];
         @$group = grep { defined $_ } @$group;
         for my $elt (@$group) {
@@ -1101,6 +993,7 @@ sub doFindDupeFiles {
         # should just continue
         # TODO: ^^^^ that
 
+        # Auto command is what happens without any user input
         my $autoCommand = join ';', uniqstr sort @autoCommands;
 
         # Default command is what happens if you hit enter with an empty string
@@ -1117,7 +1010,7 @@ sub doFindDupeFiles {
 
         # TODO: somehow determine whether one is a superset of one or
         # TODO: more of the others (hopefully for auto-delete) 
-        metadataDiff(undef, map { $_->{fullPath} } @$group) if $autoDiff;
+        doMetadataDiff(0, map { $_->{fullPath} } @$group) if $autoDiff;
 
         # If you want t automate something (e.g. do $defaultCommand without
         # user confirmation), set that action here: 
@@ -1131,7 +1024,7 @@ sub doFindDupeFiles {
                 chomp($command = lc <STDIN>);
                 if ($command) {
                     # If the user provided something, save that for next 
-                    # conflict's default
+                    # conflict's default (the next DUPEGROUP)
                     $lastCommand = $command;
                 } elsif ($defaultCommand) {
                     # Enter with empty string uses $defaultCommand
@@ -1143,11 +1036,7 @@ sub doFindDupeFiles {
 
             # TODO: processFindDupeFilesCommands($group, $command)
 
-            # Process the command(s)
-            my $itemCount = @$group;
-            for (split /;/, $command) {
-                if ($_ eq '?') {
-                    print <<'EOM';
+            my $usage = <<'EOM';
 ?   Help: shows this help message
 c   Continue: go to the next group
 d   Diff: perform metadata diff of this group
@@ -1155,12 +1044,15 @@ o#  Open Number: open the specified item
 q   Quit: exit the application
 t#  Trash Number: move the specified item to .Trash
 EOM
+            # Process the command(s)
+            my $itemCount = @$group;
+            for (split /;/, $command) {
+                if ($_ eq '?') {
+                    print $usage;
                 } elsif ($_ eq 'c') {
-                    # Continue
-                    last PROMPT;  # next group please
+                    last PROMPT;  # continue == next group == last PROMPT
                 } elsif ($_ eq 'd') {
-                    # Diff
-                    metadataDiff(undef, map { $_->{fullPath} } @$group);
+                    dpMetadataDiff(0, map { $_->{fullPath} } @$group);
                 } elsif (/^f(\d+)$/) {
                     if ($1 > $#$group) {
                         warn "$1 is out of range [0, $#$group]";
@@ -1172,23 +1064,19 @@ EOM
                         warn "Don't know how to open a folder on $^O\n";
                     }
                 } elsif (/^m(\d+(?:,\d+)+)$/) {
-                    # Merge 1,2,3,4,... into 0
-                    my @matches = split ',', $1;
-                    appendMetadata(map { $group->[$_]->{fullPath} } @matches);
+                    doAppendMetadata(map { $group->[$_]->{fullPath} } split ',', $1);
                 } elsif (/^o(\d+)$/) {
-                    # Open Number
                     if ($1 > $#$group) {
                         warn "$1 is out of range [0, $#$group]";
                     } elsif (!defined $group->[$1]) {
                         warn "$1 has already been trashed";
                     } else {
+                        # Open Number
                         system("\"$group->[$1]->{fullPath}\"");
                     }
                 } elsif ($_ eq 'q') {
-                    # Quit
                     exit 0;
                 } elsif (/^t(\d+)$/) {
-                    # Trash Number
                     if ($1 > $#$group) {
                         warn "$1 is out of range [0, $#$group]";
                     } elsif (!defined $group->[$1]) {
@@ -1197,17 +1085,19 @@ EOM
                         if ($group->[$1]->{exists}) {
                             trashPathAndSidecars($group->[$1]->{fullPath});
                         } else {
-                            # File we're trying to trash doesn't exist, 
-                            # so just remove its metadata
                             deleteMd5Info($group->[$1]->{fullPath});
                         }
-
                         $group->[$1] = undef;
                         $itemCount--;
+                        # TODO: rather than maintaining itemCount, maybe just
+                        # dynmically calc: (scalar grep { defined $_ } @$group)
+                        (scalar grep { defined $_ } @$group) == $itemCount
+                            or die "Programmer Error: bad itemCount calc";
                         last PROMPT if $itemCount < 2;
                     }
                 } else {
                     warn "Unrecognized command: '$_'";
+                    print $usage;
                 }
             } 
             redo DUPEGROUP;
@@ -1215,11 +1105,227 @@ EOM
     } # DUPEGROUP
 }
 
+# ------------------------------------------------------------------------------
+# doFindDupeFiles helper subroutine
+# Builds a list of dupe groups where each group is a list of hashes that
+# initially only contain the fullPath. Lists are sorted descending by 
+# importance. So the return will be of the form:
+#   [
+#       [ 
+#           { fullPath => '/first/group/first.file' },
+#           { fullPath => '/first/group/second.file' }
+#       ],
+#       [
+#           { fullPath => '/second/group/first.file' },
+#           { fullPath => '/second/group/second.file' }
+#       ]
+#   ]
+sub buildFindDupeFilesDupeGroups {
+    my ($byName, @globPatterns) = @_;
+    # Create the initial groups in various ways with key that is opaque
+    # and ignored from the outside
+    my %keyToFullPathList = ();
+    if ($byName) {
+        # Hash key based on file/dir name
+        traverseFiles(
+            undef, # isDirWanted
+            undef, # isFileWanted
+            sub {  # callback
+                my ($fullPath, $rootFullPath) = @_;
+                if (-f $fullPath) {
+                    my $key = computeFindDupeFilesHashKeyByName($fullPath);
+                    push @{$keyToFullPathList{$key}}, { fullPath => $fullPath };
+                }
+            },
+            @globPatterns);
+    } else {
+        # Hash key is MD5
+        findMd5s(
+            undef, # isDirWanted
+            undef, # isFileWanted
+            sub {  # callback
+                my ($fullPath, $md5Info) = @_;
+                push @{$keyToFullPathList{$md5Info->{md5}}}, 
+                    { fullPath => $fullPath, cachedMd5Info => $md5Info };
+            }, 
+            @globPatterns);
+    }
+    trace(VERBOSITY_ALL, "Found @{[scalar keys %keyToFullPathList]} initial groups");
+    # Go through each element in the %keyToFullPathList map, and we'll 
+    # want the ones with multiple things in the array of paths. If
+    # there  are multiple paths for an element, sort the paths array
+    # by decreasing importance (our best guess), and add it to the
+    # @dupes collection for further processing.
+    my @dupes = ();
+    my $fileCount = 0;
+    while (my ($key, $fullPathList) = each %keyToFullPathList) {
+        $fileCount += @$fullPathList;
+        if (@$fullPathList > 1) {
+            my @group = sort { comparePathWithExtOrder($a->{fullPath}, $b->{fullPath}) } @$fullPathList;
+            push @dupes, \@group;
+        }
+    }
+    # The 2nd level is properly sorted, now let's sort the groups
+    # themselves - this will be the order in which the groups
+    # are processed, so we want it extorder based as well.
+    @dupes = sort { comparePathWithExtOrder($a->[0]->{fullPath}, $b->[0]->{fullPath}) } @dupes;
+    trace(VERBOSITY_LOW, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
+    return \@dupes;
+}
+
+# ------------------------------------------------------------------------------
+# TODO
+sub populateFindDupeFilesDupeGroup {
+}
+
+# ------------------------------------------------------------------------------
+# doFindDupeFiles helper subroutine
+sub computeFindDupeFilesHashKeyByName {
+    my ($fullPath) = @_;
+    my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+    my ($basename, $ext) = splitExt($filename);
+    # 1. Start with extension
+    my $key = lc $ext . ';';
+    # 2. Add basename
+    my $nameRegex = qr/^
+        (
+            # things like DCF_1234
+            [a-zA-Z\d_]{4} \d{4} |
+            # things like 2009-08-11 12_31_45
+            \d{4} [-_] \d{2} [-_] \d{2} [-_\s] 
+            \d{2} [-_] \d{2} [-_] \d{2}
+        ) \b /x;
+    if ($basename =~ /$nameRegex/) {
+        # This is an understood filename format, so just take
+        # the root so that we can ignore things like "Copy (2)"
+        $key .= lc $1 . ';';
+    } else {
+        # Unknown file format, just use all of basename? It's not
+        # nothing, but will only work with exact filename matches
+        warn "Unknown filename format for '$basename' in '@{[prettyPath($fullPath)]}'";
+        $key .= lc $basename . ';';
+    }
+    # 3. Directory info
+    my $nameKeyIncludesDir = 1;
+    if ($nameKeyIncludesDir) {
+        # parent dir should be similar (based on date format)
+        my $dirRegex = qr/^
+            # yyyy-mm-dd or yy-mm-dd or yyyymmdd or yymmdd
+            (?:19|20)?(\d{2}) [-_]? (\d{2}) [-_]? (\d{2}) \b
+            /x;
+        my $dirKey = '';
+        for (reverse File::Spec->splitdir($dir)) {
+            if (/$dirRegex/) {
+                $dirKey = lc "$1$2$3;";
+                last;
+            }
+        }
+        if ($dirKey) {
+            $key .= $dirKey;
+        } else {
+            warn "Unknown directory format in '@{[prettyPath($fullPath)]}'";
+        }
+    }
+    return $key;
+}
+
+# ------------------------------------------------------------------------------
+# doFindDupeFiles helper subroutine
+sub buildFindDupeFilesPrompt {
+    my ($group, $fast, $matchType, $defaultCommand, $progressNumber, $progressCount) = @_;
+    # Build base of prompt - indexed paths
+    my @prompt = ();
+    # Main heading for group
+    push @prompt, 'Resolving duplicate group ', $progressNumber, ' of ', $progressCount, ' ';
+    if ($matchType == MATCH_FULL) {
+        push @prompt, colored('[Match: FULL]', 'bold blue on_white');
+    } elsif ($matchType == MATCH_CONTENT) {
+        push @prompt, '[Match: Content]';
+    } else {
+        push @prompt, colored('[Match: UNKNOWN]', 'bold red on_white');
+    }
+    push @prompt, "\n";
+    # The list of all files in the group
+    my @paths = map { prettyPath($_->{fullPath}) } @$group;
+    my $maxPathLength = max map { length } @paths;
+    for (my $i = 0; $i < @$group; $i++) {
+        my $elt = $group->[$i];
+        my $path = $paths[$i];
+        push @prompt, '  ', colored(coloredByIndex("$i. ", $i), 'bold');
+        push @prompt, coloredByIndex($path, $i), ' ' x ($maxPathLength - length $path);
+        # Add metadata after the path
+        if (my $md5Info = $elt->{md5Info}) {
+            push @prompt, ' ', scalar localtime $md5Info->{mtime}, ' ', $md5Info->{size};
+        }
+        unless ($elt->{exists}) {
+            push @prompt, ' ', colored('[MISSING]', 'bold red on_white');
+        }
+        push @prompt, "\n";
+        # Collect all sidecars and add to prompt
+        for (getSidecarPaths($elt->{fullPath})) {
+            push @prompt, '     ', coloredByIndex(colored(prettyPath($_), 'faint'), $i), "\n";
+        }
+    }
+    # Returns either something like 'x0/x1' or 'x0/.../x42'
+    my $getMultiCommandOption = sub {
+        my ($prefix) = @_;
+        if (@$group <= 3) {
+            return join '/', map { coloredByIndex("$prefix$_", $_) } (0..$#$group);
+        } else {
+            return coloredByIndex("${prefix}0", 0) . '/.../' . 
+                   coloredByIndex("$prefix$#$group", $#$group);
+        }
+    };
+    # Input options
+    push @prompt, 'Choose action(s): ?/c/d/', $getMultiCommandOption->('o'), 
+                  '/q/', $getMultiCommandOption->('t'), ' ';
+    if ($defaultCommand) {
+        my @dcs = split(';', $defaultCommand);
+        @dcs = map { /^\w+(\d+)$/ ? coloredByIndex($_, $1) : $_ } @dcs;
+        push @prompt, '[', join(';', @dcs), '] ';
+    }
+    return join '', @prompt;
+}
+
 # API ==========================================================================
 # Execute metadata-diff verb
 sub doMetadataDiff {
     my ($excludeSidecars, @paths) = @_;
-    metadataDiff($excludeSidecars, @paths);
+    # Get metadata for all files
+    my @items = map { (-e) ? readMetadata($_, $excludeSidecars) : {} } @paths;
+    my @tagsToSkip = qw(CurrentIPTCDigest DocumentID DustRemovalData 
+        FileInodeChangeDate FileName HistoryInstanceID IPTCDigest InstanceID
+        OriginalDocumentID PreviewImage RawFileName ThumbnailImage);
+    # Collect all the keys which whose values aren't all equal
+    my %keysHash = ();
+    for (my $i = 0; $i < @items; $i++) {
+        while (my ($key, $value) = each %{$items[$i]}) {
+            unless (any { $_ eq $key } @tagsToSkip) {
+                for (my $j = 0; $j < @items; $j++) {
+                    if ($i != $j and
+                        (!exists $items[$j]->{$key} or
+                         $items[$j]->{$key} ne $value)) {
+                        $keysHash{$key} = 1;
+                        last;
+                    }
+                }
+            }
+        }
+    }
+    # Pretty print all the keys and associated values which differ
+    my @keys = sort keys %keysHash;
+    my $indentLen = 3 + max map { length } @keys; 
+    for my $key (@keys) {
+        for (my $i = 0; $i < @items; $i++) {
+            my $message = $items[$i]->{$key} || colored('undef', 'faint');
+            if ($i == 0) {
+                print colored("$key", 'bold'), '.' x ($indentLen - length $key);
+            } else {
+                print ' ' x $indentLen;
+            }
+            print coloredByIndex($message, $i), "\n";
+        }
+    }
 }
 
 # API ==========================================================================
@@ -1382,7 +1488,6 @@ EOM
 # Execute verify-md5 verb
 sub doVerifyMd5 {
     my (@globPatterns) = @_;
-
     # TODO: this verification code is really old, based on V0 Md5File (back when
     # it was actually a plain text file), before the check-md5 verb (when it was
     # add/verify twostep), and predates any source history (back when we were all
@@ -1391,7 +1496,6 @@ sub doVerifyMd5 {
     # Can we delete it, rewrite it, or combine-with/reuse resolveMd5Info? I haven't
     # used add-md5 or verify-md5 for many years at this point - the only marginal
     # value is that it can be better at finding orphaned Md5Info data.
-
     my $all = 0;
     findMd5s(
         undef, # isDirWanted
@@ -1429,145 +1533,6 @@ sub doVerifyMd5 {
                 warn "Missing file: '@{[prettyPath($fullPath)]}'";
             }
         }, @globPatterns);
-}
-
-#-------------------------------------------------------------------------------
-# Print all the metadata values which differ in a set of paths
-sub metadataDiff {
-    my ($excludeSidecars, @paths) = @_;
-    # Get metadata for all files
-    my @items = map { (-e) ? readMetadata($_, $excludeSidecars) : {} } @paths;
-    my @tagsToSkip = qw(CurrentIPTCDigest DocumentID DustRemovalData 
-        FileInodeChangeDate FileName HistoryInstanceID IPTCDigest InstanceID
-        OriginalDocumentID PreviewImage RawFileName ThumbnailImage);
-    # Collect all the keys which whose values aren't all equal
-    my %keysHash = ();
-    for (my $i = 0; $i < @items; $i++) {
-        while (my ($key, $value) = each %{$items[$i]}) {
-            unless (any { $_ eq $key } @tagsToSkip) {
-                for (my $j = 0; $j < @items; $j++) {
-                    if ($i != $j and
-                        (!exists $items[$j]->{$key} or
-                         $items[$j]->{$key} ne $value)) {
-                        $keysHash{$key} = 1;
-                        last;
-                    }
-                }
-            }
-        }
-    }
-    # Pretty print all the keys and associated values which differ
-    my @keys = sort keys %keysHash;
-    my $indentLen = 3 + max map { length } @keys; 
-    for my $key (@keys) {
-        for (my $i = 0; $i < @items; $i++) {
-            my $message = $items[$i]->{$key} || colored('undef', 'faint');
-            if ($i == 0) {
-                print colored("$key", 'bold'), '.' x ($indentLen - length $key);
-            } else {
-                print ' ' x $indentLen;
-            }
-            print coloredByIndex($message, $i), "\n";
-        }
-    }
-}
-
-#-------------------------------------------------------------------------------
-# EXPERIMENTAL
-sub appendMetadata {
-    my ($target, @sources) = @_;
-
-    my @properties = qw(XPKeywords Rating Subject HierarchicalSubject LastKeywordXMP Keywords);
-
-    # Extract current metadata in target
-    my $etTarget = extractInfo($target);
-    my $infoTarget = $etTarget->GetInfo(@properties);
-
-    trace(VERBOSITY_ALL, "$target: ", Data::Dumper::Dumper($infoTarget));
-
-    my $rating = $infoTarget->{Rating};
-    my $oldRating = $rating;
-
-    my %keywordTypes = ();
-    for (qw(XPKeywords Subject HierarchicalSubject LastKeywordXMP Keywords)) {
-        my $old = $infoTarget->{$_};
-        $keywordTypes{$_} = {
-            OLD => $old, 
-            NEW => {map { $_ => 1 } split /\s*,\s*/, ($old || '')}
-        };
-    }
-
-    for my $source (@sources) {
-        # Extract metadata in source to merge in
-        my $etSource = extractInfo($source);
-        my $infoSource = $etSource->GetInfo(@properties);
-
-        trace(VERBOSITY_ALL, "$source: ", Data::Dumper::Dumper($infoSource));
-
-        # Add rating if we don't already have one
-        unless (defined $rating) {
-            $rating = $infoSource->{Rating};
-        }
-
-        # For each field, loop over each component of the source's value
-        # and add it to the set of new values
-        while (my ($name, $value) = each %keywordTypes) {
-            for (split /\s*,\s*/, $infoSource->{$name}) {
-                $value->{NEW}->{$_} = 1;
-            }
-        }
-    }
-
-    my $dirty = 0;
-
-    # Update rating if it's changed
-    if (defined $rating and (!defined $oldRating or $rating ne $oldRating)) {
-        print "Rating: ", 
-            defined $oldRating ? $oldRating : "(null)", 
-            " -> $rating\n";
-        $etTarget->SetNewValue('Rating', $rating)
-            or die "Couldn't set Rating";
-        $dirty = 1;
-    }
-
-    while (my ($name, $value) = each %keywordTypes) {
-        my $old = $value->{OLD};
-        my $new = join ', ', sort keys %{$value->{NEW}};
-        if (($old || '') ne $new) {
-            print "$name: ",
-                defined $old ? "\"$old\"" : "(null)",
-                " -> \"$new\"\n";
-            $etTarget->SetNewValue($name, $new)
-                or die "Couldn't set $name";
-            $dirty = 1;
-        }
-    }
-
-    # Write file if metadata is dirty
-    if ($dirty) {
-        # Compute backup path
-        my $backup = "${target}_bak";
-        for (my $i = 2; -s $backup; $i++) {
-            $backup =~ s/_bak\d*$/_bak$i/;
-        }
-
-        # Make backup
-        File::Copy::copy($target, $backup)
-            or die "Couldn't copy $target to $backup: $!";
-
-        # Update metadata in target file
-        my $write = $etTarget->WriteInfo($target);
-        if ($write == 1) {
-            # updated
-            print "Updated $target\nOriginal backed up to $backup\n";
-        } elsif ($write == 2) {
-            # noop
-            print "$target was already up to date\n";
-        } else {
-            # failure
-            die "Couldn't WriteInfo for $target";
-        }
-    }
 }
 
 # MODEL ------------------------------------------------------------------------
