@@ -180,6 +180,9 @@ the specified glob pattern(s).
     $ OrganizePhotos re foo
     $ OrganizePhotos ct foo
 
+    # Find all the duplicate windows binaries under the bin dir
+    $ OrganizePhotos c -fqr"\.(?:(?i)dll|exe|scr)$" bin
+
 =head2 B<C<collect-trash>> I<(C<ct>)>
 
 Looks recursively for C<.Trash> subdirectories under the current directory
@@ -617,34 +620,32 @@ const my %fileTypes => (
 
 const my $backupSuffix => qr/
     [._] (?i) (?:bak|original) \d*
-    /x;
+/x;
 
 # Media file extensions
 const my $mediaType => qr/
     # Media extension
-    (?: \. (?i) (?: @{[ join '|', keys %fileTypes ]}))
-    # Backup file
+    (?: \. (?i) (?: @{[ join '|', keys %fileTypes ]}) )
+    # Optional backup file suffix
     (?: $backupSuffix)?
-    $/x;
+$/x;
 
 use constant MATCH_UNKNOWN => 0;
 use constant MATCH_NONE => 1;
 use constant MATCH_FULL => 2;
 use constant MATCH_CONTENT => 3;
-
-# For extra output
-my $verbosity = 0;
 use constant VERBOSITY_2 => 2;
 use constant VERBOSITY_DEBUG => 99;
-
 use constant CRUD_UNKNOWN => 0;
 use constant CRUD_CREATE => 1;
 use constant CRUD_READ => 2;
 use constant CRUD_UPDATE => 3;
 use constant CRUD_DELETE => 4;
 
+my $verbosity = 0;
 my $cachedMd5Path = '';
 my $cachedMd5Set = {};
+my $filenameFilter = $mediaType;
 
 main();
 exit 0;
@@ -654,8 +655,23 @@ exit 0;
 # subroutines starting with "do"
 sub main {
     sub myGetOptions {
-        Getopt::Long::GetOptions('verbosity|v=i' => \$verbosity, @_)
-            or die "Error in command line, aborting.";
+        my $filter = undef;
+        Getopt::Long::GetOptions(
+            'verbosity|v=i' => \$verbosity,
+            'filter|f=s' => \$filter, 
+            @_) or die "Error in command line, aborting.";
+        if ($filter) {
+            if ($filter eq 'all') {
+                $filenameFilter = qr//;
+            } elsif ($filter eq 'media') {
+                $filenameFilter = $mediaType;
+            } elsif ($filter =~ /^qr(.*)$/) {
+                $filenameFilter = qr/$1/;
+            } else {
+                die "Unknown filter: '$filter'";
+            }
+            trace(0, "Filter set to: ", $filenameFilter);
+        }
     }
 
     # Parse args (using GetOptions) and delegate to the doVerb methods...
@@ -2023,7 +2039,7 @@ sub getMimeType {
     # we want to consider the real extension
     $mediaPath =~ s/$backupSuffix$//;
     my ($basename, $ext) = splitExt($mediaPath);
-    return $fileTypes{uc $ext}->{MIMETYPE} || '';
+    return getFileTypeInfo($ext, 'MIMETYPE') || '';
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -2338,7 +2354,7 @@ sub defaultIsDirWanted {
 # Default behavior if isDirWanted is undefined for traverseFiles
 sub defaultIsFileWanted {
     my ($fullPath, $rootFullPath, $filename) = @_;
-    return ($filename =~ /$mediaType/);
+    return ($filename =~ /$filenameFilter/);
 }
 
 # MODEL (File Operations) ------------------------------------------------------
@@ -2400,13 +2416,14 @@ sub traverseFiles {
         my ($fullPath, $rootFullPath) = @_;
         my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
         if (-d $fullPath) {
-            if (-e File::Spec->catfile($fullPath, '.orphignore')) {
-                return ''; # Don't process dir containing marker file
+            # Never peek inside of a .git folder or any folder
+            # containing .orphignore (opt out mechanism)
+            if (lc $filename eq '.git' or
+                -e File::Spec->catfile($fullPath, '.orphignore')) {
+                return '';
             }
             local $_ = undef; # prevent use in the isDirWanted
-            if ($isDirWanted->($fullPath, $rootFullPath, $filename)) {
-                return 'd';
-            }
+            return 'd' if $isDirWanted->($fullPath, $rootFullPath, $filename);
         } elsif (-f $fullPath) {
             # When MacOS copies files with alternate streams (e.g. from APFS)
             # to a volume that doesn't support it, they put the alternate
@@ -2415,15 +2432,14 @@ sub traverseFiles {
             # pretend these don't exist.
             if ($filename =~ /^\._/ or
                 lc $filename eq '.orphignore') {
-                return ''; # Always skip
+                return '';
             }
             local $_ = undef; # prevent use in the isFileWanted
-            if ($isFileWanted->($fullPath, $rootFullPath, $filename)) {
-                return 'f';
-            }
+            return 'f' if $isFileWanted->($fullPath, $rootFullPath, $filename);
         } else {
             die "Programmer Error: unknown object type for '$fullPath'";
         }
+        return '';
     };
     # Method to be called for each directory found in globPatterns
     my $innerTraverse = sub {
