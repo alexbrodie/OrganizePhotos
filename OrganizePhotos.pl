@@ -657,7 +657,7 @@ sub main {
     sub myGetOptions {
         my $filter = undef;
         Getopt::Long::GetOptions(
-            'verbosity|v=i' => \$verbosity,
+            'verbosity|v:+' => \$verbosity,
             'filter|f=s' => \$filter, 
             @_) or die "Error in command line, aborting.";
         if ($filter) {
@@ -902,140 +902,41 @@ sub doFindDupeDirs {
     }
 }
 
-# TODO: break up this nearly 400 line behemoth
 # API ==========================================================================
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
     my ($byName, $autoDiff, $defaultLastAction, @globPatterns) = @_;
-    my $fast = 0; # avoid slow operations, potentially with less precision?
     my $dupeGroups = buildFindDupeFilesDupeGroups($byName, @globPatterns);
-    # Process each group of duplicates
     my $lastCommand = '';
     DUPEGROUP: for (my $dupeGroupsIdx = 0; $dupeGroupsIdx < @$dupeGroups; $dupeGroupsIdx++) {
-        # TODO: move this and match calculations with improvements to populateFindDupeFilesDupeGroup
-        # Tidy and populate group metadata where each element is a hash:
-        #   fullPath: path to file
-        #   exists: cached result of -e check
-        #   md5Info: Md5Info data
-        my $group = $dupeGroups->[$dupeGroupsIdx];
-        @$group = grep { defined $_ } @$group;
-        for my $elt (@$group) {
-            $elt->{exists} = -e $elt->{fullPath};
-            if ($fast or !$elt->{exists}) {
-                delete $elt->{md5Info};
-            } else {
-                $elt->{md5Info} = resolveMd5Info($elt->{fullPath}, 0,
-                    exists $elt->{md5Info} ? $elt->{md5Info} : $elt->{cachedMd5Info});
-            }
-        }
-
-        # TODO: Should we sort groups so that missing files are at the end?
-        # It's supposed to be sorted by importance. We would need to do that
-        # before starting to build $autoCommand
-
-        # TODO: my $matchType = getFindDupeFilesMatchType($group);
-
-        # Except when trying to be fast, calculate the MD5 match
-        # TODO: get this pairwise and store it somehow for later
-        # TODO: (hopefully for auto-delete)
-        my $matchType = MATCH_UNKNOWN;
-        unless ($fast) {
-            my $fullMd5Match = 1;
-            my $md5Match = 1;
-
-            # If all the primary MD5s are the same report IDENTICAL
-            # If any are missing, should be complete mismatch
-            my $md5Info = $group->[0]->{md5Info};
-            my $md5 = $md5Info->{md5} || 'x';
-            my $fullMd5 = $md5Info->{full_md5} || 'x';
-            for (my $i = 1; $i < @$group; $i++) {
-                $md5Info = $group->[$i]->{md5Info};
-                $md5Match = 0 if $md5 ne ($md5Info->{md5} || 'y');
-                $fullMd5Match = 0 if $fullMd5 ne ($md5Info->{full_md5} || 'y');
-            }
-
-            if ($fullMd5Match) {
-                $matchType = MATCH_FULL;
-            } elsif ($md5Match) {
-                $matchType = MATCH_CONTENT;
-            } else {
-                $matchType = MATCH_NONE;
-            }
-        }
-
-        # TODO: my $autoCommand = getFindDupeFilesAutoCommands($group, ...);
-
-        # See if we can use some heuristics to guess what should be
-        # done for this group
-        my @autoCommands = ();
-
-        # Figure out what's trashable, starting with any missing files
-        my @remainingIdx = grep { $group->[$_]->{exists} } (0..$#$group);
-
-        # If there are still multiple items remove anything that's
-        # in temp locations like staging areas (if it leaves anything)
-        if (@remainingIdx > 1 and $matchType == MATCH_FULL) {
-            my @idx = grep { 
-                $group->[$_]->{fullPath} !~ /[\/\\]ToImport[\/\\]/
-            } @remainingIdx;
-            @remainingIdx = @idx if @idx;
-        }
-
-        # Now take everything that isn't in @reminingIdx and suggest trash it
-        my @isTrashable = map { 1 } (0..$#$group);
-        $isTrashable[$_] = 0 for @remainingIdx;
-        for (my $i = 0; $i < @$group; $i++) {
-            push @autoCommands, "t$i" if $isTrashable[$i];
-        }
-
-        # If it's a short mov file next to a jpg or heic that's an iPhone,
-        # then it's probably the live video portion from a burst shot. We
-        # should just continue
-        # TODO: ^^^^ that
-
-        # Auto command is what happens without any user input
-        my $autoCommand = join ';', uniqstr sort @autoCommands;
-
-        # Default command is what happens if you hit enter with an empty string
-        my $defaultCommand;
-        if ($autoCommand) {
-            $defaultCommand = $autoCommand;
-        } elsif ($defaultLastAction) {
-            $defaultCommand = $lastCommand;
-        }
-
-        my $prompt = buildFindDupeFilesPrompt(
-            $group, $fast, $matchType, $defaultCommand, 
-            $dupeGroupsIdx + 1, scalar @$dupeGroups);
-
-        # TODO: somehow determine whether one is a superset of one or
-        # TODO: more of the others (hopefully for auto-delete) 
-        doMetadataDiff(0, map { $_->{fullPath} } @$group) if $autoDiff;
-
-        # If you want t automate something (e.g. do $defaultCommand without
-        # user confirmation), set that action here: 
-        my $command = $autoCommand;
-
-        # Get input until something sticks...
-        PROMPT: while (1) {
+        while (1) {
+            my $group = $dupeGroups->[$dupeGroupsIdx];
+            populateFindDupeFilesDupeGroup($group);
+            # Auto command is what happens without any user input
+            my $command = generateFindDupeFilesAutoAction($group);
+            # Default command is what happens if you hit enter with an empty string
+            # (ignored if there's an auto command).
+            my $defaultCommand = $defaultLastAction ? $lastCommand : undef;
+            my $prompt = buildFindDupeFilesPrompt(
+                $group, $defaultCommand, 
+                $dupeGroupsIdx + 1, scalar @$dupeGroups);
+            doMetadataDiff(0, map { $_->{fullPath} } @$group) if $autoDiff;
             # Prompt for command(s)
-            print $prompt;
-            unless ($command) {
-                chomp($command = lc <STDIN>);
-                if ($command) {
-                    # If the user provided something, save that for next 
-                    # conflict's default (the next DUPEGROUP)
-                    $lastCommand = $command;
-                } elsif ($defaultCommand) {
-                    # Enter with empty string uses $defaultCommand
-                    $command = $defaultCommand;
-                }
+            if ($command) {
+                print $prompt, $command, "\n";
             } else {
-                print "$command\n";
+                until ($command) {
+                    print $prompt;
+                    chomp($command = lc <STDIN>);
+                    if ($command) {
+                        # If the user provided something, save that for next 
+                        # conflict's default (the next DUPEGROUP)
+                        $lastCommand = $command;
+                    } elsif ($defaultCommand) {
+                        $command = $defaultCommand;
+                    }
+                }
             }
-
-            # TODO: processFindDupeFilesCommands($group, $command)
-
             my $usage = <<'EOM';
 ?   Help: shows this help message
 c   Continue: go to the next group
@@ -1050,9 +951,9 @@ EOM
                 if ($_ eq '?') {
                     print $usage;
                 } elsif ($_ eq 'c') {
-                    last PROMPT;  # continue == next group == last PROMPT
+                    next DUPEGROUP;
                 } elsif ($_ eq 'd') {
-                    dpMetadataDiff(0, map { $_->{fullPath} } @$group);
+                    doMetadataDiff(0, map { $_->{fullPath} } @$group);
                 } elsif (/^f(\d+)$/) {
                     if ($1 > $#$group) {
                         warn "$1 is out of range [0, $#$group]";
@@ -1071,7 +972,6 @@ EOM
                     } elsif (!defined $group->[$1]) {
                         warn "$1 has already been trashed";
                     } else {
-                        # Open Number
                         system("\"$group->[$1]->{fullPath}\"");
                     }
                 } elsif ($_ eq 'q') {
@@ -1093,15 +993,14 @@ EOM
                         # dynmically calc: (scalar grep { defined $_ } @$group)
                         (scalar grep { defined $_ } @$group) == $itemCount
                             or die "Programmer Error: bad itemCount calc";
-                        last PROMPT if $itemCount < 2;
+                        next DUPEGROUP if $itemCount < 2;
                     }
                 } else {
                     warn "Unrecognized command: '$_'";
                     print $usage;
                 }
             } 
-            redo DUPEGROUP;
-        } # PROMPT 
+        } # while (1)
     } # DUPEGROUP
 }
 
@@ -1120,6 +1019,8 @@ EOM
 #           { fullPath => '/second/group/second.file' }
 #       ]
 #   ]
+# In addition to fullPath, a cachedMd5Info property may be added if
+# available.
 sub buildFindDupeFilesDupeGroups {
     my ($byName, @globPatterns) = @_;
     # Create the initial groups in various ways with key that is opaque
@@ -1174,8 +1075,51 @@ sub buildFindDupeFilesDupeGroups {
 }
 
 # ------------------------------------------------------------------------------
-# TODO
+# doFindDupeFiles helper subroutine
+# Adds the following properties to a group created by 
+# buildFindDupeFilesDupeGroups:
+#   exists: cached result of -e check
+#   md5Info: Md5Info data
+#   matches: array of MATCH_* values of comparison with other group elements
 sub populateFindDupeFilesDupeGroup {
+    my ($group) = @_;
+    my $fast = 0; # avoid slow operations, potentially with less precision?
+    @$group = grep { defined $_ } @$group;
+    for my $elt (@$group) {
+        $elt->{exists} = -e $elt->{fullPath};
+        if ($fast or !$elt->{exists}) {
+            delete $elt->{md5Info};
+        } else {
+            $elt->{md5Info} = resolveMd5Info($elt->{fullPath}, 0,
+                exists $elt->{md5Info} ? $elt->{md5Info} : $elt->{cachedMd5Info});
+        }
+    }
+    for (my $i = 0; $i < @$group; $i++) {
+        $group->[$i]->{matches}->[$i] = MATCH_FULL;
+        my ($iFullMd5, $iContentMd5) = @{$group->[$i]->{md5Info}}{qw(full_md5 md5)};
+        for (my $j = $i + 1; $j < @$group; $j++) {
+            my ($jFullMd5, $jContentMd5) = @{$group->[$j]->{md5Info}}{qw(full_md5 md5)};
+            my $matchType = MATCH_UNKNOWN;
+            if ($iFullMd5 and $jFullMd5) {
+                if ($iFullMd5 eq $jFullMd5) {
+                    $matchType = MATCH_FULL;
+                } else {
+                    $matchType = MATCH_NONE;
+                }
+            }
+            if ($matchType != MATCH_FULL) {
+                if ($iContentMd5 and $jContentMd5) {
+                    if ($iContentMd5 eq $jContentMd5) {
+                        $matchType = MATCH_CONTENT;
+                    } else {
+                        $matchType = MATCH_NONE;
+                    }
+                }
+            }
+            $group->[$i]->{matches}->[$j] = $matchType;
+            $group->[$j]->{matches}->[$i] = $matchType;
+        }
+    }
 }
 
 # ------------------------------------------------------------------------------
@@ -1231,20 +1175,49 @@ sub computeFindDupeFilesHashKeyByName {
 
 # ------------------------------------------------------------------------------
 # doFindDupeFiles helper subroutine
+# Computes zero or more commands that should be auto executed for the
+# provided fully populated group. 
+sub generateFindDupeFilesAutoAction {
+    my ($group) = @_;
+    my @autoCommands = ();
+
+    # Figure out what's trashable, starting with any missing files
+    my @remainingIdx = grep { $group->[$_]->{exists} } (0..$#$group);
+
+    # If there are still multiple items remove anything that's
+    # in temp locations like staging areas (if it leaves anything)
+    # TODO: if (@remainingIdx > 1 and $matchType == MATCH_FULL) {
+    # TODO:     my @idx = grep { 
+    # TODO:         $group->[$_]->{fullPath} !~ /[\/\\]ToImport[\/\\]/
+    # TODO:     } @remainingIdx;
+    # TODO:     @remainingIdx = @idx if @idx;
+    # TODO: }
+
+    # Now take everything that isn't in @reminingIdx and suggest trash it
+    my @isTrashable = map { 1 } (0..$#$group);
+    $isTrashable[$_] = 0 for @remainingIdx;
+    for (my $i = 0; $i < @$group; $i++) {
+        push @autoCommands, "t$i" if $isTrashable[$i];
+    }
+
+    # If it's a short mov file next to a jpg or heic that's an iPhone,
+    # then it's probably the live video portion from a burst shot. We
+    # should just continue
+    # TODO: ^^^^ that
+
+    # Auto command is what happens without any user input
+    my $command = join ';', uniqstr sort @autoCommands;
+    return $command;
+}
+
+# ------------------------------------------------------------------------------
+# doFindDupeFiles helper subroutine
 sub buildFindDupeFilesPrompt {
-    my ($group, $fast, $matchType, $defaultCommand, $progressNumber, $progressCount) = @_;
+    my ($group, $defaultCommand, $progressNumber, $progressCount) = @_;
     # Build base of prompt - indexed paths
     my @prompt = ();
     # Main heading for group
-    push @prompt, 'Resolving duplicate group ', $progressNumber, ' of ', $progressCount, ' ';
-    if ($matchType == MATCH_FULL) {
-        push @prompt, colored('[Match: FULL]', 'bold blue on_white');
-    } elsif ($matchType == MATCH_CONTENT) {
-        push @prompt, '[Match: Content]';
-    } else {
-        push @prompt, colored('[Match: UNKNOWN]', 'bold red on_white');
-    }
-    push @prompt, "\n";
+    push @prompt, "Resolving duplicate group $progressNumber of $progressCount\n";
     # The list of all files in the group
     my @paths = map { prettyPath($_->{fullPath}) } @$group;
     my $maxPathLength = max map { length } @paths;
@@ -1253,7 +1226,20 @@ sub buildFindDupeFilesPrompt {
         my $path = $paths[$i];
         push @prompt, '  ', colored(coloredByIndex("$i. ", $i), 'bold');
         push @prompt, coloredByIndex($path, $i), ' ' x ($maxPathLength - length $path);
-        # Add metadata after the path
+        # Matches
+        push @prompt, ' ';
+        for my $matchType (@{$elt->{matches}}) {
+            if ($matchType == MATCH_FULL) {
+                push @prompt, colored('F', 'black on_green');
+            } elsif ($matchType == MATCH_CONTENT) {
+                push @prompt, colored('C', 'black on_yellow');
+            } elsif ($matchType == MATCH_NONE) {
+                push @prompt, colored('X', 'black on_red');
+            } else {
+                push @prompt, '?';
+            }
+        }
+        # Metadata
         if (my $md5Info = $elt->{md5Info}) {
             push @prompt, ' ', scalar localtime $md5Info->{mtime}, ' ', $md5Info->{size};
         }
