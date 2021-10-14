@@ -62,6 +62,7 @@
 # * traverseFiles should skip any dir which contains a special (zero byte?) unique
 #   file (named .orphignore?) and add documentation (e.g. put this in the same
 #   dir as your lrcat file). Maybe if it's not zero byte, it can act like .gitignore
+# * Use magic _ filename for -X and stat to elimiate reduntant file access
 #
 =pod
 
@@ -2378,7 +2379,7 @@ sub traverseFiles {
             }
             local $_ = undef; # prevent use in the isDirWanted
             return 'd' if $isDirWanted->($fullPath, $rootFullPath, $filename);
-        } elsif (-f $fullPath) {
+        } elsif (-f _) {
             # When MacOS copies files with alternate streams (e.g. from APFS)
             # to a volume that doesn't support it, they put the alternate
             # stream data in a file with the same path, but with a "._"
@@ -2601,11 +2602,11 @@ sub movePath {
             printCrud(CRUD_UPDATE, "Moved file '@{[prettyPath($oldFullPath)]}' ",
                       "to '@{[prettyPath($newFullPath)]}'\n");
         }
-    } elsif (-d $oldFullPath) {
+    } elsif (-d _) {
         if (-e $newFullPath) { 
             # Dest dir path already exists, need to move-merge.
             trace(VERBOSITY_ALL, "Move merge '$oldFullPath' to '$newFullPath'");
-            -d $newFullPath or die
+            -d _ or die
                 "Can't move a directory - file already exists " .
                 "at destination ('$oldFullPath' => '$newFullPath')";
             # Use readdir rather than File::Find::find here. This doesn't
