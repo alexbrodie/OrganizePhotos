@@ -468,7 +468,9 @@ use Getopt::Long ();
 use Image::ExifTool ();
 use JSON ();
 use List::Util qw(any all uniqstr max);
+use Number::Bytes::Human ();
 use Pod::Usage ();
+use POSIX ();
 if ($^O eq 'MSWin32') {
     use Win32::Console::ANSI; # must come before Term::ANSIColor
 }
@@ -1242,7 +1244,8 @@ sub buildFindDupeFilesPrompt {
         }
         # Metadata
         if (my $md5Info = $elt->{md5Info}) {
-            push @prompt, ' ', scalar localtime $md5Info->{mtime}, ' ', $md5Info->{size};
+            push @prompt, ' ', POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime $md5Info->{mtime}),
+                          ', ', Number::Bytes::Human::format_bytes($md5Info->{size});
         }
         unless ($elt->{exists}) {
             push @prompt, ' ', colored('[MISSING]', 'bold red on_white');
