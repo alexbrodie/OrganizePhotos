@@ -471,9 +471,7 @@ use List::Util qw(any all uniqstr max);
 use Number::Bytes::Human ();
 use Pod::Usage ();
 use POSIX ();
-if ($^O eq 'MSWin32') {
-    use Win32::Console::ANSI; # must come before Term::ANSIColor
-}
+use if $^O eq 'MSWin32', 'Win32::Console::ANSI'; # must come before Term::ANSIColor
 # TODO: be explicit with this and move usage to view layer
 use Term::ANSIColor;
 
