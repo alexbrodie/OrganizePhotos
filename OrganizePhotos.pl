@@ -1,11 +1,7 @@
 #!/usr/bin/perl
 #
-# Commands to regenerate documentation:
-#   cpanm Pod::Markdown
-#   pod2markdown OrganizePhotos.pl > README.md
-#
 # TODO LIST
-#  * !! Fix bug where onsecutive sidecar MOV files for iPhone live photos in burst are recognized as content match
+#  * !! Fix bug where consecutive sidecar MOV files for iPhone live photos in burst are recognized as content match
 #  * !! when trashing a dupe, make sure not to trash sidecars that don't match
 #  * glob in friendly sort order
 #  * look for zero duration videos (this hang's Lightroom's
@@ -47,10 +43,7 @@
 #    no extension is present)
 # * Namespace somehow for view/model/API/etc?
 # * Add param types to sub declaration? 
-# * Switch File::Find::find to traverseFiles
 # * Replace '.' with File::Spec->curdir()?
-# * Cleanup print/trace/warn/die/carp/cluck/croak/confess including final endlines
-# * Include zip and pdf files too
 # * Tests covering at least the checkup verb code paths
 # * Add wrapper around warn/carp/cluck similar to trace. Should we have a
 #   halt/alert/inform/trace system for crashes/warnings/print statments/diagnositcs?
@@ -63,391 +56,6 @@
 #   file (named .orphignore?) and add documentation (e.g. put this in the same
 #   dir as your lrcat file). Maybe if it's not zero byte, it can act like .gitignore
 # * Use magic _ filename for -X and stat to elimiate reduntant file access
-#
-=pod
-
-=head1 NAME
-
-OrganizePhotos - utilities for managing a collection of photos/videos
-
-=head1 SYNOPSIS
-
-    $ OrganizePhotos -h
-    $ OrganizePhotos checkup directory/to/process
-
-=head1 DESCRIPTION
-
-Helps to manage a collection of photos and videos that are primarily
-managed by Adobe Lightroom. This helps with tasks not covered by
-Lightroom such as: backup/archive, integrity checks, consolidation,
-and other OCD metadata organization.
-
-Metadata this program needs to persist are stored in C<md5.txt> files in
-the same directory as the files that data was generated for. If they 
-are separated, the metadata will no longer be associated and the separated
-media files will be treated as new. The expectation is that if files move,
-the C<md5.txt> file is also moved or copied.
-
-Metadata operations are powered by L<C<Image::ExifTool>>.
-
-The calling pattern for each command follows the pattern:
-
-    OrganizePhotos <verb> [options...]
-
-Options are managed with L<C<Getopt::Long>>, and thus may appear anywhere
-after the verb, with remaining arguments being used as input for the verb.
-Most verbs' non-option arguments are glob patterns describing which files
-to operate on.
-
-The following verbs are available:
-
-
-=head2 B<C<check-md5>> I<(C<c5>)>
-
-For each media file under the current directory, generate the MD5 hash
-and either add to C<md5.txt> file if missing or verify hashes match if
-already present.
-
-This method is read/write for C<md5.txt> files. If you want to perform
-read-only MD5 checks (i.e., don't write to C<md5.txt>), then use the
-C<verify-md5> verb.
-
-This does not modify media files or their sidecars, it only modifies
-the C<md5.txt> files.
-
-=head3 Options & Arguments
-
-=over 24
-
-=item B<C<--add-only>>
-
-Only operate on files that haven't had their MD5 computed and stored
-yet. This option means that no existing MD5s will be verified.
-
-=item B<glob patterns>
-
-Rather than operate on files under the current directory, operate on
-the specified glob pattern(s).
-
-=back
-
-=head3 Examples
-
-    # Check or add MD5 for several types of video files in the
-    # current directory
-    $ OrganizePhotos c5 *.mp4 *.m4v *.mov
-
-=head2 B<C<checkup>> I<(C<c>)>
-
-This command runs the following suggested suite of commands:
-
-    check-md5
-    find-dupe-files
-    remove-empties
-    collect-trash
-
-=head3 Options & Arguments
-
-=over 24
-
-=item B<C<--auto-diff>> I<(C<-d>)>
-
-Automatically do the C<d> diff command for every new group of files
-
-=item B<C<--default-last-action>> I<(C<-l>)>
-
-Use the last action as the default action (what is used if an
-empty command is specified, i.e. you just press Enter)
-
-=item B<glob patterns>
-
-Rather than operate on files under the current directory, operate on
-the specified glob pattern(s).
-
-=back
-
-=head3 Examples
-
-    # Performs a checkup of directory foo doing auto-diff during
-    # the find-dupe-files phase
-    $ OrganizePhotos c foo -d
-
-    # These next 4 together are equivalent to the previous statement 
-    $ OrganizePhotos c5 foo
-    $ OrganizePhotos fdf --auto-diff foo 
-    $ OrganizePhotos re foo
-    $ OrganizePhotos ct foo
-
-    # Find all the duplicate windows binaries under the bin dir
-    $ OrganizePhotos c -fqr"\.(?:(?i)dll|exe|scr)$" bin
-
-=head2 B<C<collect-trash>> I<(C<ct>)>
-
-Looks recursively for C<.Trash> subdirectories under the current directory
-and moves that content to the current directory's C<.Trash> perserving
-directory structure.
-
-For example if we had the following trash:
-
-    ./Foo/.Trash/1.jpg
-    ./Foo/.Trash/2.jpg
-    ./Bar/.Trash/3.jpg
-    ./Bar/Baz/.Trash/4.jpg
-
-After collection we would have:
-
-    ./.Trash/Foo/1.jpg
-    ./.Trash/Foo/2.jpg
-    ./.Trash/Bar/3.jpg
-    ./.Trash/Bar/Baz/4.jpg
-
-=head3 Options & Arguments
-
-=over 24
-
-=item B<glob patterns>
-
-Rather than operate on files under the current directory, operate on
-the specified glob pattern(s).
-
-=back
-
-=head3 Examples
-
-    # Collect trash in directories starting with Do, e.g.
-    # Documents/.Trash, Downloads/.Trash, etc.
-    $ OrganizePhotos ct Do*
-
-=head2 B<C<find-dupe-files>> I<(C<fdf>)>
-
-Find files that have multiple copies under the current directory,
-and walks through a series of interactive prompts for resolution.
-
-=head3 Options & Arguments
-
-=over 24
-
-=item B<C<--auto-diff>> I<(C<-d>)>
-
-Automatically do the C<d> diff command for every new group of files
-
-=item B<C<--default-last-action>> I<(C<-l>)>
-
-Use the last action as the default action (what is used if an
-empty command is specified, i.e. you just press Enter)
-
-=item B<C<--by-name>> I<(C<-n>)>
-
-Search for duplicates based on name rather than the default of MD5
-
-=item B<glob patterns>
-
-Rather than operate on files under the current directory, operate on
-the specified glob pattern(s).
-
-=back
-
-=head3 Examples
-
-    # Find duplicate files across Alpha and Bravo directories
-    $ OrganizePhotos fdf Alpha Bravo
-
-=head2 B<C<metadata-diff>> I<(C<md>)>
-
-Do a diff of the specified media files (including their sidecar metadata).
-
-This method does not modify any file.
-
-=head3 Options & Arguments
-
-=over 24
-
-=item B<C<--exclude-sidecars>> I<(C<-x>)>
-
-Don't include sidecar metadata for a file. For example, a CR2 file wouldn't 
-include any metadata from a sidecar XMP which typically is the place where
-user added tags like rating and keywords are placed.
-
-=item B<files>
-
-Specifies which files to diff
-
-=back
-
-=head3 Examples
-
-    # Do a three way diff between the metadata in the JPGs
-    $ OrganizePhotos md one.jpg two.jpg three.jpg
-
-=head2 B<C<remove-empties>> I<(C<re>)>
-
-Remove any subdirectories that are empty save an C<md5.txt> file.
-
-=head3 Options & Arguments
-
-=over 24
-
-=item B<glob patterns>
-
-Rather than operate on files under the current directory, operate on
-the specified glob pattern(s).
-
-=back
-
-=head3 Examples
-
-    # Removes empty directories that are descendants of directories
-    # in the current directory that have 'abc' in their name
-    $ OrganizePhotos re *abc*
-
-=head2 B<C<verify-md5>> I<(C<v5>)>
-
-Verifies the MD5 hashes for all contents of all C<md5.txt> files below
-the current directory.
-
-This method is read-only, if you want to add/update MD5s, use C<check-md5>.
-
-This method does not modify any file.
-
-=head3 Options & Arguments
-
-=over 24
-
-=item B<glob patterns>
-
-Rather than operate on files under the current directory, operate on
-the specified glob pattern(s).
-
-=back
-
-=head3 Examples
-
-    # Verifies the MD5 for all MP4 files in the current directory
-    $ OrganizePhotos v5 *.mp4
-
-=begin comment
-
-=head1 TODO
-
-=head2 AppendMetadata
-
-Find files that aren't in a directory appropriate for their date
-
-=head2 FindMisplacedFiles
-
-Find files that aren't in a directory appropriate for their date
-
-=head2 FindDupeFolders
-
-Find the folders that represent the same date
-
-=head2 FindMissingFiles
-
-Finds files that may be missing based on gaps in sequential photos
-
-=head2 FindScreenShots
-
-Find files which are screenshots
-
-=head2 FindOrphanedFiles
-
-Find XMP or THM files that don't have a cooresponding main file
-
-=head2 --if-modified-since
-
-Flag for CheckMd5/VerifyMd5 to only check files created/modified since
-the provided timestamp or timestamp at last MD5 check
-
-=head1 Related commands
-
-=head2 Complementary ExifTool commands
-
-    # Append all keyword metadata from SOURCE to DESTINATION
-    exiftool -addTagsfromfile SOURCE -HierarchicalSubject -Subject DESTINATION
-
-    # Shift all mp4 times, useful when clock on GoPro is reset to 1/1/2015 due to dead battery
-    # Format is: offset='[y:m:d ]h:m:s' or more see https://sno.phy.queensu.ca/~phil/exiftool/Shift.html#SHIFT-STRING
-    offset='4:6:24 13:0:0'
-    exiftool "-CreateDate+=$offset" "-MediaCreateDate+=$offset" "-MediaModifyDate+=$offset" "-ModifyDate+=$offset" "-TrackCreateDate+=$offset" "-TrackModifyDate+=$offset" *.MP4 
-
-=head2 Complementary Mac commands
-
-    # Mirror SOURCE to TARGET
-    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
-
-    # Move .Trash directories recursively to the trash
-    find . -type d -iname '.Trash' -exec trash {} \;
-
-    # Move all AAE and LRV files in the ToImport folder to trash
-    find ~/Pictures/ToImport/ -type f -iname '*.AAE' -or -iname '*.LRV' -exec trash {} \;
-
-    # Delete .DS_Store recursively (omit "-delete" to only print)
-    find . -type f -name .DS_Store -print -delete
-
-    # Delete zero byte md5.txt files (omit "-delete" to only print)
-    find . -type f -iname md5.txt -empty -print -delete
-
-    # Remove empty directories (omit "-delete" to only print)
-    find . -type d -empty -print -delete
-
-    # Remove the executable bit for media files
-    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2"
-        -or -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V"
-        -or -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG"
-        -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF"
-        -or -iname "md5.txt" \) -print -exec chmod -x {} \;
-
-    # Remove downloaded-and-untrusted extended attribute for the current tree
-    xattr -d -r com.apple.quarantine .
-
-    # Find large-ish files
-    find . -size +100MB
-
-    # Display disk usage stats sorted by size decreasing
-    du *|sort -rn
-
-    # Find all HEIC files that have a JPG with the same base name
-    find . -iname '*.heic' -execdir sh -c 'x="{}"; y=${x:0:${#x}-4}; [[ -n `find . -iname "${y}jpg"` ]] && echo "$PWD/$x"' \;
-
-    # For each HEIC move some metadata from neighboring JPG to XMP sidecar
-    # and trash the JPG. This is useful when you have both the raw HEIC from
-    # iPhone and the converted JPG which holds the metadata and you want to
-    # move it to the HEIC and just keep that. For example if you import once
-    # as JPG, add metadata, and then re-import as HEIC.
-    find . -iname '*.heic' -exec sh -c 'x="{}"; y=${x:0:${#x}-4}; exiftool -tagsFromFile ${y}jpg -Rating -Subject -HierarchicalSubject ${y}xmp; trash ${y}jpg' \;
-
-    # For each small MOV file, look for pairing JPG or HEIC files and print
-    # the path of the MOV files where the main image file is missing.
-    find . -iname '*.mov' -size -6M -execdir sh -c 'x="{}"; y=${x:0:${#x}-3}; [[ -n `find . -iname "${y}jpg" -o -iname "${y}heic"` ]] || echo "$PWD/$x"' \;
-
-    # Restore _original files (undo exiftool changes)
-    find . -iname '*_original' -exec sh -c 'x={}; y=${x:0:${#x}-9}; echo mv $x $y' \;
-
-=head2 Complementary PC commands
-
-    # Mirror SOURCE to TARGET
-    robocopy /MIR SOURCE TARGET
-
-=end comment
-
-=head1 AUTHOR
-
-Copyright 2017, Alex Brodie
-
-This library is free software; you can redistribute it and/or modify it
-under the same terms as Perl itself.
-
-=head1 SEE ALSO
-
-=over
-
-=item L<C<Image::ExifTool>>
-
-=item L<C<Getopt::Long>>
-
-=back
-
-=cut
 
 use strict; 
 use warnings;
@@ -647,9 +255,6 @@ my $verbosity = VERBOSITY_NONE;
 my $filenameFilter = $mediaType;
 my $cachedMd5Path = '';
 my $cachedMd5Set = {};
-
-main();
-exit 0;
 
 #===============================================================================
 # Main entrypoint that parses command line a bit and routes to the 
@@ -2727,3 +2332,395 @@ sub printWithIcon {
     $lines[$_] = (' ' x length $icon) . ' ' . $lines[$_] for 1..$#lines;
     print map { ($_, "\n") } @lines;
 }
+
+main();
+1;
+
+__END__
+
+Commands to regenerate documentation:
+  cpanm Pod::Markdown
+  pod2markdown OrganizePhotos.pl > README.md
+
+=head1 NAME
+
+OrganizePhotos - utilities for managing a collection of photos/videos
+
+=head1 SYNOPSIS
+
+    $ OrganizePhotos -h
+    $ OrganizePhotos checkup directory/to/process
+
+=head1 DESCRIPTION
+
+Helps to manage a collection of photos and videos that are primarily
+managed by Adobe Lightroom. This helps with tasks not covered by
+Lightroom such as: backup/archive, integrity checks, consolidation,
+and other OCD metadata organization.
+
+Metadata this program needs to persist are stored in C<md5.txt> files in
+the same directory as the files that data was generated for. If they 
+are separated, the metadata will no longer be associated and the separated
+media files will be treated as new. The expectation is that if files move,
+the C<md5.txt> file is also moved or copied.
+
+Metadata operations are powered by L<C<Image::ExifTool>>.
+
+The calling pattern for each command follows the pattern:
+
+    OrganizePhotos <verb> [options...]
+
+Options are managed with L<C<Getopt::Long>>, and thus may appear anywhere
+after the verb, with remaining arguments being used as input for the verb.
+Most verbs' non-option arguments are glob patterns describing which files
+to operate on.
+
+The following verbs are available:
+
+
+=head2 B<C<check-md5>> I<(C<c5>)>
+
+For each media file under the current directory, generate the MD5 hash
+and either add to C<md5.txt> file if missing or verify hashes match if
+already present.
+
+This method is read/write for C<md5.txt> files. If you want to perform
+read-only MD5 checks (i.e., don't write to C<md5.txt>), then use the
+C<verify-md5> verb.
+
+This does not modify media files or their sidecars, it only modifies
+the C<md5.txt> files.
+
+=head3 Options & Arguments
+
+=over 24
+
+=item B<C<--add-only>>
+
+Only operate on files that haven't had their MD5 computed and stored
+yet. This option means that no existing MD5s will be verified.
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern(s).
+
+=back
+
+=head3 Examples
+
+    # Check or add MD5 for several types of video files in the
+    # current directory
+    $ OrganizePhotos c5 *.mp4 *.m4v *.mov
+
+=head2 B<C<checkup>> I<(C<c>)>
+
+This command runs the following suggested suite of commands:
+
+    check-md5
+    find-dupe-files
+    remove-empties
+    collect-trash
+
+=head3 Options & Arguments
+
+=over 24
+
+=item B<C<--auto-diff>> I<(C<-d>)>
+
+Automatically do the C<d> diff command for every new group of files
+
+=item B<C<--default-last-action>> I<(C<-l>)>
+
+Use the last action as the default action (what is used if an
+empty command is specified, i.e. you just press Enter)
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern(s).
+
+=back
+
+=head3 Examples
+
+    # Performs a checkup of directory foo doing auto-diff during
+    # the find-dupe-files phase
+    $ OrganizePhotos c foo -d
+
+    # These next 4 together are equivalent to the previous statement 
+    $ OrganizePhotos c5 foo
+    $ OrganizePhotos fdf --auto-diff foo 
+    $ OrganizePhotos re foo
+    $ OrganizePhotos ct foo
+
+    # Find all the duplicate windows binaries under the bin dir
+    $ OrganizePhotos c -fqr"\.(?:(?i)dll|exe|scr)$" bin
+
+=head2 B<C<collect-trash>> I<(C<ct>)>
+
+Looks recursively for C<.Trash> subdirectories under the current directory
+and moves that content to the current directory's C<.Trash> perserving
+directory structure.
+
+For example if we had the following trash:
+
+    ./Foo/.Trash/1.jpg
+    ./Foo/.Trash/2.jpg
+    ./Bar/.Trash/3.jpg
+    ./Bar/Baz/.Trash/4.jpg
+
+After collection we would have:
+
+    ./.Trash/Foo/1.jpg
+    ./.Trash/Foo/2.jpg
+    ./.Trash/Bar/3.jpg
+    ./.Trash/Bar/Baz/4.jpg
+
+=head3 Options & Arguments
+
+=over 24
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern(s).
+
+=back
+
+=head3 Examples
+
+    # Collect trash in directories starting with Do, e.g.
+    # Documents/.Trash, Downloads/.Trash, etc.
+    $ OrganizePhotos ct Do*
+
+=head2 B<C<find-dupe-files>> I<(C<fdf>)>
+
+Find files that have multiple copies under the current directory,
+and walks through a series of interactive prompts for resolution.
+
+=head3 Options & Arguments
+
+=over 24
+
+=item B<C<--auto-diff>> I<(C<-d>)>
+
+Automatically do the C<d> diff command for every new group of files
+
+=item B<C<--default-last-action>> I<(C<-l>)>
+
+Use the last action as the default action (what is used if an
+empty command is specified, i.e. you just press Enter)
+
+=item B<C<--by-name>> I<(C<-n>)>
+
+Search for duplicates based on name rather than the default of MD5
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern(s).
+
+=back
+
+=head3 Examples
+
+    # Find duplicate files across Alpha and Bravo directories
+    $ OrganizePhotos fdf Alpha Bravo
+
+=head2 B<C<metadata-diff>> I<(C<md>)>
+
+Do a diff of the specified media files (including their sidecar metadata).
+
+This method does not modify any file.
+
+=head3 Options & Arguments
+
+=over 24
+
+=item B<C<--exclude-sidecars>> I<(C<-x>)>
+
+Don't include sidecar metadata for a file. For example, a CR2 file wouldn't 
+include any metadata from a sidecar XMP which typically is the place where
+user added tags like rating and keywords are placed.
+
+=item B<files>
+
+Specifies which files to diff
+
+=back
+
+=head3 Examples
+
+    # Do a three way diff between the metadata in the JPGs
+    $ OrganizePhotos md one.jpg two.jpg three.jpg
+
+=head2 B<C<remove-empties>> I<(C<re>)>
+
+Remove any subdirectories that are empty save an C<md5.txt> file.
+
+=head3 Options & Arguments
+
+=over 24
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern(s).
+
+=back
+
+=head3 Examples
+
+    # Removes empty directories that are descendants of directories
+    # in the current directory that have 'abc' in their name
+    $ OrganizePhotos re *abc*
+
+=head2 B<C<verify-md5>> I<(C<v5>)>
+
+Verifies the MD5 hashes for all contents of all C<md5.txt> files below
+the current directory.
+
+This method is read-only, if you want to add/update MD5s, use C<check-md5>.
+
+This method does not modify any file.
+
+=head3 Options & Arguments
+
+=over 24
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern(s).
+
+=back
+
+=head3 Examples
+
+    # Verifies the MD5 for all MP4 files in the current directory
+    $ OrganizePhotos v5 *.mp4
+
+=begin comment
+
+=head1 TODO
+
+=head2 AppendMetadata
+
+Find files that aren't in a directory appropriate for their date
+
+=head2 FindMisplacedFiles
+
+Find files that aren't in a directory appropriate for their date
+
+=head2 FindDupeFolders
+
+Find the folders that represent the same date
+
+=head2 FindMissingFiles
+
+Finds files that may be missing based on gaps in sequential photos
+
+=head2 FindScreenShots
+
+Find files which are screenshots
+
+=head2 FindOrphanedFiles
+
+Find XMP or THM files that don't have a cooresponding main file
+
+=head2 --if-modified-since
+
+Flag for CheckMd5/VerifyMd5 to only check files created/modified since
+the provided timestamp or timestamp at last MD5 check
+
+=head1 Related commands
+
+=head2 Complementary ExifTool commands
+
+    # Append all keyword metadata from SOURCE to DESTINATION
+    exiftool -addTagsfromfile SOURCE -HierarchicalSubject -Subject DESTINATION
+
+    # Shift all mp4 times, useful when clock on GoPro is reset to 1/1/2015 due to dead battery
+    # Format is: offset='[y:m:d ]h:m:s' or more see https://sno.phy.queensu.ca/~phil/exiftool/Shift.html#SHIFT-STRING
+    offset='4:6:24 13:0:0'
+    exiftool "-CreateDate+=$offset" "-MediaCreateDate+=$offset" "-MediaModifyDate+=$offset" "-ModifyDate+=$offset" "-TrackCreateDate+=$offset" "-TrackModifyDate+=$offset" *.MP4 
+
+=head2 Complementary Mac commands
+
+    # Mirror SOURCE to TARGET
+    rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
+
+    # Move .Trash directories recursively to the trash
+    find . -type d -iname '.Trash' -exec trash {} \;
+
+    # Move all AAE and LRV files in the ToImport folder to trash
+    find ~/Pictures/ToImport/ -type f -iname '*.AAE' -or -iname '*.LRV' -exec trash {} \;
+
+    # Delete .DS_Store recursively (omit "-delete" to only print)
+    find . -type f -name .DS_Store -print -delete
+
+    # Delete zero byte md5.txt files (omit "-delete" to only print)
+    find . -type f -iname md5.txt -empty -print -delete
+
+    # Remove empty directories (omit "-delete" to only print)
+    find . -type d -empty -print -delete
+
+    # Remove the executable bit for media files
+    find . -type f -perm +111 \( -iname "*.CRW" -or -iname "*.CR2"
+        -or -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V"
+        -or -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG"
+        -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF"
+        -or -iname "md5.txt" \) -print -exec chmod -x {} \;
+
+    # Remove downloaded-and-untrusted extended attribute for the current tree
+    xattr -d -r com.apple.quarantine .
+
+    # Find large-ish files
+    find . -size +100MB
+
+    # Display disk usage stats sorted by size decreasing
+    du *|sort -rn
+
+    # Find all HEIC files that have a JPG with the same base name
+    find . -iname '*.heic' -execdir sh -c 'x="{}"; y=${x:0:${#x}-4}; [[ -n `find . -iname "${y}jpg"` ]] && echo "$PWD/$x"' \;
+
+    # For each HEIC move some metadata from neighboring JPG to XMP sidecar
+    # and trash the JPG. This is useful when you have both the raw HEIC from
+    # iPhone and the converted JPG which holds the metadata and you want to
+    # move it to the HEIC and just keep that. For example if you import once
+    # as JPG, add metadata, and then re-import as HEIC.
+    find . -iname '*.heic' -exec sh -c 'x="{}"; y=${x:0:${#x}-4}; exiftool -tagsFromFile ${y}jpg -Rating -Subject -HierarchicalSubject ${y}xmp; trash ${y}jpg' \;
+
+    # For each small MOV file, look for pairing JPG or HEIC files and print
+    # the path of the MOV files where the main image file is missing.
+    find . -iname '*.mov' -size -6M -execdir sh -c 'x="{}"; y=${x:0:${#x}-3}; [[ -n `find . -iname "${y}jpg" -o -iname "${y}heic"` ]] || echo "$PWD/$x"' \;
+
+    # Restore _original files (undo exiftool changes)
+    find . -iname '*_original' -exec sh -c 'x={}; y=${x:0:${#x}-9}; echo mv $x $y' \;
+
+=head2 Complementary PC commands
+
+    # Mirror SOURCE to TARGET
+    robocopy /MIR SOURCE TARGET
+
+=end comment
+
+=head1 AUTHOR
+
+Copyright 2017, Alex Brodie
+
+This library is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+
+=head1 SEE ALSO
+
+=over
+
+=item L<C<Image::ExifTool>>
+
+=item L<C<Getopt::Long>>
+
+=back
+
+=cut
