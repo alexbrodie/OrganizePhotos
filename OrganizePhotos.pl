@@ -55,6 +55,7 @@
 # * traverseFiles should skip any dir which contains a special (zero byte?) unique
 #   file (named .orphignore?) and add documentation (e.g. put this in the same
 #   dir as your lrcat file). Maybe if it's not zero byte, it can act like .gitignore
+#   Or, alternately do a .rsync-filter style file instead of .gitignore
 # * Use magic _ filename for -X and stat to elimiate reduntant file access
 
 use strict; 
@@ -299,14 +300,14 @@ sub main {
             my $addOnly = 0;
             my $autoDiff = 0;
             my $byName = 0;
-            my $defaultLastAction = 0;
+            my $noDefaultLastAction = 0;
             myGetOptions('add-only' => \$addOnly,
                          'auto-diff|d' => \$autoDiff,
                          'by-name|n' => \$byName,
-                         'default-last-action|l' => \$defaultLastAction);
+                         'no-default-last-action' => \$noDefaultLastAction);
             doCheckMd5($addOnly, @ARGV);
             doFindDupeFiles($byName, $autoDiff, 
-                            $defaultLastAction, @ARGV);
+                            !$noDefaultLastAction, @ARGV);
             doRemoveEmpties(@ARGV);
             doCollectTrash(@ARGV);
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
@@ -319,12 +320,12 @@ sub main {
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
             my $autoDiff = 0;
             my $byName = 0;
-            my $defaultLastAction = 0;
+            my $noDefaultLastAction = 0;
             myGetOptions('auto-diff|d' => \$autoDiff,
                          'by-name|n' => \$byName,
-                         'default-last-action|l' => \$defaultLastAction);
+                         'no-default-last-action' => \$noDefaultLastAction);
             doFindDupeFiles($byName, $autoDiff, 
-                            $defaultLastAction, @ARGV);
+                            !$noDefaultLastAction, @ARGV);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             my $excludeSidecars = 0;
             myGetOptions('exclude-sidecars|x' => \$excludeSidecars);
@@ -578,7 +579,7 @@ EOM
                     } elsif (!defined $group->[$1]) {
                         warn "$1 has already been trashed";
                     } else {
-                        system("\"$group->[$1]->{fullPath}\"");
+                        system("open \"$group->[$1]->{fullPath}\"");
                     }
                 } elsif ($_ eq 'q') {
                     exit 0;
@@ -2426,14 +2427,15 @@ This command runs the following suggested suite of commands:
 
 =over 24
 
-=item B<C<--auto-diff>> I<(C<-d>)>
+=item B<C<-d>>, B<C<--auto-diff>>
 
 Automatically do the C<d> diff command for every new group of files
 
-=item B<C<--default-last-action>> I<(C<-l>)>
+=item B<C<--no-default-last-action>>
 
-Use the last action as the default action (what is used if an
-empty command is specified, i.e. you just press Enter)
+Don't use the last action as the default action (what is used if an
+empty command is specified, i.e. you just press Enter). Enter without
+entering a command will re-prompt.
 
 =item B<glob patterns>
 
@@ -2503,16 +2505,17 @@ and walks through a series of interactive prompts for resolution.
 
 =over 24
 
-=item B<C<--auto-diff>> I<(C<-d>)>
+=item B<C<-d>>, B<C<--auto-diff>> 
 
 Automatically do the C<d> diff command for every new group of files
 
-=item B<C<--default-last-action>> I<(C<-l>)>
+=item B<C<--no-default-last-action>>
 
-Use the last action as the default action (what is used if an
-empty command is specified, i.e. you just press Enter)
+Don't use the last action as the default action (what is used if an
+empty command is specified, i.e. you just press Enter). Enter without
+entering a command will re-prompt.
 
-=item B<C<--by-name>> I<(C<-n>)>
+=item B<C<-n>>, B<C<--by-name>>
 
 Search for duplicates based on name rather than the default of MD5
 
@@ -2538,7 +2541,7 @@ This method does not modify any file.
 
 =over 24
 
-=item B<C<--exclude-sidecars>> I<(C<-x>)>
+=item B<C<-x>>, B<C<--exclude-sidecars>>
 
 Don't include sidecar metadata for a file. For example, a CR2 file wouldn't 
 include any metadata from a sidecar XMP which typically is the place where
