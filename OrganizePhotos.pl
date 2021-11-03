@@ -787,34 +787,28 @@ sub computeFindDupeFilesHashKeyByName {
 sub generateFindDupeFilesAutoAction {
     my ($group) = @_;
     my @autoCommands = ();
-
-    # Figure out what's trashable, starting with any missing files
+    # Figure out what's trashable, starting by excluding missing files
     my @remainingIdx = grep { $group->[$_]->{exists} } (0..$#$group);
-
     # If there are still multiple items remove anything that's
     # in temp locations like staging areas (if it leaves anything)
-    # TODO: if (@remainingIdx > 1 and $matchType == MATCH_FULL) {
-    # TODO:     my @idx = grep { 
-    # TODO:         $group->[$_]->{fullPath} !~ /[\/\\]ToImport[\/\\]/
-    # TODO:     } @remainingIdx;
-    # TODO:     @remainingIdx = @idx if @idx;
-    # TODO: }
-
+    if (@remainingIdx > 1 and 
+        all { $_ eq MATCH_FULL or $_ eq MATCH_CONTENT } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
+        my @idx = grep { 
+            $group->[$_]->{fullPath} !~ /[\/\\]ToImport[\/\\]/
+            } @remainingIdx;
+        @remainingIdx = @idx if @idx;
+    }
     # Now take everything that isn't in @reminingIdx and suggest trash it
     my @isTrashable = map { 1 } (0..$#$group);
     $isTrashable[$_] = 0 for @remainingIdx;
     for (my $i = 0; $i < @$group; $i++) {
         push @autoCommands, "t$i" if $isTrashable[$i];
     }
-
     # If it's a short mov file next to a jpg or heic that's an iPhone,
     # then it's probably the live video portion from a burst shot. We
     # should just continue
     # TODO: ^^^^ that
-
-    # Auto command is what happens without any user input
-    my $command = join ';', uniqstr sort @autoCommands;
-    return $command;
+    return join ';', uniqstr sort @autoCommands;
 }
 
 # ------------------------------------------------------------------------------
@@ -848,8 +842,9 @@ sub buildFindDupeFilesPrompt {
         }
         # Metadata
         if (my $md5Info = $elt->{md5Info}) {
-            push @prompt, ' ', POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime $md5Info->{mtime}),
-                          ', ', Number::Bytes::Human::format_bytes($md5Info->{size});
+            my $mtime = exists $md5Info->{mtime} ? POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime $md5Info->{mtime}) : '?';
+            my $size = exists $md5Info->{size} ? Number::Bytes::Human::format_bytes($md5Info->{size}) : '?';
+            push @prompt, " $mtime, $size";
         }
         unless ($elt->{exists}) {
             push @prompt, ' ', colored('[MISSING]', 'bold red on_white');
