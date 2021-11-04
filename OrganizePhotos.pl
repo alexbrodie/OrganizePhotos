@@ -162,6 +162,7 @@ const my %fileTypes => (
         MIMETYPE => 'image/jpeg'
     },
     JPG => {
+        SIDECARS => [qw( AAE )],
         MIMETYPE => 'image/jpeg'
     },
     HEIC => {
