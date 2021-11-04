@@ -789,14 +789,16 @@ sub generateFindDupeFilesAutoAction {
     my @autoCommands = ();
     # Figure out what's trashable, starting by excluding missing files
     my @remainingIdx = grep { $group->[$_]->{exists} } (0..$#$group);
-    # If there are still multiple items remove anything that's
-    # in temp locations like staging areas (if it leaves anything)
-    if (@remainingIdx > 1 and 
-        all { $_ eq MATCH_FULL or $_ eq MATCH_CONTENT } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
-        my @idx = grep { 
-            $group->[$_]->{fullPath} !~ /[\/\\]ToImport[\/\\]/
-            } @remainingIdx;
-        @remainingIdx = @idx if @idx;
+    #if (@remainingIdx > 1 and 
+    #    all { $_ eq MATCH_FULL or $_ eq MATCH_CONTENT } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
+    my @idx = grep { 
+        $group->[$_]->{fullPath} !~ /[\/\\]ToImport[\/\\]/
+        } @remainingIdx;
+    if (@idx) {
+        @remainingIdx = @idx;
+    } else {
+        # TODO: just pick one of the files to leave in @remainingIdx?
+        #@remainingIdx = ($remainingIdx[0])
     }
     # Now take everything that isn't in @reminingIdx and suggest trash it
     my @isTrashable = map { 1 } (0..$#$group);
@@ -807,8 +809,20 @@ sub generateFindDupeFilesAutoAction {
     # If it's a short mov file next to a jpg or heic that's an iPhone,
     # then it's probably the live video portion from a burst shot. We
     # should just continue
-    # TODO: ^^^^ that
-    return join ';', uniqstr sort @autoCommands;
+    my $isShortMovieSidecar = sub {
+        my ($basename, $ext) = splitExt($_->{fullPath});
+        return 0 if lc $ext ne 'mov';
+        return 0 unless exists $_->{md5Info}->{size};
+        my $altSize = -s catExt($basename, 'heic');
+        $altSize = -s catExt($basename, 'jpg') unless defined $altSize;
+        return 0 unless defined $altSize;
+        print "$basename.mov = $_->{md5Info}->{size}; primary = $altSize\n";
+        return 2 * $altSize >= $_->{md5Info}->{size};
+    };
+    if (all { $isShortMovieSidecar->() } @{$group}[@remainingIdx]) {
+        push @autoCommands, 'c';
+    }
+    return join ';', @autoCommands;
 }
 
 # ------------------------------------------------------------------------------
