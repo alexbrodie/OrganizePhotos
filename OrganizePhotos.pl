@@ -82,7 +82,7 @@ use Pod::Usage ();
 use POSIX ();
 use if $^O eq 'MSWin32', 'Win32::Console::ANSI'; # must come before Term::ANSIColor
 # TODO: be explicit with this and move usage to view layer
-use Term::ANSIColor;
+use Term::ANSIColor ();
 
 # Filename only portion of the path to Md5File which stores
 # Md5Info data for other files in the same directory
@@ -516,6 +516,7 @@ sub doFindDupeFiles {
     my $dupeGroups = buildFindDupeFilesDupeGroups($byName, @globPatterns);
     my $lastCommand = '';
     DUPEGROUP: for (my $dupeGroupsIdx = 0; $dupeGroupsIdx < @$dupeGroups; $dupeGroupsIdx++) {
+        print "\n";
         while (1) {
             my $group = $dupeGroups->[$dupeGroupsIdx];
             populateFindDupeFilesDupeGroup($group);
@@ -568,6 +569,8 @@ EOM
                         warn "$1 has already been trashed";
                     } elsif ($^O eq 'MSWin32') {
                         system("explorer.exe /select,\"$group->[$1]->{fullPath}\"");
+                    } elsif ($^O eq 'darwin') {
+                        system("open -R \"$group->[$1]->{fullPath}\"");
                     } else {
                         warn "Don't know how to open a folder on $^O\n";
                     }
@@ -816,7 +819,6 @@ sub generateFindDupeFilesAutoAction {
         my $altSize = -s catExt($basename, 'heic');
         $altSize = -s catExt($basename, 'jpg') unless defined $altSize;
         return 0 unless defined $altSize;
-        print "$basename.mov = $_->{md5Info}->{size}; primary = $altSize\n";
         return 2 * $altSize >= $_->{md5Info}->{size};
     };
     if (all { $isShortMovieSidecar->() } @{$group}[@remainingIdx]) {
@@ -839,17 +841,17 @@ sub buildFindDupeFilesPrompt {
     for (my $i = 0; $i < @$group; $i++) {
         my $elt = $group->[$i];
         my $path = $paths[$i];
-        push @prompt, '  ', colored(coloredByIndex("$i. ", $i), 'bold');
+        push @prompt, '  ', Term::ANSIColor::colored(coloredByIndex("$i. ", $i), 'bold');
         push @prompt, coloredByIndex($path, $i), ' ' x ($maxPathLength - length $path);
         # Matches
         push @prompt, ' ';
         for my $matchType (@{$elt->{matches}}) {
             if ($matchType == MATCH_FULL) {
-                push @prompt, colored('F', 'black on_green');
+                push @prompt, Term::ANSIColor::colored('F', 'black on_green');
             } elsif ($matchType == MATCH_CONTENT) {
-                push @prompt, colored('C', 'black on_yellow');
+                push @prompt, Term::ANSIColor::colored('C', 'black on_yellow');
             } elsif ($matchType == MATCH_NONE) {
-                push @prompt, colored('X', 'black on_red');
+                push @prompt, Term::ANSIColor::colored('X', 'black on_red');
             } else {
                 push @prompt, '?';
             }
@@ -861,12 +863,12 @@ sub buildFindDupeFilesPrompt {
             push @prompt, " $mtime, $size";
         }
         unless ($elt->{exists}) {
-            push @prompt, ' ', colored('[MISSING]', 'bold red on_white');
+            push @prompt, ' ', Term::ANSIColor::colored('[MISSING]', 'bold red on_white');
         }
         push @prompt, "\n";
         # Collect all sidecars and add to prompt
         for (getSidecarPaths($elt->{fullPath})) {
-            push @prompt, '     ', coloredByIndex(colored(prettyPath($_), 'faint'), $i), "\n";
+            push @prompt, '     ', coloredByIndex(Term::ANSIColor::colored(prettyPath($_), 'faint'), $i), "\n";
         }
     }
     # Returns either something like 'x0/x1' or 'x0/.../x42'
@@ -920,9 +922,9 @@ sub doMetadataDiff {
     my $indentLen = 3 + max map { length } @keys; 
     for my $key (@keys) {
         for (my $i = 0; $i < @items; $i++) {
-            my $message = $items[$i]->{$key} || colored('undef', 'faint');
+            my $message = $items[$i]->{$key} || Term::ANSIColor::colored('undef', 'faint');
             if ($i == 0) {
-                print colored("$key", 'bold'), '.' x ($indentLen - length $key);
+                print Term::ANSIColor::colored("$key", 'bold'), '.' x ($indentLen - length $key);
             } else {
                 print ' ' x $indentLen;
             }
@@ -1007,7 +1009,7 @@ sub doTest {
     for (my $i = 0; $i < @colors; $i++) {
         print(' ', ($i < @colorLabels ? '  ' : substr(' Bright ', $i - @colorLabels, 1) . '|'), $colorLabels[$i % @colorLabels]);
         for my $bg (@colors) {
-            print colored(' XO ', $colors[$i % @colors] . ' on_' . $bg);
+            print Term::ANSIColor::colored(' XO ', $colors[$i % @colors] . ' on_' . $bg);
         }
         print "\n";
     }
@@ -1218,7 +1220,7 @@ sub resolveMd5Info {
     };
     if (my $error = $@) {
         # TODO: for now, skip but we'll want something better in the future
-        warn colored("UNAVAILABLE MD5 for '@{[prettyPath($mediaPath)]}' with error:", 'red'), "\n\t$error\n";
+        warn Term::ANSIColor::colored("UNAVAILABLE MD5 for '@{[prettyPath($mediaPath)]}' with error:", 'red'), "\n\t$error\n";
         return undef; # Can't get the MD5
     }
     # Do verification on the old persisted Md5Info and the new calculated Md5Info
@@ -1227,7 +1229,7 @@ sub resolveMd5Info {
             # Matches last recorded hash, but still continue and call
             # setMd5InfoAndWriteMd5File to handle other bookkeeping
             # to ensure we get a cache hit and short-circuit next time.
-            print colored("Verified MD5 for '@{[prettyPath($mediaPath)]}'", 'green'), "\n";
+            print Term::ANSIColor::colored("Verified MD5 for '@{[prettyPath($mediaPath)]}'", 'green'), "\n";
         } elsif ($oldMd5Info->{full_md5} eq $newMd5Info->{full_md5}) {
             # Full MD5 match and content mismatch. This should only be
             # expected when we change how to calculate content MD5s.
@@ -1249,7 +1251,7 @@ EOM
         } else {
             # Mismatch and we can update MD5, needs resolving...
             # TODO: This doesn't belong here in the model, it should be moved
-            warn colored("MISMATCH OF MD5 for '@{[prettyPath($mediaPath)]}'", 'red'), 
+            warn Term::ANSIColor::colored("MISMATCH OF MD5 for '@{[prettyPath($mediaPath)]}'", 'red'), 
                  " [$oldMd5Info->{md5} vs $newMd5Info->{md5}]\n";
             while (1) {
                 print "Ignore, Overwrite, Quit (i/o/q)? ";
@@ -2286,7 +2288,7 @@ sub openOrDie {
 # [colorIndex] - Index for a color class
 sub coloredByIndex {
     my ($message, $colorIndex) = @_;
-    return colored($message, colorByIndex($colorIndex));
+    return Term::ANSIColor::colored($message, colorByIndex($colorIndex));
 }
 
 # VIEW -------------------------------------------------------------------------
@@ -2337,8 +2339,8 @@ sub trace {
 # VIEW -------------------------------------------------------------------------
 sub printWithIcon {
     my ($icon, $color, @statements) = @_;
-    my @lines = map { colored($_, $color) } split /\n/, join '', @statements;
-    $lines[0]  = colored($icon, "black on_$color") . ' ' . $lines[0];
+    my @lines = map { Term::ANSIColor::colored($_, $color) } split /\n/, join '', @statements;
+    $lines[0]  = Term::ANSIColor::colored($icon, "black on_$color") . ' ' . $lines[0];
     $lines[$_] = (' ' x length $icon) . ' ' . $lines[$_] for 1..$#lines;
     print map { ($_, "\n") } @lines;
 }
