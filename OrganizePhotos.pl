@@ -150,7 +150,7 @@ const my %fileTypes => (
     CR3 => {
         SIDECARS => [qw( JPEG JPG XMP )],
         EXTORDER => -1,
-        MIMETYPE => 'image/cr3' # Non-standard
+        MIMETYPE => 'image/x-canon-cr3' # Non-standard
     },
     #ICNS => {
     #    MIMETYPE => 'image/x-icns'
@@ -1427,7 +1427,7 @@ sub readMd5File {
         }
     }
     seek($md5File, 0, 0) or die "Couldn't reset seek on file: $!";
-    my $md5Set;
+    my $md5Set = {};
     if ($useJson) {
         $md5Set = JSON::decode_json(join '', <$md5File>);
         # TODO: Consider validating parsed content - do a lc on
