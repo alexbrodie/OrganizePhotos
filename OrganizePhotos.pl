@@ -227,7 +227,7 @@ const my %fileTypes => (
 );
 
 const my $backupSuffix => qr/
-    [._] (?i) (?:bak|original) \d*
+    [._] (?i) (?:bak|original|\d{8}T\d{6}Z~) \d*
 /x;
 
 # Media file extensions
@@ -815,7 +815,7 @@ sub generateFindDupeFilesAutoAction {
     # should just continue
     my $isShortMovieSidecar = sub {
         my ($basename, $ext) = splitExt($_->{fullPath});
-        return 0 if lc $ext ne 'mov';
+        return 0 if defined $ext and lc $ext ne 'mov';
         return 0 unless exists $_->{md5Info}->{size};
         my $altSize = -s catExt($basename, 'heic');
         $altSize = -s catExt($basename, 'jpg') unless defined $altSize;
@@ -1144,11 +1144,13 @@ sub doVerifyMd5 {
 # MODEL ------------------------------------------------------------------------
 sub getFileTypeInfo {
     my ($ext, $property) = @_;
-    my $key = uc $ext;
-    if (exists $fileTypes{$key}) {
-        my $fileType = $fileTypes{$key};
-        if (exists $fileType->{$property}) {
-            return $fileType->{$property};
+    if (defined $ext) {
+        my $key = uc $ext;
+        if (exists $fileTypes{$key}) {
+            my $fileType = $fileTypes{$key};
+            if (exists $fileType->{$property}) {
+                return $fileType->{$property};
+            }
         }
     }
     return undef;
@@ -1865,7 +1867,7 @@ sub compareFilenameWithExtOrder {
     my ($basenameA, $extA) = splitExt($filenameA);
     my ($basenameB, $extB) = splitExt($filenameB);
     # Compare by basename first
-    my $c = lc $basenameA cmp lc $basenameB;
+    my $c = lc ($basenameA || '') cmp lc ($basenameB || '');
     return $c if $c;
     # Next by extorder
     my $extOrderA = getFileTypeInfo($extA, 'EXTORDER') || 0;
@@ -1873,7 +1875,7 @@ sub compareFilenameWithExtOrder {
     $c = $extOrderA <=> $extOrderB;
     return $c if $c;
     # And then just the extension as a string
-    return lc $extA cmp lc $extB;
+    return lc ($extA || '') cmp lc ($extB || '');
 }
 
 # MODEL (Path Operations) ------------------------------------------------------
@@ -1902,7 +1904,11 @@ sub combinePath {
 # filename.
 sub catExt {
     my ($basename, $ext) = @_;
-    return $ext ? "$basename.$ext" : $basename;
+    if ($ext) {
+        return $basename ? "$basename.$ext" : ".$ext";
+    } else {
+        return $basename;
+    }
 }
 
 # MODEL (Path Operations) ------------------------------------------------------
