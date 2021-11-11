@@ -57,6 +57,9 @@
 #   dir as your lrcat file). Maybe if it's not zero byte, it can act like .gitignore
 #   Or, alternately do a .rsync-filter style file instead of .gitignore
 # * Use magic _ filename for -X and stat to elimiate reduntant file access
+# * Add orph flag to c5/c to force regeneration of md5 (don’t short circuit test if
+#   date/size match the ones from the last generated md5)
+# * Change filename from md5.txt to .orph-cache
 
 use strict; 
 use warnings;
