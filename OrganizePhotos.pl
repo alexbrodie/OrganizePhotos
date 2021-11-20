@@ -60,6 +60,8 @@
 # * Add orph flag to c5/c to force regeneration of md5 (don’t short circuit test if
 #   date/size match the ones from the last generated md5)
 # * Change filename from md5.txt to .orph-cache
+# * Add an export-md5 verb to export all md5.txt data to a csv file (or similar)
+# * Add a trim-md5 verb to remove missing files from md5.txt files
 
 use strict; 
 use warnings;
@@ -265,6 +267,7 @@ my $cachedMd5Set = {};
 # Main entrypoint that parses command line a bit and routes to the 
 # subroutines starting with "do"
 sub main {
+    #print join("\n\t", 'Processing command line options:', @ARGV), "\n";
     sub myGetOptions {
         my $filter = undef;
         Getopt::Long::GetOptions(
@@ -451,6 +454,7 @@ sub doAppendMetadata {
 # Execute check-md5 verb
 sub doCheckMd5 {
     my ($addOnly, @globPatterns) = @_;
+    #print join("\n\t", 'Checking these:', @globPatterns), "\n";
     traverseFiles(
         undef, # isDirWanted
         undef, # isFileWanted
@@ -1203,6 +1207,7 @@ sub getFileTypeInfo {
 #   together with the other caches). 
 sub resolveMd5Info {
     my ($mediaPath, $addOnly, $cachedMd5Info) = @_;
+    my $forceRecalc = 0; # TODO
     # First try to get suitable Md5Info from various cache locations
     # without opening or hashing the MediaFile
     my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
@@ -1216,7 +1221,8 @@ sub resolveMd5Info {
     }
     my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
     my $oldMd5Info = $md5Set->{$md5Key};
-    if (canUseCachedMd5InfoForBase($mediaPath, $addOnly, $oldMd5Info, $newMd5Info)) {
+    if (!$forceRecalc and 
+        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $oldMd5Info, $newMd5Info)) {
         return $oldMd5Info; # Md5File cache of Md5Info is up to date
     }
     # No suitable cache, so fill in/finalize the Md5Info that we'll return
@@ -1494,7 +1500,7 @@ sub writeMd5File {
     seek($md5File, 0, 0) or die "Couldn't reset seek on file: $!";
     truncate($md5File, 0) or die "Couldn't truncate file: $!";
     if (%$md5Set) {
-        print $md5File JSON->new->allow_nonref->pretty->encode($md5Set);
+        print $md5File JSON->new->allow_nonref->pretty->canonical->encode($md5Set);
     } else {
         warn "Writing empty data to md5.txt";
     }
@@ -1510,7 +1516,7 @@ sub updateMd5FileCache {
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Makes the base of a md5Info hash that can be used with
-# canUseCachedMd5InfoForBase or added to the results of calculateMd5Info to produce
+# or added to the results of calculateMd5Info to produce
 # a full md5Info.
 sub makeMd5InfoBase {
     my ($mediaPath) = @_;
@@ -1997,6 +2003,7 @@ sub traverseFiles {
     # or falsy if not wanted
     my $isWanted = sub {
         my ($fullPath, $rootFullPath) = @_;
+        #print "Considering '$fullPath' from '$rootFullPath'\n";
         my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
         if (-d $fullPath) {
             # Never peek inside of a .git folder or any folder
@@ -2039,25 +2046,36 @@ sub traverseFiles {
         my $isWantedResult = $isWanted->($rootFullPath, $rootFullPath);
         if ($isWantedResult eq 'd') {
             my $preprocess = sub {
-                return grep {
+                my @dirs = ();
+                my @files = ();
+                for (@_) {
                     # Skip .. because it doesn't matter what we do, this isn't
                     # going to get passed to wanted, and it doesn't really make
                     # sense to traverse up in a recursive down enumeration. 
                     # Also, skip '.' because we would otherwise process each
                     # dir twice, and $rootFullPath once. This makes subdirs
                     # once and $rootFullPath not at all.
-                    if (($_ eq '.') or ($_ eq '..')) {
-                        ''; # skip
-                    } else {
-                        # The values used here to compute the path relative
-                        # to $baseFullPath matches the values of wanted's
-                        # implementation, and both work the same whether
-                        # no_chdir is set or not. 
-                        my $fullPath = $makeFullPath->(
-                            File::Spec->catfile($File::Find::dir, $_));
-                        $isWanted->($fullPath, $rootFullPath);
+                    next if (($_ eq '.') or ($_ eq '..'));
+                    # The values used here to compute the path relative
+                    # to $baseFullPath matches the values of wanted's
+                    # implementation, and both work the same whether
+                    # no_chdir is set or not. 
+                    my $fullPath = $makeFullPath->(
+                        File::Spec->catfile($File::Find::dir, $_));
+                    my $result = $isWanted->($fullPath, $rootFullPath);
+                    if ($result eq 'd') {
+                        push @dirs, $_;
+                    } elsif ($result eq 'f') {
+                        push @files, $_;
+                    } elsif ($result) {
+                        die "Programmer Error: unknown return value from isWanted: '$result'";
                     }
-                } @_;
+                }
+                # Dirs first will be depth first traversal (nieces/nephews first).
+                # Files first will be breadth first traversal (aunts/uncles first).
+                # This is not the same as what bydepth does which deals in parents
+                # and children.
+                return (sort(@dirs), sort(@files));
             };
             my $wanted = sub {
                 # The values used here to compute the path relative
@@ -2074,9 +2092,7 @@ sub traverseFiles {
         } elsif ($isWantedResult eq 'f') {
             local $_ = undef; # prevent use in callback
             $callback->($rootFullPath, $rootFullPath);
-        } elsif (!$isWantedResult) {
-            # Not wanted, no-op
-        } else {
+        } elsif ($isWantedResult) {
             die "Programmer Error: unknown return value from isWanted: $isWantedResult";
         }
     };
@@ -2289,6 +2305,10 @@ sub openOrDie {
     my ($mode, $path) = @_;
     trace(VERBOSITY_ALL, "openOrDie('$path');");
     open(my $fh, $mode, $path) or die "Couldn't open '$path' in $mode mode: $!";
+    # TODO: Can we determine why and add a helpful error message. E.g. if in R/W
+    # mode, maybe suggest they run one of the following
+    #  $ chflags nouchg '$path'
+    #  $ find <root_dir> -type f -name md5.txt -print -exec chflags nouchg {} \;
     return $fh;
 }
 
@@ -2675,8 +2695,8 @@ the provided timestamp or timestamp at last MD5 check
     # Mirror SOURCE to TARGET
     rsync -ah --delete --delete-during --compress-level=0 --inplace --progress SOURCE TARGET
 
-    # Move .Trash directories recursively to the trash
-    find . -type d -iname '.Trash' -exec trash {} \;
+    # Make all md5.txt files writable
+    find . -type f -name md5.txt -print -exec chflags nouchg {} \;
 
     # Move all AAE and LRV files in the ToImport folder to trash
     find ~/Pictures/ToImport/ -type f -iname '*.AAE' -or -iname '*.LRV' -exec trash {} \;
