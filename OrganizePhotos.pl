@@ -1,69 +1,80 @@
 #!/usr/bin/perl
 #
 # TODO LIST
-#  * !! Fix bug where consecutive sidecar MOV files for iPhone live photos in burst are recognized as content match
-#  * !! when trashing a dupe, make sure not to trash sidecars that don't match
-#  * glob in friendly sort order
-#  * look for zero duration videos (this hang's Lightroom's
-#    DynamicLinkMediaServer which pegs the CPU and blocks Lr preventing any
-#    video imports or other things requiring DLMS, e.g. purging video cache)
-#  * get rid of texted photos (no metadata (e.g. camera make & model), small 
-#    files)
-#  * consider multiple factors for resolving dupe group, not just {md5}, also
-#    existance, full_md5, size/mtime, filename, basename, extension. Possibly weighted.
-#    And examine the similarity between each pair of items in the group. Then
-#    sort by the sum of similarty value compared to all other items to determine
-#    priority. Or something along those lines.
-#  * calculateMd5Info: content only match for tiff
-#  * undo support (z)
-#  * get dates for HEIC. maybe just need to update ExifTools?
-#  * Offer to trash short sidecar movies with primary image tagged 'NoPeople'?
-#  * Consolidate filename/ext handling, e.g. the regex \.([^.]*)$
-#  * on enter in -l mode, print last command after pressing enter
-#  * Option for find-dupe-files to auto delete full duplicate files that match
-#    some conditions, e.g.:
-#       - MD5 match of another which doesn't hold the other conditions
-#       - with subset (or no "user applied"?) metadata
-#       - wrong folder
-#       - is in a user suppiled expected dupe dir, e.g. 'ToImport'
-#  * something much better than the (i/o/q) prompt for MD5 conflicts
-#  * dedupe IMG_XXXX.HEIC and IMG_EXXXX.JPG
-#  * ignore "resource fork" segments (files starting with "._" which can show
-#    up when data is copied from HFS on MacOS to shared exFAT drive and viewed 
-#    on Windows), and treat them sort of like sidecars (except, that we want
-#    the resource fork of each sidecar in some cases - maybe it should be lower
-#    level like moveFile, traverseFiles, etc)
-#  * Replace some hashes whose key sets never change with Class::Struct
-#  * Standardize on naming for path pieces, e.g. have prefixes absPath (full absolute path),
-#    relPath (full friendly relative path ... from somewhere, but maybe not to CWD),
-#    volume (per splitpath), directories ($ per splitpath, and @ per splitdir), filename
-#    (the name of the file or directory excluding volume or directory information but
-#    including extenaion, and without trailing slash for directories except at root),
-#    ext (the extension only of the file including the period, or the empty string if
-#    no extension is present)
-# * Namespace somehow for view/model/API/etc?
-# * Add param types to sub declaration? 
-# * Replace '.' with File::Spec->curdir()?
+
+
+#
+# Bugs:
+# * Fix bug where consecutive sidecar MOV files for iPhone live photos in
+#   burst are recognized as content match
+# * When trashing a dupe, make sure not to trash sidecars that don't match
+#
+# Code health:
+# * Change filename from md5.txt to .orph-cache
 # * Tests covering at least the checkup verb code paths
+# * Use constants for some of the standard paths like md5.txt, .Trash,
+#   thumbs.db, etc
+# * Replace some hashes whose key sets never change with Class::Struct
+# * Move all colored to view
+# * Namespace somehow for view/model/API/etc?
+# * Use Cwd instead of File::Spec?
+# * Standardize on naming for path pieces, e.g. have prefixes absPath (full
+#   absolute path), relPath (full friendly relative path ... from somewhere,
+#   but maybe not to CWD), volume (per splitpath), directories ($ per
+#   splitpath, and @ per splitdir), filename (the name of the file or
+#   directory excluding volume or directory including extenaion, and without
+#   trailing slash for directories except at ext (the extension only of the
+#   file including the period, or the empty string if no extension is present)
+# * Add param types to sub declaration?
 # * Add wrapper around warn/carp/cluck similar to trace. Should we have a
-#   halt/alert/inform/trace system for crashes/warnings/print statments/diagnositcs?
+#   halt/alert/inform/trace system for crashes/warnings/print statments?
+#
+# New features:
+# * Add orph flag to c5/c to force regeneration of md5 (don’t short circuit
+#   test if date/size match the ones from the last generated md5)
+# * Add command line flags for find-dupe-files/checkup to control and extend
+#   generateFindDupeFilesAutoAction.
+#     - Enable/disable
+#     - Trash full/content dupes in ToImport/specified folder
+#     - How to handle content dupes?
+#         * Trash content dupe with subset (or no "user applied"?) metadata
+#         * Trash older date modified (extra: allow date modified to be
+#           latest of any sidecars for Raw + XMP)
+#         * Consolidate metadata somehow?
+#         * Trash one that's not in the right place, i.e. not in folder
+#           starting with YYYY-MM-DD of date captured
+# * Add an export-md5 verb to export all md5.txt data to a csv file
+# * Add a trim-md5 verb to remove missing files from md5.txt files (and
+#   add it to checkup?)
 # * Add a new restore-trash verb that searches for .Trash dirs and for each
 #   one calls consolidateTrash(self, self) and movePath(self, parent)
-# * Use constants for some of the standard paths like md5.txt, .Trash, thumbs.db, etc
-# * Use Cwd instead of File::Spec?
-# * Move all colored to view
-# * traverseFiles should skip any dir which contains a special (zero byte?) unique
-#   file (named .orphignore?) and add documentation (e.g. put this in the same
-#   dir as your lrcat file). Maybe if it's not zero byte, it can act like .gitignore
-#   Or, alternately do a .rsync-filter style file instead of .gitignore
-# * Use magic _ filename for -X and stat to elimiate reduntant file access
-# * Add orph flag to c5/c to force regeneration of md5 (don’t short circuit test if
-#   date/size match the ones from the last generated md5)
-# * Change filename from md5.txt to .orph-cache
-# * Add an export-md5 verb to export all md5.txt data to a csv file (or similar)
-# * Add a trim-md5 verb to remove missing files from md5.txt files
+# * Find mis-homed media (date taken/captured != folder name)
+# * calculateMd5Info: content only match for tiff
+# * find-dupe-files undo support (z)
+# * something much better than the (i/o/q) prompt for MD5 conflicts
+# * ignore "resource fork" segments (files starting with "._" which can show
+#   up when data is copied from HFS on MacOS to shared exFAT drive and viewed
+#   on Windows), and treat them sort of like sidecars (except, that we want
+#   the resource fork of each sidecar in some cases - maybe it should be lower
+#   level like moveFile, traverseFiles, etc)
+# * consider multiple factors for resolving dupe group, not just {md5}, also
+#   existance, full_md5, size/mtime, filename, basename, extension. Possibly
+#   weighted. And examine the similarity between each pair of items in the
+#   group. Then sort by the sum of similarty value compared to all other items
+#   to determine priority. Or something along those lines.
+# * dedupe IMG_XXXX.HEIC and IMG_EXXXX.JPG
+# * traverseFiles should skip any dir which contains a special (zero byte?)
+#   unique file (named .orphignore?) and add documentation (e.g. put this in
+#   the same dir as your lrcat file). Maybe if it's not zero byte, it can act
+#   like .gitignore Or, alternately do a .rsync-filter style file instead of
+#   .gitignore
+# * look for zero duration videos (this hang's Lightroom's
+#   DynamicLinkMediaServer which pegs the CPU and blocks Lr preventing any
+#   video imports or other things requiring DLMS, e.g. purging video cache)#
+# * get rid of texted photos (no metadata (e.g. camera make & model), small
+#   files)
 
-use strict; 
+use strict;
 use warnings;
 use warnings FATAL => qw(uninitialized);
 
@@ -505,7 +516,7 @@ sub doFindDupeDirs {
                 push @{$keyToPaths{"$y-$2-$3"}}, File::Spec->rel2abs($_);
             }
         }
-    }, '.');
+    }, File::Spec->curdir());
     #while (my ($key, $paths) = each %keyToPaths) {
     for my $key (sort keys %keyToPaths) {
         my $paths = $keyToPaths{$key};
