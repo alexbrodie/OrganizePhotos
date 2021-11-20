@@ -294,8 +294,7 @@ sub main {
         Pod::Usage::pod2usage(-verbose => 2);
     } else {
         Getopt::Long::Configure('bundling');
-        my $rawVerb = shift @ARGV;
-        my $verb = lc $rawVerb;
+        my $verb = shift @ARGV;
         if ($verb eq 'append-metadata' or $verb eq 'am') {
             myGetOptions();
             doAppendMetadata(@ARGV);
@@ -346,7 +345,7 @@ sub main {
             myGetOptions();
             doVerifyMd5(@ARGV);
         } else {
-            die "Unknown verb: $rawVerb\n";
+            die "Unknown verb: $verb\n";
         }
     }
 }
@@ -503,7 +502,7 @@ sub doFindDupeDirs {
                 or /^(\d\d)(\d\d)(\d\d)\b/)) {
 
                 my $y = $1 < 20 ? $1 + 2000 : $1 < 100 ? $1 + 1900 : $1;
-                push @{$keyToPaths{lc "$y-$2-$3"}}, File::Spec->rel2abs($_);
+                push @{$keyToPaths{"$y-$2-$3"}}, File::Spec->rel2abs($_);
             }
         }
     }, '.');
@@ -543,7 +542,7 @@ sub doFindDupeFiles {
             } else {
                 until ($command) {
                     print $prompt;
-                    chomp($command = lc <STDIN>);
+                    chomp($command = <STDIN>);
                     if ($command) {
                         # If the user provided something, save that for next 
                         # conflict's default (the next DUPEGROUP)
@@ -778,7 +777,7 @@ sub computeFindDupeFilesHashKeyByName {
         my $dirKey = '';
         for (reverse File::Spec->splitdir($dir)) {
             if (/$dirRegex/) {
-                $dirKey = lc "$1$2$3;";
+                $dirKey =  "$1$2$3;";
                 last;
             }
         }
@@ -1128,7 +1127,7 @@ sub doVerifyMd5 {
                     unless ($all) {
                         while (1) {
                             print "Ignore, ignore All, Quit (i/a/q)? ";
-                            chomp(my $in = lc <STDIN>);
+                            chomp(my $in = <STDIN>);
                             if ($in eq 'i') {
                                 last;
                             } elsif ($in eq 'a') {
@@ -1211,24 +1210,28 @@ sub resolveMd5Info {
     # First try to get suitable Md5Info from various cache locations
     # without opening or hashing the MediaFile
     my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
-    my $newMd5Info = makeMd5InfoBase($mediaPath);
-    if (canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Info, $newMd5Info)) {
-        return Storable::dclone($cachedMd5Info); # Caller supplied cached Md5Info is up to date
+    my $newMd5InfoBase = makeMd5InfoBase($mediaPath);
+    if (canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Info, $newMd5InfoBase)) {
+        # Caller supplied cached Md5Info is up to date
+        return { %{Storable::dclone($cachedMd5Info)}, %$newMd5InfoBase };
     }
     if ($md5Path eq $cachedMd5Path and
-        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Set->{$md5Key}, $newMd5Info)) {
-        return Storable::dclone($cachedMd5Set->{$md5Key}); # memory cache of Md5Info is up to date
+        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Set->{$md5Key}, $newMd5InfoBase)) {
+        # memory cache of Md5Info is up to date
+        return { %{Storable::dclone($cachedMd5Set->{$md5Key})}, %$newMd5InfoBase };
     }
     my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
     my $oldMd5Info = $md5Set->{$md5Key};
     if (!$forceRecalc and 
-        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $oldMd5Info, $newMd5Info)) {
-        return $oldMd5Info; # Md5File cache of Md5Info is up to date
+        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $oldMd5Info, $newMd5InfoBase)) {
+        # Md5File cache of Md5Info is up to date
+        return { %$oldMd5Info, %$newMd5InfoBase };
     }
     # No suitable cache, so fill in/finalize the Md5Info that we'll return
+    my $newMd5Info;
     eval {
         # TODO: consolidate opening file multiple times from stat and calculateMd5Info
-        $newMd5Info = { %$newMd5Info, %{calculateMd5Info($mediaPath)} };
+        $newMd5Info = { %{calculateMd5Info($mediaPath)}, %$newMd5InfoBase };
     };
     if (my $error = $@) {
         # TODO: for now, skip but we'll want something better in the future
@@ -1267,11 +1270,11 @@ EOM
                  " [$oldMd5Info->{md5} vs $newMd5Info->{md5}]\n";
             while (1) {
                 print "Ignore, Overwrite, Quit (i/o/q)? ";
-                chomp(my $in = lc <STDIN>);
+                chomp(my $in = <STDIN>);
                 if ($in eq 'i') {
                     # Ignore newMd5Info, so we don't want to return that. Return
                     # what is/was in the cache.
-                    return $oldMd5Info;
+                    return { %$oldMd5Info, %$newMd5InfoBase };
                 } elsif ($in eq 'o') {
                     last;
                 } elsif ($in eq 'q') {
@@ -1306,10 +1309,12 @@ sub findMd5s {
             if (-f $fullPath) {
                 my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
                 my (undef, $md5Set) = readMd5File('<:crlf', $fullPath);
-                for my $otherFilename (sort keys %$md5Set) {
+                for my $md5Key (sort { $md5Set->{$a}->{filename} cmp $md5Set->{$b}->{filename} } keys %$md5Set) {
+                    my $md5Info = $md5Set->{$md5Key};
+                    my $otherFilename = $md5Info->{filename};
                     my $otherFullPath = changeFilename($fullPath, $otherFilename);
                     if ($isFileWanted->($otherFullPath, $rootFullPath, $otherFilename)) {
-                        $callback->($otherFullPath, $md5Set->{$otherFilename});
+                        $callback->($otherFullPath, $md5Info);
                     }
                 }
             }
@@ -1446,7 +1451,9 @@ sub readMd5File {
         # If there's no version data, then it is version 1. We didn't
         # start storing version information until version 2.
         while (my ($key, $values) = each %$md5Set) {
+            # Populate missing values so we don't have to handle sparse data everywhere
             $values->{version} = 1 unless exists $values->{version};
+            $values->{filename} = $key unless exists $values->{filename};
         }
     } else {
         # Parse as simple "name: md5" text
@@ -1455,7 +1462,8 @@ sub readMd5File {
             # We use version 0 here for the very old way before we went to
             # JSON when we added more info than just the full file MD5
             my $fullMd5 = lc $2;
-            $md5Set->{lc $1} = { version => 0, md5 => $fullMd5, full_md5 => $fullMd5 };
+            $md5Set->{lc $1} = { version => 0, filename => $1, 
+                                 md5 => $fullMd5, full_md5 => $fullMd5 };
         }
     }
     updateMd5FileCache($md5Path, $md5Set);
@@ -1521,7 +1529,8 @@ sub updateMd5FileCache {
 sub makeMd5InfoBase {
     my ($mediaPath) = @_;
     my $stats = File::stat::stat($mediaPath) or die "Couldn't stat '$mediaPath': $!";
-    return { size => $stats->size, mtime => $stats->mtime };
+    my (undef, undef, $filename) = File::Spec->splitpath($mediaPath);
+    return { filename => $filename, size => $stats->size, mtime => $stats->mtime };
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -1537,6 +1546,7 @@ sub canUseCachedMd5InfoForBase {
         }
         if (defined $cachedMd5Info->{size} and 
             defined $cachedMd5Info->{mtime} and 
+            lc $currentMd5InfoBase->{filename} eq lc $cachedMd5Info->{filename} and
             isMd5InfoVersionUpToDate($mediaPath, $cachedMd5Info->{version}) and
             $currentMd5InfoBase->{size} == $cachedMd5Info->{size} and
             $currentMd5InfoBase->{mtime} == $cachedMd5Info->{mtime}) {
