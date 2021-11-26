@@ -1,8 +1,6 @@
 #!/usr/bin/perl
 #
 # TODO LIST
-
-
 #
 # Bugs:
 # * Fix bug where consecutive sidecar MOV files for iPhone live photos in
@@ -10,9 +8,8 @@
 # * When trashing a dupe, make sure not to trash sidecars that don't match
 #
 # Code health:
-# * Change filename from md5.txt to .orph-cache
 # * Tests covering at least the checkup verb code paths
-# * Use constants for some of the standard paths like md5.txt, .Trash,
+# * Use constants for some of the standard paths like .Trash,
 #   thumbs.db, etc
 # * Replace some hashes whose key sets never change with Class::Struct
 # * Move all colored to view
@@ -43,7 +40,7 @@
 #         * Consolidate metadata somehow?
 #         * Trash one that's not in the right place, i.e. not in folder
 #           starting with YYYY-MM-DD of date captured
-# * Add an export-md5 verb to export all md5.txt data to a csv file
+# * Add an export-md5 verb to export all Md5Info data to a csv file
 # * Add a trim-md5 verb to remove missing files from md5.txt files (and
 #   add it to checkup?)
 # * Add a new restore-trash verb that searches for .Trash dirs and for each
@@ -102,7 +99,7 @@ use Term::ANSIColor ();
 
 # Filename only portion of the path to Md5File which stores
 # Md5Info data for other files in the same directory
-const my $md5Filename => 'md5.txt';
+const my $md5Filename => '.orphdat';
 
 # Implementation version of calculateMd5Info (useful when comparing
 # older serialized results, such as canUseCachedMd5InfoForBase and 
@@ -1176,9 +1173,8 @@ sub getFileTypeInfo {
 # When dealing with MD5 related data, we have these naming conventions:
 # MediaPath..The path to the media file for which MD5 data is calculated (not
 #            just path as to differentiate from Md5Path).
-# Md5Path....The path to the md5.txt file which contains Md5Info data
-#            for media items in that folder which is serialized to/from
-#            a Md5Set.
+# Md5Path....The path to the file which contains Md5Info data for media
+#            items in that folder which is serialized to/from a Md5Set.
 # Md5File....A file handle to a Md5Path, or more generally in comments
 #            just to refer to the actual filesystem object for a Md5Path
 #            or its contents.
@@ -1301,8 +1297,8 @@ EOM
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# For each item in each md5.txt file in [globPatterns], invoke [callback]
-# passing it full path and MD5 hash as arguments like
+# For each item in each per-directory database file in [globPatterns], 
+# invoke [callback] passing it full path and MD5 hash as arguments like
 #      callback($fullPath, $md5)
 sub findMd5s {
     my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
@@ -1505,7 +1501,7 @@ sub setMd5InfoAndWriteMd5File {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# Lowest level helper routine to serialize OM into a md5.txt file handle.
+# Lowest level helper routine to serialize OM into a file handle.
 # Caller is expected to printCrud with more context if this method returns
 # successfully.
 sub writeMd5File {
@@ -1521,7 +1517,7 @@ sub writeMd5File {
     if (%$md5Set) {
         print $md5File JSON->new->allow_nonref->pretty->canonical->encode($md5Set);
     } else {
-        warn "Writing empty data to md5.txt";
+        warn "Writing empty data to $md5Path";
     }
     updateMd5FileCache($md5Path, $md5Set);
 }
@@ -1549,7 +1545,7 @@ sub makeMd5InfoBase {
 # base-only Md5Info without bothering to calculateMd5Info. 
 sub canUseCachedMd5InfoForBase {
     my ($mediaPath, $addOnly, $cachedMd5Info, $currentMd5InfoBase) = @_;
-    trace(VERBOSITY_ALL, 'canUseCachedMd5InfoForBase(...);');
+    #trace(VERBOSITY_ALL, 'canUseCachedMd5InfoForBase(...);');
     if (defined $cachedMd5Info) {
         if ($addOnly) {
             trace(VERBOSITY_ALL, "Skipping MD5 recalculation for '$mediaPath' (add-only mode)");
@@ -1575,7 +1571,7 @@ sub canUseCachedMd5InfoForBase {
 # file type.
 sub isMd5InfoVersionUpToDate {
     my ($mediaPath, $version) = @_;
-    trace(VERBOSITY_ALL, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
+    #trace(VERBOSITY_ALL, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
     my $type = getMimeType($mediaPath);
     if ($type eq 'image/jpeg') {
         return ($version >= 1) ? 1 : 0; # unchanged since V1
@@ -2144,7 +2140,7 @@ sub trashPathAndSidecars {
 
 # MODEL (File Operations) ------------------------------------------------------
 # Trash the specified path by moving it to a .Trash subdir and moving
-# its entry from the md5.txt file
+# its entry from the per-directory database file
 sub trashPath {
     my ($fullPath) = @_;
     trace(VERBOSITY_ALL, "trashPath('$fullPath');");
@@ -2163,9 +2159,9 @@ sub trashPath {
 
 # MODEL (File Operations) ------------------------------------------------------
 # Trash the specified fullPath by moving it to rootFullPath's .Trash
-# subdir and moving its entry from the md5.txt file. rootFullPath must
-# be an ancestor of fullPath. If it is the direct parent, this method
-# behaves like trashPath.
+# subdir and moving its entry from the per-directory database file.
+# rootFullPath must be an ancestor of fullPath. If it is the direct
+# parent, this method behaves like trashPath.
 #
 # Example 1: (nested with intermediate .Trash)
 #   trashPathWithRoot('.../root/A/B/.Trash/C/D/.Trash', '.../root')
@@ -2248,8 +2244,8 @@ sub movePath {
     };
     if (-f $oldFullPath) {
         if (-e $newFullPath) {
-            # If both are md5.txt files, and newFullPath exists, 
-            # then cat old on to new, and delete old.
+            # If both are the per-directory database files, and newFullPath
+            # exists, then cat old on to new, and delete old.
             my (undef, undef, $oldFilename) = File::Spec->splitpath($oldFullPath);
             my (undef, undef, $newFilename) = File::Spec->splitpath($newFullPath);
             if (lc $oldFilename eq $md5Filename and lc $newFilename eq $md5Filename) {
@@ -2329,7 +2325,7 @@ sub openOrDie {
     # TODO: Can we determine why and add a helpful error message. E.g. if in R/W
     # mode, maybe suggest they run one of the following
     #  $ chflags nouchg '$path'
-    #  $ find <root_dir> -type f -name md5.txt -print -exec chflags nouchg {} \;
+    #  $ find <root_dir> -type f -name .orphdat -print -exec chflags nouchg {} \;
     return $fh;
 }
 
@@ -2421,11 +2417,11 @@ managed by Adobe Lightroom. This helps with tasks not covered by
 Lightroom such as: backup/archive, integrity checks, consolidation,
 and other OCD metadata organization.
 
-Metadata this program needs to persist are stored in C<md5.txt> files in
+Metadata this program needs to persist are stored in database files in
 the same directory as the files that data was generated for. If they 
 are separated, the metadata will no longer be associated and the separated
 media files will be treated as new. The expectation is that if files move,
-the C<md5.txt> file is also moved or copied.
+the per-directory database file is also moved or copied.
 
 Metadata operations are powered by L<C<Image::ExifTool>>.
 
@@ -2444,15 +2440,15 @@ The following verbs are available:
 =head2 B<C<check-md5>> I<(C<c5>)>
 
 For each media file under the current directory, generate the MD5 hash
-and either add to C<md5.txt> file if missing or verify hashes match if
+and either add to the database if missing or verify hashes match if
 already present.
 
-This method is read/write for C<md5.txt> files. If you want to perform
-read-only MD5 checks (i.e., don't write to C<md5.txt>), then use the
-C<verify-md5> verb.
+This method is read/write for per-directory database files. If you want
+to perform read-only MD5 checks (i.e., don't write to the database), 
+then use the C<verify-md5> verb.
 
 This does not modify media files or their sidecars, it only modifies
-the C<md5.txt> files.
+the per-directory database files.
 
 =head3 Options & Arguments
 
@@ -2622,7 +2618,9 @@ Specifies which files to diff
 
 =head2 B<C<remove-empties>> I<(C<re>)>
 
-Remove any subdirectories that are empty save an C<md5.txt> file.
+Trash any subdirectories that are empty except for disposable files.
+Disposable files include .DS_Store, thumbs.db, and our per-directory
+database files.
 
 =head3 Options & Arguments
 
@@ -2643,7 +2641,7 @@ the specified glob pattern(s).
 
 =head2 B<C<verify-md5>> I<(C<v5>)>
 
-Verifies the MD5 hashes for all contents of all C<md5.txt> files below
+Verifies the MD5 hashes for all contents of all database files below
 the current directory.
 
 This method is read-only, if you want to add/update MD5s, use C<check-md5>.
@@ -2728,6 +2726,9 @@ the provided timestamp or timestamp at last MD5 check
     # Delete zero byte md5.txt files (omit "-delete" to only print)
     find . -type f -iname md5.txt -empty -print -delete
 
+    # Rename all md5.txt files to .orphdat
+    find . -type f -iname md5.txt -exec zsh -c 'mv -v $1 ${1:h}/.orphdat' _ {} \;
+
     # Remove empty directories (omit "-delete" to only print)
     find . -type d -empty -print -delete
 
@@ -2736,7 +2737,7 @@ the provided timestamp or timestamp at last MD5 check
         -or -iname "*.JPEG" -or -iname "*.JPG" -or -iname "*.M4V"
         -or -iname "*.MOV" -or -iname "*.MP4" -or -iname "*.MPG"
         -or -iname "*.MTS" -or -iname "*.NEF" -or -iname "*.RAF"
-        -or -iname "md5.txt" \) -print -exec chmod -x {} \;
+        \) -print -exec chmod -x {} \;
 
     # Remove downloaded-and-untrusted extended attribute for the current tree
     xattr -d -r com.apple.quarantine .
