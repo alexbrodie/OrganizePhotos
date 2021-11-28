@@ -549,7 +549,7 @@ sub doFindDupeFiles {
                 print $prompt, $command, "\n";
             } else {
                 until ($command) {
-                    print $prompt;
+                    print $prompt, "\a";
                     chomp($command = <STDIN>);
                     if ($command) {
                         # If the user provided something, save that for next 
@@ -1134,7 +1134,7 @@ sub doVerifyMd5 {
                     warn "ERROR: MD5 mismatch for '@{[prettyPath($fullPath)]}' ($actualMd5 != $expectedMd5)";
                     unless ($all) {
                         while (1) {
-                            print "Ignore, ignore All, Quit (i/a/q)? ";
+                            print "Ignore, ignore All, Quit (i/a/q)? ", "\a";
                             chomp(my $in = <STDIN>);
                             if ($in eq 'i') {
                                 last;
@@ -1276,7 +1276,7 @@ EOM
             warn Term::ANSIColor::colored("MISMATCH OF MD5 for '@{[prettyPath($mediaPath)]}'", 'red'), 
                  " [$oldMd5Info->{md5} vs $newMd5Info->{md5}]\n";
             while (1) {
-                print "Ignore, Overwrite, Quit (i/o/q)? ";
+                print "Ignore, Overwrite, Quit (i/o/q)? ", "\a";
                 chomp(my $in = <STDIN>);
                 if ($in eq 'i') {
                     # Ignore newMd5Info, so we don't want to return that. Return
