@@ -107,11 +107,6 @@ use Term::ANSIColor ();
 # Md5Info data for other files in the same directory
 const my $md5Filename => '.orphdat';
 
-# Implementation version of calculateMd5Info (useful when comparing
-# older serialized results, such as canUseCachedMd5InfoForBase and 
-# isMd5InfoVersionUpToDate)
-const my $calculateMd5InfoVersion => 4;
-
 # What we expect an MD5 hash to look like
 const my $md5DigestPattern => qr/[0-9a-f]{32}/;
 
@@ -1592,11 +1587,11 @@ sub isMd5InfoVersionUpToDate {
     #trace(VERBOSITY_ALL, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
     my $type = getMimeType($mediaPath);
     if ($type eq 'image/heic') {
-        # TODO
-    elsif ($type eq 'image/jpeg') {
+        return ($version >= 5) ? 1 : 0; # unchanged since V5
+    } elsif ($type eq 'image/jpeg') {
         return ($version >= 1) ? 1 : 0; # unchanged since V1
     } elsif ($type eq 'video/mp4v-es') {
-        return ($version >= 2) ? 1 : 0; # unchanged since V1
+        return ($version >= 2) ? 1 : 0; # unchanged since V2
     } elsif ($type eq 'image/png') {
         return ($version >= 3) ? 1 : 0; # unchanged since V3
     } elsif ($type eq 'video/quicktime') {
@@ -1623,23 +1618,25 @@ sub calculateMd5Info {
     #!!!   of this method changes in such a way that old values need to be 
     #!!!   recalculated, and isMd5InfoVersionUpToDate should be updated accordingly.
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
+    const my $calculateMd5InfoVersion => 5;
     my $fh = openOrDie('<:raw', $mediaPath);
     my $fullMd5Hash = getMd5Digest($mediaPath, $fh);
+    seek($fh, 0, 0) or die "Failed to reset seek for '$mediaPath': $!";
     # If we fail to generate a partial match, just warn and use the full file
     # MD5 rather than letting the exception loose and just skipping the file.
     my $partialMd5Hash = undef;
     eval {
         my $type = getMimeType($mediaPath);
         if ($type eq 'image/heic') {
-            # TODO
+            $partialMd5Hash = getHeicContentMd5($mediaPath, $fh);
         } elsif ($type eq 'image/jpeg') {
-            $partialMd5Hash = getJpgContentDataMd5($mediaPath, $fh);
+            $partialMd5Hash = getJpgContentMd5($mediaPath, $fh);
         } elsif ($type eq 'video/mp4v-es') {
-            $partialMd5Hash = getMp4ContentDataMd5($mediaPath, $fh);
+            $partialMd5Hash = getMp4ContentMd5($mediaPath, $fh);
         } elsif ($type eq 'image/png') {
-            $partialMd5Hash = getPngContentDataMd5($mediaPath, $fh);
+            $partialMd5Hash = getPngContentMd5($mediaPath, $fh);
         } elsif ($type eq 'video/quicktime') {
-            $partialMd5Hash = getMovContentDataMd5($mediaPath, $fh);
+            $partialMd5Hash = getMovContentMd5($mediaPath, $fh);
         } elsif ($type eq 'image/tiff') {
             # TODO
         }
@@ -1669,12 +1666,130 @@ sub getMimeType {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
+# The ISO/IEC Base Media File Format (ISOBMFF) is a container format that was
+# adopted from QuickTime and is used by: MP4 (.mp4, .m4a, .m4p, .m4b, .m4r,
+# .m4v), .3gp, .3g2, .mj2, .dvb, .dcf, .m21, .f4v, HEIF (.heif, .heifs, .heic,
+# .heics, .avci, .avcs, .avif, .avifs). It entails a series of nested boxes
+# starting with "ftyp".
+# 
+# This function takes a file handle with seek position at the start of a
+# box, reads the header, sets the seek to the start of data, and returns
+# a hashref containing:
+#
+# box_size : non-negative integer specifying the size of the box in bytes, 
+#       or missing if the box extends to EOF
+# type : FourCC string specifying the box type
+# start_pos : non-negative integer specifying the seek position of the start
+#       of the box which is the same as the seek of the file handle when
+#       passed to this method
+# header_size : positive integer specifying the size of the header in bytes
+# data_pos : positive integer specifying the seek position of the beginning
+#       of the data
+# data_size : non-negative integer specifying the size of the box's data in
+#       bytes, or missing if there's no end (i.e. continues to end of parent
+#       container)
+# end_pos : positive integer specifying the seek position immediately
+#       following the box, or missing if there's no end (i.e. continues to
+#       the end of its parent container)
+sub readIsobmffBoxHeader {
+    my ($mediaPath, $fh) = @_;
+    my $startPos = tell($fh);
+    read($fh, my $fileData, 8) or die
+        "Failed to read ISOBMFF box header from '$mediaPath' at $startPos: $!";
+    my ($boxSize, $type) = unpack('NA4', $fileData);
+    my $headerSize = 8;
+    if ($boxSize == 1) {
+        # 1 means it's 64 bit size
+        read($fh, $fileData, 8) or die
+            "Failed to read ISOBMFF box extended size from '$mediaPath': $!";
+        $boxSize = unpack('Q>', $fileData);
+        $headerSize += 8;
+    }
+    my %box = (
+        type => $type,
+        start_pos => $startPos,
+        header_size => $headerSize,
+        data_pos => $startPos + $headerSize );
+    # Box size of zero means that it goes to the EOF in which case
+    # we don't have a data size or end of box position either
+    if ($boxSize != 0) {
+        $boxSize >= $headerSize or die 
+            "Bad size for ISOBMFF box '$type': $boxSize";
+        %box = ( %box,
+            box_size => $boxSize,
+            data_size => $boxSize - $headerSize,
+            end_pos => $startPos + $boxSize );
+    }
+    return \%box;
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Reads the File Type Box (ftyp) which should be the first box in an
+# ISOBMFF file. The returns a hashref with the general box header data
+# from readIsobmffBoxHeader as well as:
+#
+# major_brand : string specifying the best use of the file, e.g. "qt" or "heic"
+# minor_version : the integer version of major_brand
+# compatible_brands : array of strings specifying other brands that the
+#       file is compliant with
+sub readIsobmffFtyp {
+    my ($mediaPath, $fh) = @_;
+    my $box = readIsobmffBoxHeader($mediaPath, $fh);
+    $box->{type} eq 'ftyp' or die
+        "box type was not ftyp as expected: $box->{type}";
+    my $size = $box->{data_size};
+    $size >= 8 && ($size % 4) == 0 or die
+        "ftyp box data was unexpected size $size";
+    read($fh, my $fileData, $size) or die
+        "failed to read ISOBMFF box data from '$mediaPath': $!";
+    my ($majorBrand, $minorVersion, @compatibleBrands) = unpack('A4N(A4)*', $fileData);
+    return { %$box,
+        major_brand => $majorBrand,
+        minor_version => $minorVersion,
+        compatible_brands => \@compatibleBrands };
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Takes the box header data from readIsobmffBoxHeader and seeks to the byte
+# immediately following the box and returns the non-negative (truthy) new seek
+# position, if possible. If the box has no specified end (because the box size
+# is zero indicating that it runs), this method no-ops and returns 0.
+sub seekToNextIsobmffBox {
+    my ($mediaPath, $fh, $box) = @_;
+    return 0 unless exists $box->{end_pos};
+    my $pos = $box->{end_pos};
+    seek($fh, $pos, 0) or die "failed to seek '$mediaPath' to $pos: $!";
+    return $pos;
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Reads a file as if it were an ISOBMFF file of the specified brand,
+# and returns the MD5 digest of the data in the mdat box.
+sub getIsobmffMdatMd5 {
+    my ($mediaPath, $fh) = @_;
+    my $box = readIsobmffFtyp($mediaPath, $fh);
+    any { $box->{major_brand} eq $_ } qw(mp41 qt heic) or die
+        "unexpected ftyp major_brand '$box->{major_brand}' in '$mediaPath'";
+    while (seekToNextIsobmffBox($mediaPath, $fh, $box) && !eof($fh)) {
+        $box = readIsobmffBoxHeader($mediaPath, $fh);
+        if ($box->{type} eq 'mdat') {
+            return getMd5Digest($mediaPath, $fh, $box->{data_size});
+        }
+    }
+    return undef;
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+sub getHeicContentMd5 {
+    return getIsobmffMdatMd5(@_);
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
 # If JPEG, skip metadata which may change and only hash pixel data
 # and hash from Start of Scan [SOS] to end of file
-sub getJpgContentDataMd5 {
+sub getJpgContentMd5 {
     my ($mediaPath, $fh) = @_;
     # Read Start of Image [SOI]
-    seek($fh, 0, 0) or die "Failed to reset seek for '$mediaPath': $!";
     read($fh, my $fileData, 2) or die "Failed to read JPEG SOI from '$mediaPath': $!";
     my ($soi) = unpack('n', $fileData);
     $soi == 0xffd8 or die "File didn't start with JPEG SOI marker: '$mediaPath'";
@@ -1694,54 +1809,18 @@ sub getJpgContentDataMd5 {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-sub getMovContentDataMd5 {
-    # For now, our approach is identical for MOV and MP4
-    return getMp4ContentDataMd5(@_);
+sub getMovContentMd5 {
+    return getIsobmffMdatMd5(@_);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-sub getMp4ContentDataMd5 {
-    my ($mediaPath, $fh) = @_;
-    seek($fh, 0, 0) or die "Failed to reset seek for '$mediaPath': $!";
-    # TODO: should we verify the first atom is ftyp? Do we care?
-    # TODO: currently we're only doing the first 'mdat' atom's data. I'm
-    # not sure if that's correct... can there be multiple mdat? Is pixel
-    # data located elsewhere? Should we just opt out certain atoms rather
-    # than opting in mdat?
-    while (!eof($fh)) {
-        my $seekStartOfAtom = tell($fh);
-        # Read atom header
-        read($fh, my $fileData, 8) or die
-            "Failed to read MP4 atom header from '$mediaPath' at $seekStartOfAtom: $!";
-        my ($atomSize, $atomType) = unpack('NA4', $fileData);
-        if ($atomSize == 0) {
-            # 0 means the atom goes to the end of file
-            # I think we want to take all the the mdat atom data?
-            return getMd5Digest($mediaPath, $fh) if $atomType eq 'mdat'; 
-            last;
-        }
-        my $dataSize = $atomSize - 8;
-        if ($atomSize == 1) {
-            # 1 means it's 64 bit size
-            read($fh, $fileData, 8) or die
-                "Failed to read MP4 atom extended size from '$mediaPath': $!";
-            $atomSize = unpack('Q>', $fileData);
-            $dataSize = $atomSize - 16;
-        }
-        $dataSize >= 0 or die "Bad size for MP4 atom '$atomType': $atomSize";
-        # I think we want to take all the the mdat atom data?
-        return getMd5Digest($mediaPath, $fh, $dataSize) if $atomType eq 'mdat'; 
-        # Seek to start of next atom
-        my $address = $seekStartOfAtom + $atomSize;
-        seek($fh, $address, 0) or die "Failed to seek '$mediaPath' to $address: $!";
-    }
-    return undef;
+sub getMp4ContentMd5 {
+    return getIsobmffMdatMd5(@_);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-sub getPngContentDataMd5 {
+sub getPngContentMd5 {
     my ($mediaPath, $fh) = @_;
-    seek($fh, 0, 0) or die "Failed to reset seek for '$mediaPath': $!";
     read($fh, my $fileData, 8) or die "Failed to read PNG header from '$mediaPath': $!";
     my @actualHeader = unpack('C8', $fileData);
     my @pngHeader = ( 137, 80, 78, 71, 13, 10, 26, 10 );
@@ -1788,7 +1867,7 @@ sub getMd5Digest {
 # MODEL (MD5) ------------------------------------------------------------------
 sub addToMd5Digest {
     my ($md5, $mediaPath, $fh, $size) = @_;
-    unless ($size) {
+    unless (defined $size) {
         $md5->addfile($fh);
     } else {
         # There's no addfile with a size limit, so we roll our own
@@ -1806,7 +1885,7 @@ sub addToMd5Digest {
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Extracts, verifies, and canonicalizes resulting MD5 digest
-# from a Digest::MD5.
+# final result from a Digest::MD5.
 sub resolveMd5Digest {
     my ($md5) = @_;
     my $hexdigest = lc $md5->hexdigest;
