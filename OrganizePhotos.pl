@@ -70,6 +70,12 @@
 #   video imports or other things requiring DLMS, e.g. purging video cache)#
 # * get rid of texted photos (no metadata (e.g. camera make & model), small
 #   files)
+# * Verb to find paths that are messed up
+#   - Don’t follow standard templates
+#   - \w{4}[eE]\d{4}\.[a-zA-Z]{3,4}
+#   - Have extra suffix, e.g. “filename (2).ext” or “filename.ext_bak”
+#   - Dates in path and metadata don’t match
+#   - Sidecar verification of some kind?
 
 use strict;
 use warnings;
@@ -809,14 +815,26 @@ sub generateFindDupeFilesAutoAction {
     my @remainingIdx = grep { $group->[$_]->{exists} } (0..$#$group);
     #if (@remainingIdx > 1 and 
     #    all { $_ eq MATCH_FULL or $_ eq MATCH_CONTENT } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
-    my @idx = grep { 
+    if (my @idx = grep { 
         $group->[$_]->{fullPath} !~ /[\/\\]ToImport[\/\\]/
-        } @remainingIdx;
-    if (@idx) {
+        } @remainingIdx) {
         @remainingIdx = @idx;
     } else {
         # TODO: just pick one of the files to leave in @remainingIdx?
         #@remainingIdx = ($remainingIdx[0])
+    }
+    if (all { $_ eq MATCH_FULL } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
+        # Put temp hacks here for one-shot automating
+        # For example to discard -2, -3 versions of files
+        if (my @idx = grep { 
+            $group->[$_]->{fullPath} !~ /-\d+\.\w+$/ and
+            $group->[$_]->{fullPath} !~ / \(\d+\)\.\w+$/
+            } @remainingIdx) {
+            @remainingIdx = @idx;
+        } else {
+            # TODO: just pick one of the files to leave in @remainingIdx?
+            #@remainingIdx = ($remainingIdx[0])
+        }
     }
     # Now take everything that isn't in @reminingIdx and suggest trash it
     my @isTrashable = map { 1 } (0..$#$group);
@@ -1573,14 +1591,18 @@ sub isMd5InfoVersionUpToDate {
     my ($mediaPath, $version) = @_;
     #trace(VERBOSITY_ALL, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
     my $type = getMimeType($mediaPath);
-    if ($type eq 'image/jpeg') {
+    if ($type eq 'image/heic') {
+        # TODO
+    elsif ($type eq 'image/jpeg') {
         return ($version >= 1) ? 1 : 0; # unchanged since V1
     } elsif ($type eq 'video/mp4v-es') {
         return ($version >= 2) ? 1 : 0; # unchanged since V1
-    } elsif ($type eq 'video/quicktime') {
-        return ($version >= 4) ? 1 : 0; # unchanged since V4
     } elsif ($type eq 'image/png') {
         return ($version >= 3) ? 1 : 0; # unchanged since V3
+    } elsif ($type eq 'video/quicktime') {
+        return ($version >= 4) ? 1 : 0; # unchanged since V4
+    } elsif ($type eq 'image/tiff') {
+        # TODO
     }
     # This type just does whole file MD5 (the original implementation)
     return 1;
@@ -1608,16 +1630,18 @@ sub calculateMd5Info {
     my $partialMd5Hash = undef;
     eval {
         my $type = getMimeType($mediaPath);
-        if ($type eq 'image/jpeg') {
+        if ($type eq 'image/heic') {
+            # TODO
+        } elsif ($type eq 'image/jpeg') {
             $partialMd5Hash = getJpgContentDataMd5($mediaPath, $fh);
         } elsif ($type eq 'video/mp4v-es') {
             $partialMd5Hash = getMp4ContentDataMd5($mediaPath, $fh);
+        } elsif ($type eq 'image/png') {
+            $partialMd5Hash = getPngContentDataMd5($mediaPath, $fh);
         } elsif ($type eq 'video/quicktime') {
             $partialMd5Hash = getMovContentDataMd5($mediaPath, $fh);
         } elsif ($type eq 'image/tiff') {
             # TODO
-        } elsif ($type eq 'image/png') {
-            $partialMd5Hash = getPngContentDataMd5($mediaPath, $fh);
         }
     };
     if (my $error = $@) {
@@ -2769,6 +2793,11 @@ the provided timestamp or timestamp at last MD5 check
 
     # Mirror SOURCE to TARGET
     robocopy /MIR SOURCE TARGET
+
+=head3 Complementary cross platform commands
+
+    # Strip YYYY-MM-DD- prefix from filenames
+    perl -MFile::Copy -e 'for (@ARGV) { /^\d{4}-\d\d-\d\d-(.*)/ and move($_, $1) }' * 
 
 =end comment
 
