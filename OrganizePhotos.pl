@@ -1017,7 +1017,170 @@ sub doRemoveEmpties {
 # API ==========================================================================
 # EXPERIMENTAL
 # Execute test verb - usually just a playground for testing and new ideas
+sub unpackIsobmffBoxData {
+    my ($mediaPath, $fh, $box, $format, $size) = @_;
+    my $pos = tell($fh);
+    $box->{box_data_pos} <= $pos or die 
+        "seek position is before start of box data";
+    if (exists $box->{box_data_size}) {
+        my $maxRead = $box->{box_data_pos} + $box->{box_data_size} - $pos;
+        if (defined $size) {
+            $size <= $maxRead or die
+                "can't read $size bytes from box data";
+        } else {
+            $size = $maxRead;
+        }
+    } else {
+        if (defined $size) {
+            # no verification to do here, just try to read
+        } else {
+            # i'm not sure we need to handle this case
+            die "don't (yet) know how to do sizeless read and unpack in unbounded box";
+        }        
+    }
+    read($fh, my $fileData, $size) or die
+        "failed to read from '$mediaPath': $!";
+    return unpack($format, $fileData);
+}    
+# A lot of box types have data that begins with a version number and flags
+sub readVersionAndFlags {
+    my ($mediaPath, $fh, $box) = @_;
+    my ($version, @flags) = unpackIsobmffBoxData($mediaPath, $fh, $box, 'C4', 4);
+    $box->{version} = $version;
+    $box->{flags} = $flags[0] << 16 | $flags[1] << 8 | $flags[2];
+}
+sub processBox {
+    my ($mediaPath, $fh, $box) = @_;
+    # By default when reading child boxes we just recurisvely process
+    # but some boxes might need to customize reading of their children
+    # with some extra context based logic. So they can override this:
+    my $processChildBox = sub {
+        my ($child) = @_;
+        processBox($mediaPath, $fh, $child);
+    };
+    # Reads boxes from the current seek position to the end of $box
+    # recursively processing and putting the child boxes into $box->{children}
+    my $readChildBoxes = sub {
+        my ($limit) = @_;
+        my @children = ();
+        while (!defined $limit or $limit-- >= 0) {
+            my $child = readIsobmffBoxHeader($mediaPath, $fh);
+            $processChildBox->($child);
+            push(@children, $child);
+            last unless exists $child->{box_end_pos};
+            my $pos = $child->{box_end_pos};
+            seek($fh, $pos, 0) or die "failed to seek '$mediaPath' to $pos: $!";
+            if (exists $box->{box_end_pos}) {
+                last if $pos >= $box->{box_end_pos};
+            } else {
+                last if eof($fh);
+            }
+        }
+        $box->{children} = \@children;
+    };
+    unless (my $type = $box->{box_type}) {
+        $readChildBoxes->();
+    } elsif ($type eq 'dinf') {
+        $readChildBoxes->();
+    } elsif ($type eq 'dref') {
+        readVersionAndFlags($mediaPath, $fh, $box);
+        if ($box->{version} == 0) {
+            @{$box}{qw(entry_count)} = unpackIsobmffBoxData($mediaPath, $fh, $box, 'N', 4);
+            $readChildBoxes->($box->{entry_count});
+        } else {
+            die "unknown $type box version $box->{version}";
+        }
+    } elsif ($type eq 'hdlr') {
+        readVersionAndFlags($mediaPath, $fh, $box);
+        if ($box->{version} == 0) {
+            @{$box}{qw(handler_type)} = unpackIsobmffBoxData($mediaPath, $fh, $box, 'x4a4', 8);
+        } else {
+            die "unknown $type box version $box->{version}";
+        }
+    } elsif ($type eq 'iinf') {
+        readVersionAndFlags($mediaPath, $fh, $box);
+        if ($box->{version} == 0) {
+            @{$box}{qw(entry_count)} = unpackIsobmffBoxData($mediaPath, $fh, $box, 'n', 2);
+            $readChildBoxes->($box->{entry_count});
+        } else {
+            die "unknown $type box version $box->{version}";
+        }
+    #} elsif ($type eq 'iloc') {
+        #readVersionAndFlags($mediaPath, $fh, $box);
+        #TODO - this one is complicated
+    } elsif ($type eq 'infe') {
+        readVersionAndFlags($mediaPath, $fh, $box);
+        if ($box->{version} == 0 || $box->{version} == 1) {
+            @{$box}{qw(item_id item_protection_index item_name content_type content_encoding)} =
+                unpackIsobmffBoxData($mediaPath, $fh, $box, 'nnZZZ');
+        } elsif ($box->{version} == 2 || $box->{version} == 3) {
+            @{$box}{qw(item_id item_protection_index item_type item_name)} =
+                unpackIsobmffBoxData($mediaPath, $fh, $box, ($box->{version} == 2) ? 'nna4Z' : 'Nna4Z');
+            if ($box->{item_type} eq 'mime') {
+                @{$box}{qw(content_type content_encoding)} =
+                    ('ZZ');
+            } elsif ($box->{item_type} eq 'uri ') {
+                $box->{item_uri_type} = 'Z';
+            }
+        } else {
+            die "unknown $type box version $box->{version}";
+        }
+    } elsif ($type eq 'iref') {
+        readVersionAndFlags($mediaPath, $fh, $box);
+        my $idFormat;
+        if ($box->{version} == 0) {
+            $idFormat = 'n';
+        } elsif ($box->{version} == 1) {
+            $idFormat = 'N';
+        } else {
+            die "unknown $type box version $box->{version}";
+        }
+        $processChildBox = sub {
+            my ($child) = @_;
+            my ($fromItemId, $referenceCount) =
+                unpackIsobmffBoxData($mediaPath, $fh, $child, "${idFormat}n", 4);
+            @{$child}{qw(from_item_id reference_count)} = ($fromItemId, $referenceCount);
+            $child->{to_item_id} = 
+                [unpackIsobmffBoxData($mediaPath, $fh, $child, "$idFormat$referenceCount")];
+        };
+        $readChildBoxes->();
+    } elsif ($type eq 'meta') {
+        readVersionAndFlags($mediaPath, $fh, $box);
+        if ($box->{version} == 0) {
+            $readChildBoxes->();
+        } else {
+            die "unknown $type box version $box->{version}";
+        }
+    } elsif ($type eq 'pitm') {
+        readVersionAndFlags($mediaPath, $fh, $box);
+        if ($box->{version} == 0) {
+            @{$box}{qw(item_id)} = unpackIsobmffBoxData($mediaPath, $fh, $box, 'n', 2);
+        } else {
+            die "unknown $type box version $box->{version}";
+        }
+    } elsif ($type eq 'url ') {
+        readVersionAndFlags($mediaPath, $fh, $box);        
+        # TODO - Then optional string?
+    } else {
+        print "Unknown box type '$type'\n";
+    }
+}
 sub doTest {
+    my ($mediaPath) = @_;
+    my $fh = openOrDie('<:raw', $mediaPath);
+    my $ftyp = readIsobmffFtyp($mediaPath, $fh);
+    my $fobj = { ftyp => $ftyp };
+    processBox($mediaPath, $fh, $fobj);
+    print JSON->new->allow_nonref->pretty->canonical->encode($fobj), "\n";
+
+    my ($meta) = grep { $_->{box_type} eq 'meta' } @{$fobj->{children}};
+    my ($pitm) = grep { $_->{box_type} eq 'pitm' } @{$meta->{children}};
+    my ($iinf) = grep { $_->{box_type} eq 'iinf' } @{$meta->{children}};
+    my ($infe) = grep { $_->{box_type} eq 'infe' and $_->{item_id} == $pitm->{item_id} } @{$iinf->{children}};
+    print "Primary Item Info Entry:\n",
+        JSON->new->allow_nonref->pretty->canonical->encode($infe), "\n";
+}
+sub doTest3 {
     my @colors = qw(black red green yellow blue magenta cyan white);
     my @colorLabels = qw(Blk Red Grn Yel Blu Mag Cyn Wht);
     #@colors = map { $_, "bright_$_" } @colors;
@@ -1676,19 +1839,18 @@ sub getMimeType {
 # box, reads the header, sets the seek to the start of data, and returns
 # a hashref containing:
 #
-# box_size : non-negative integer specifying the size of the box in bytes, 
-#       or missing if the box extends to EOF
-# type : FourCC string specifying the box type
-# start_pos : non-negative integer specifying the seek position of the start
+# box_type : FourCC string specifying the box type
+# box_pos : non-negative integer specifying the seek position of the start
 #       of the box which is the same as the seek of the file handle when
 #       passed to this method
-# header_size : positive integer specifying the size of the header in bytes
-# data_pos : positive integer specifying the seek position of the beginning
-#       of the data
-# data_size : non-negative integer specifying the size of the box's data in
-#       bytes, or missing if there's no end (i.e. continues to end of parent
-#       container)
-# end_pos : positive integer specifying the seek position immediately
+# box_size : non-negative integer specifying the size of the box in bytes, 
+#       or missing if the box extends to EOF
+# box_data_pos : positive integer specifying the seek position of the
+#       beginning of the data
+# box_data_size : non-negative integer specifying the size of the box's data
+#       in bytes, or missing if there's no end (i.e. continues to end of
+#       parent container)
+# box_end_pos : positive integer specifying the seek position immediately
 #       following the box, or missing if there's no end (i.e. continues to
 #       the end of its parent container)
 sub readIsobmffBoxHeader {
@@ -1696,7 +1858,7 @@ sub readIsobmffBoxHeader {
     my $startPos = tell($fh);
     read($fh, my $fileData, 8) or die
         "Failed to read ISOBMFF box header from '$mediaPath' at $startPos: $!";
-    my ($boxSize, $type) = unpack('NA4', $fileData);
+    my ($boxSize, $type) = unpack('Na4', $fileData);
     my $headerSize = 8;
     if ($boxSize == 1) {
         # 1 means it's 64 bit size
@@ -1706,19 +1868,20 @@ sub readIsobmffBoxHeader {
         $headerSize += 8;
     }
     my %box = (
-        type => $type,
-        start_pos => $startPos,
-        header_size => $headerSize,
-        data_pos => $startPos + $headerSize );
+        box_type => $type,
+        box_pos => $startPos,
+        box_data_pos => $startPos + $headerSize );
     # Box size of zero means that it goes to the EOF in which case
     # we don't have a data size or end of box position either
     if ($boxSize != 0) {
         $boxSize >= $headerSize or die 
             "Bad size for ISOBMFF box '$type': $boxSize";
+        # Note that any of these can be computed from the other, so
+        # only one is necessary, but all are added for convinence
         %box = ( %box,
             box_size => $boxSize,
-            data_size => $boxSize - $headerSize,
-            end_pos => $startPos + $boxSize );
+            box_data_size => $boxSize - $headerSize,
+            box_end_pos => $startPos + $boxSize );
     }
     return \%box;
 }
@@ -1735,14 +1898,14 @@ sub readIsobmffBoxHeader {
 sub readIsobmffFtyp {
     my ($mediaPath, $fh) = @_;
     my $box = readIsobmffBoxHeader($mediaPath, $fh);
-    $box->{type} eq 'ftyp' or die
+    $box->{box_type} eq 'ftyp' or die
         "box type was not ftyp as expected: $box->{type}";
-    my $size = $box->{data_size};
+    my $size = $box->{box_data_size};
     $size >= 8 && ($size % 4) == 0 or die
         "ftyp box data was unexpected size $size";
     read($fh, my $fileData, $size) or die
         "failed to read ISOBMFF box data from '$mediaPath': $!";
-    my ($majorBrand, $minorVersion, @compatibleBrands) = unpack('A4N(A4)*', $fileData);
+    my ($majorBrand, $minorVersion, @compatibleBrands) = unpack('a4N(a4)*', $fileData);
     return { %$box,
         major_brand => $majorBrand,
         minor_version => $minorVersion,
@@ -1756,8 +1919,8 @@ sub readIsobmffFtyp {
 # is zero indicating that it runs), this method no-ops and returns 0.
 sub seekToNextIsobmffBox {
     my ($mediaPath, $fh, $box) = @_;
-    return 0 unless exists $box->{end_pos};
-    my $pos = $box->{end_pos};
+    return 0 unless exists $box->{box_end_pos};
+    my $pos = $box->{box_end_pos};
     seek($fh, $pos, 0) or die "failed to seek '$mediaPath' to $pos: $!";
     return $pos;
 }
@@ -1768,11 +1931,11 @@ sub seekToNextIsobmffBox {
 sub getIsobmffMdatMd5 {
     my ($mediaPath, $fh) = @_;
     my $box = readIsobmffFtyp($mediaPath, $fh);
-    any { $box->{major_brand} eq $_ } qw(mp41 qt heic) or die
+    any { $box->{major_brand} eq $_ } ('mp41', 'qt  ', 'heic') or die
         "unexpected ftyp major_brand '$box->{major_brand}' in '$mediaPath'";
     while (seekToNextIsobmffBox($mediaPath, $fh, $box) && !eof($fh)) {
         $box = readIsobmffBoxHeader($mediaPath, $fh);
-        if ($box->{type} eq 'mdat') {
+        if ($box->{box_type} eq 'mdat') {
             return getMd5Digest($mediaPath, $fh, $box->{data_size});
         }
     }
@@ -1831,7 +1994,7 @@ sub getPngContentMd5 {
         # Read chunk header
         read($fh, $fileData, 8) or die
             "Failed to read PNG chunk header from '$mediaPath' at @{[tell $fh]}: $!";
-        my ($size, $type) = unpack('NA4', $fileData);
+        my ($size, $type) = unpack('Na4', $fileData);
         my $seekStartOfData = tell($fh);
         # TODO: Check that 'IHDR' chunk comes first and 'IEND' last?
         if ($type eq 'tEXt' or $type eq 'zTXt' or $type eq 'iTXt') {
