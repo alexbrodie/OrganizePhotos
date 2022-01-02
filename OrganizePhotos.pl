@@ -1018,28 +1018,20 @@ sub doRemoveEmpties {
 # EXPERIMENTAL
 # Execute test verb - usually just a playground for testing and new ideas
 sub doTest {
-    my ($mediaPath) = @_;
-    my $fh = openOrDie('<:raw', $mediaPath);
-    my $ftyp = readIsobmffFtyp($mediaPath, $fh);
-    my $bmff = { b_ftyp => $ftyp };
-    parseIsobmffBox($mediaPath, $fh, $bmff);
-    print JSON->new->allow_nonref->pretty->canonical->encode($bmff);
-
-    my $primaryItemId = $bmff->{b_meta}->{b_pitm}->{f_item_id};
-    my ($infePrimary) = grep { $_->{f_item_id} == $primaryItemId } @{$bmff->{b_meta}->{b_iinf}->{b_infe}};
-    my ($infeExif) = grep { $_->{f_item_type} eq 'Exif' } @{$bmff->{b_meta}->{b_iinf}->{b_infe}};
-    my $iloc = $bmff->{b_meta}->{b_iloc};
-    my ($ilocItemPrimary) = grep { $_->{item_id} == $primaryItemId } @{$iloc->{f_items}};
-    my ($ilocItemExif) = grep { $_->{item_id} == $infeExif->{f_item_id} } @{$iloc->{f_items}};
-    my @extents = getIsobmffPrimaryDataExtents($mediaPath, $bmff);
-            
-    print STDERR JSON->new->allow_nonref->pretty->canonical->encode({
-        '1. Primary Item Info Entry' => $infePrimary,
-        '2. Exif Item Info Entry' => $infeExif,
-        '3. Primary iloc item' => $ilocItemPrimary,
-        '4. Exif iloc item' => $ilocItemExif,
-        '5. extents referenced by primary' => [ @extents ],
-    });
+    # Prints the primary item's data extents for an ISOBMFF file
+    for my $mediaPath (@_) {
+        print "$mediaPath:\n";
+        my $fh = openOrDie('<:raw', $mediaPath);
+        my $ftyp = readIsobmffFtyp($mediaPath, $fh);
+        my $bmff = { b_ftyp => $ftyp };
+        parseIsobmffBox($mediaPath, $fh, $bmff);
+        for (getIsobmffPrimaryDataExtents($mediaPath, $bmff)) {
+            printf "  pos = 0x%08x  size = 0x%08x\n", @{$_}{qw(pos size)};
+        }
+        seek($fh, 0, 0) or die "Failed to reset seek for '$mediaPath': $!";
+        my $md5 = getIsobmffPrimaryItemDataMd5($mediaPath, $fh);
+        print "  md5 = $md5\n";
+    }
 }
 sub doTest3 {
     my @colors = qw(black red green yellow blue magenta cyan white);
@@ -1611,7 +1603,7 @@ sub isMd5InfoVersionUpToDate {
     #trace(VERBOSITY_ALL, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
     my $type = getMimeType($mediaPath);
     if ($type eq 'image/heic') {
-        return ($version >= 5) ? 1 : 0; # unchanged since V5
+        return ($version >= 6) ? 1 : 0; # unchanged since V5
     } elsif ($type eq 'image/jpeg') {
         return ($version >= 1) ? 1 : 0; # unchanged since V1
     } elsif ($type eq 'video/mp4v-es') {
@@ -1642,7 +1634,7 @@ sub calculateMd5Info {
     #!!!   of this method changes in such a way that old values need to be 
     #!!!   recalculated, and isMd5InfoVersionUpToDate should be updated accordingly.
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
-    const my $calculateMd5InfoVersion => 5;
+    const my $calculateMd5InfoVersion => 6;
     my $fh = openOrDie('<:raw', $mediaPath);
     my $fullMd5Hash = getMd5Digest($mediaPath, $fh);
     seek($fh, 0, 0) or die "Failed to reset seek for '$mediaPath': $!";
@@ -1991,6 +1983,8 @@ sub parseIsobmffBox {
         } else {
             die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
         }
+    } elsif ($type eq 'iprp') { # --------------------- Item Properties --- iprp
+        # TODO - I can't find documentation for this, skip for now
     } elsif ($type eq 'iref') { # ---------------------- Item Reference --- iref
         my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
         my $idFormat;
@@ -2029,8 +2023,8 @@ sub parseIsobmffBox {
         my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);        
         # TODO - Then optional string?
         #$box->{f_location} = 
-    } else {
-        print STDERR "Unknown box type '$type' for " . getIsobmffBoxDiagName($mediaPath, $box) . "\n";
+    } elsif ($type ne 'free' and $type ne 'skip') {
+        print STDERR "Unknown box type '$type' for ", getIsobmffBoxDiagName($mediaPath, $box), "\n";
     }
 }
 
@@ -2068,7 +2062,6 @@ sub getIsobmffPrimaryDataExtents {
             my $method = $item->{construction_method};
             if ($method == 0) { # 0 is 'file_offset'
                 for (@{$item->{extents}}) {
-                    print STDERR JSON->new->allow_nonref->pretty->canonical->encode($_);
                     my $pos = $item->{base_offset} + $_->{extent_offset};
                     my $size = $_->{extent_length};
                     # TODO - verify this is inside of mdat?
@@ -2102,14 +2095,14 @@ sub getIsobmffPrimaryDataExtents {
     return @extents;
 }
 
-# MODEL (MD5) ------------------------------------------------------------------
+# MODEL (ISOBMFF, MD5) ---------------------------------------------------------
 # Reads a file as if it were an ISOBMFF file of the specified brand,
 # and returns the MD5 digest of the data in the mdat box.
 sub getIsobmffMdatMd5 {
     my ($mediaPath, $fh) = @_;
     my $ftyp = readIsobmffFtyp($mediaPath, $fh);
     any { $ftyp->{f_major_brand} eq $_ } ('mp41', 'qt  ', 'heic') or die
-        "unexpected ftyp major_brand '$ftyp->{major_brand}' in '$mediaPath'";
+        "unexpected brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
     until (eof($fh)) {
         my $box = readIsobmffBoxHeader($mediaPath, $fh);
         if ($box->{__type} eq 'mdat') {
@@ -2122,9 +2115,26 @@ sub getIsobmffMdatMd5 {
     return undef;
 }
 
+# MODEL (ISOBMFF, MD5) ---------------------------------------------------------
+sub getIsobmffPrimaryItemDataMd5 {
+    my ($mediaPath, $fh) = @_;
+    my $ftyp = readIsobmffFtyp($mediaPath, $fh);
+    any { $ftyp->{f_major_brand} eq $_ } ('mp41', 'qt  ', 'heic') or die
+        "unexpected brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
+    my $bmff = { b_ftyp => $ftyp };
+    parseIsobmffBox($mediaPath, $fh, $bmff);
+    my $md5 = new Digest::MD5;
+    for (getIsobmffPrimaryDataExtents($mediaPath, $bmff)) {
+        seek($fh, $_->{pos}, 0) or die 
+            "Failed to seek '$mediaPath' to $_->{pos}: $!";
+        addToMd5Digest($md5, $mediaPath, $fh, $_->{size});
+    }
+    return resolveMd5Digest($md5);
+}
+    
 # MODEL (MD5) ------------------------------------------------------------------
 sub getHeicContentMd5 {
-    return getIsobmffMdatMd5(@_);
+    return getIsobmffPrimaryItemDataMd5(@_);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
