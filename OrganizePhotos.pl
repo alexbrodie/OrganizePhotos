@@ -1018,17 +1018,26 @@ sub doRemoveEmpties {
 # EXPERIMENTAL
 # Execute test verb - usually just a playground for testing and new ideas
 
-# Helper routine for parsing ISOBMFF box data
+# MODEL (ISOBMFF) --------------------------------------------------------------
+# Gets a short name for a box suitable for adding context alongside a filename
+# for diagnostics such as traces and die statements.
+sub getIsobmffBoxDiagName {
+    my ($mediaPath, $box) = @_;
+    return sprintf "'%s' %s@[0x%08x-0x%08x)", $mediaPath, @{$box}{qw(__type __begin_pos __end_pos)};
+}
+
+# MODEL (ISOBMFF) --------------------------------------------------------------
+# Helper routine for parseIsobmffBox to read and interpret ISOBMFF box data
 sub unpackIsobmffBoxData {
     my ($mediaPath, $fh, $box, $format, $size) = @_;
     my $pos = tell($fh);
     $box->{__data_pos} <= $pos or die 
-        "seek position is before start of box data";
+        "seek position $pos is before start of box data in " . getIsobmffBoxDiagName($mediaPath, $box);
     if (exists $box->{__data_size}) {
         my $maxRead = $box->{__data_pos} + $box->{__data_size} - $pos;
         if (defined $size) {
             $size <= $maxRead or die
-                "can't read $size bytes at $pos from '$mediaPath': only $maxRead bytes left in box";
+                "can't read $size bytes at $pos from " . getIsobmffBoxDiagName($mediaPath, $box) . ": only $maxRead bytes left in box";
         } else {
             $size = $maxRead;
         }
@@ -1037,17 +1046,18 @@ sub unpackIsobmffBoxData {
             # no verification to do here, just try to read
         } else {
             # i'm not sure we need to handle this case
-            die "don't (yet) know how to do sizeless read and unpack in unbounded box";
-        }        
+            die "don't (yet) know how to do sizeless read and unpack in unbounded box for " . getIsobmffBoxDiagName($mediaPath, $box);
+        }
     }
     my $bytesRead = read($fh, my $fileData, $size);
     defined $bytesRead and $bytesRead == $size or die
-        "failed to read $size bytes at $pos from '$mediaPath': $!";
+        "failed to read $size bytes at $pos from " . getIsobmffBoxDiagName($mediaPath, $box) . ": $!";
     return unpack($format, $fileData);
-}    
+}
 
-# Helper routine for parsing ISOBMFF box data version and flags that comes
-# at the beginning of "full" boxes' data
+# MODEL (ISOBMFF) --------------------------------------------------------------
+# Helper routine for parseIsobmffBox that parses ISOBMFF box data version
+# and flags which come at the beginning of "full" boxes' data.
 sub readIsobmffBoxVersionAndFlags {
     my ($mediaPath, $fh, $box) = @_;
     my ($version, @flagsBytes) = unpackIsobmffBoxData($mediaPath, $fh, $box, 'C4', 4);
@@ -1057,14 +1067,37 @@ sub readIsobmffBoxVersionAndFlags {
     return ($version, $flags);
 }
 
-sub processBox {
+# MODEL (ISOBMFF) --------------------------------------------------------------
+# Deserialize an ISOBMFF file and creates data structure representation
+#
+# mediaPath : the path to the file being deserialized, mostly for use in
+#       error messages and diagnostics
+# fh : an open readable file handle with seek set to the beginning of the
+#       first box to be processed
+# box : the parent container to put the results (a tree of boxes with 
+#       properties and child boxes); on the first call this should be
+#       an empty hashref that serves as sort of header node
+#
+# Usage:
+#
+#       my $fh = openOrDie('<:raw', $mediaPath);
+#       my $ftyp = readIsobmffFtyp($mediaPath, $fh);
+#       # (Add verification of $ftyp's brand/version here.)
+#       my $bmff = { b_ftyp => $ftyp };
+#       parseIsobmffBox($mediaPath, $fh, $bmff);
+#       # (Process deserialized box data here, e.g. get the primary's
+#       # 'ifde' box.)
+#       my $primaryItemId = $bmff->{b_meta}->{b_pitm}->{f_item_id};
+#       my ($infePrimary) = grep { $_->{f_item_id} == $primaryItemId } @{$bmff->{b_meta}->{b_iinf}->{b_infe}};
+# 
+sub parseIsobmffBox {
     my ($mediaPath, $fh, $box) = @_;
     # By default when reading child boxes we just recurisvely process
     # but some boxes might need to customize reading of their children
     # with some extra context based logic. So they can override this:
     my $processChildBox = sub {
         my ($child) = @_;
-        processBox($mediaPath, $fh, $child);
+        parseIsobmffBox($mediaPath, $fh, $child);
     };
     # Reads boxes from the current seek position to the end of $box
     # recursively processing and putting the child boxes into $box->{children}
@@ -1079,14 +1112,16 @@ sub processBox {
             push @{$childrenHash{$child->{__type}}}, $child;
             last unless exists $child->{__end_pos};
             my $pos = $child->{__end_pos};
-            seek($fh, $pos, 0) or die "failed to seek '$mediaPath' to $pos: $!";
+            seek($fh, $pos, 0) or die 
+                "failed to seek to $pos for " . getIsobmffBoxDiagName($mediaPath, $box) . ": $!";
             if (exists $box->{__end_pos}) {
                 last if $pos >= $box->{__end_pos};
             } else {
                 last if eof($fh);
             }
         }
-        $count and die "failed to read all child boxes, $count still remain";
+        $count and die 
+            "failed to read all child boxes, $count still remain for" . getIsobmffBoxDiagName($mediaPath, $box);
         # TODO - let caller specify whether to use by type hash and/or by array?
         $box->{b} = \@childrenArray;
         while (my ($k, $v) = each %childrenHash) {
@@ -1102,14 +1137,14 @@ sub processBox {
         if ($version == 0) {
             $readChildBoxes->(unpackIsobmffBoxData(@_, 'N', 4));
         } else {
-            die "unknown $type box version $version";
+            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
         }
     } elsif ($type eq 'hdlr') { # ------------------- Handler Reference --- hdlr
         my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
         if ($version == 0) {
             @{$box}{qw(f_handler_type)} = unpackIsobmffBoxData(@_, 'x4a4', 8);
         } else {
-            die "unknown $type box version $version";
+            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
         }
     } elsif ($type eq 'idat') { # --------------------------- Item Data --- idat
         # This blob of data can be referenced if iloc's construction_method is
@@ -1119,7 +1154,7 @@ sub processBox {
         if ($version == 0) {
             $readChildBoxes->(unpackIsobmffBoxData(@_, 'n', 2));
         } else {
-            die "unknown $type box version $version";
+            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
         }
     } elsif ($type eq 'iloc') { # ----------------------- Item Location --- iloc
         # The fields offset_size, length_size, base_offset_size, index_size,
@@ -1150,7 +1185,7 @@ sub processBox {
             } elsif ($byteSize == 8) {
                 return (unpackIsobmffBoxData($mediaPath, $fh, $box, 'Q>', 8))[0];
             } else {
-                die "unexpected integer size $byteSize";
+                die "unexpected integer size $byteSize for " . getIsobmffBoxDiagName($mediaPath, $box);
             }
         };
         my @items = ();
@@ -1198,7 +1233,7 @@ sub processBox {
                 @{$box}{qw(f_item_name)} = unpackIsobmffBoxData(@_, 'Z*');
             }
         } else {
-            die "unknown $type box version $version";
+            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
         }
     } elsif ($type eq 'iref') { # ---------------------- Item Reference --- iref
         my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
@@ -1208,7 +1243,7 @@ sub processBox {
         } elsif ($version == 1) {
             $idFormat = 'N';
         } else {
-            die "unknown $type box version $version";
+            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
         }
         $processChildBox = sub {
             my ($child) = @_;
@@ -1225,75 +1260,106 @@ sub processBox {
         if ($version == 0) {
             $readChildBoxes->();
         } else {
-            die "unknown $type box version $version";
+            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
         }
     } elsif ($type eq 'pitm') { # ------------------------ Primary Item --- pitm
         my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
         if ($version == 0) {
             @{$box}{qw(f_item_id)} = unpackIsobmffBoxData(@_, 'n', 2);
         } else {
-            die "unknown $type box version $version";
+            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
         }
     } elsif ($type eq 'url ') { # ---------------------- Data Entry Url --- url 
         my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);        
         # TODO - Then optional string?
         #$box->{f_location} = 
     } else {
-        print STDERR "Unknown box type '$type'\n";
+        print STDERR "Unknown box type '$type' for " . getIsobmffBoxDiagName($mediaPath, $box) . "\n";
     }
 }
+
+# MODEL (ISOBMFF) --------------------------------------------------------------
+# Given a deserialized ISOBMFF file and a set of item IDs, looks up the
+# direct and indirect references in the meta/iref box to build a set of
+# all referenced item IDs.
+sub resolveIsobmffIref {
+    my ($bmff) = shift;
+    my %refs = ();
+    my $irefs = $bmff->{b_meta}->{b_iref}->{b};
+    for (my @queue = grep { $refs{$_}++ == 0 } @_; @queue > 0;) {
+        my $itemId = shift @queue;
+        for (grep { $_->{f_from_item_id} == $itemId } @$irefs) {
+            push @queue, grep { $refs{$_}++ == 0 } @{$_->{f_to_item_id}};
+        }
+    }
+    return sort { $a <=> $b } map { $_+0 } keys %refs;
+};
+
 sub doTest {
     my ($mediaPath) = @_;
     my $fh = openOrDie('<:raw', $mediaPath);
     my $ftyp = readIsobmffFtyp($mediaPath, $fh);
-    my $fobj = { b_ftyp => $ftyp };
-    processBox($mediaPath, $fh, $fobj);
-    print JSON->new->allow_nonref->pretty->canonical->encode($fobj);
-#    my ($meta) = grep { $_->{__type} eq 'meta' } @{$fobj->{children}};
-#    my ($pitm) = grep { $_->{__type} eq 'pitm' } @{$meta->{children}};
-#    my ($iinf) = grep { $_->{__type} eq 'iinf' } @{$meta->{children}};
-#    my ($infe) = grep { $_->{__type} eq 'infe' and $_->{item_id} == $pitm->{item_id} } @{$iinf->{children}};
-#    my ($iloc) = grep { $_->{__type} eq 'iloc' } @{$meta->{children}};
+    my $bmff = { b_ftyp => $ftyp };
+    parseIsobmffBox($mediaPath, $fh, $bmff);
+    print JSON->new->allow_nonref->pretty->canonical->encode($bmff);
 
-    my $primaryItemId = $fobj->{b_meta}->{b_pitm}->{f_item_id};
-    my ($infePrimary) = grep { $_->{f_item_id} == $primaryItemId } @{$fobj->{b_meta}->{b_iinf}->{b_infe}};
-    my ($infeExif) = grep { $_->{f_item_type} eq 'Exif' } @{$fobj->{b_meta}->{b_iinf}->{b_infe}};
-    my $iloc = $fobj->{b_meta}->{b_iloc};
-    my ($ilocItemPrimary) = grep { $_->{item_id} == $primaryItemId } @{$iloc->{f_items}};
-    my ($ilocItemExif) = grep { $_->{item_id} == $infeExif->{f_item_id} } @{$iloc->{f_items}};
-    my $ilocItem = $ilocItemExif;
-    $ilocItem->{construction_method} == 0 or die
-        "only iloc construction_method of file_offset (0) is currently supported";
-    $ilocItem->{data_reference_index} == 0 or die
-        "only iloc data_reference_index of 'this file' (0) is currently supported";
-
-    my $resolveIref = sub {
-        my %referencedItemIds = ();
-        my @itemIdsToProcess = ();
-        $referencedItemIds{$_}++ == 0 and push @itemIdsToProcess, $_ for @_;
-        my $singleItemTypeReferences = $fobj->{b_meta}->{b_iref}->{b};
-        while (@itemIdsToProcess > 0) {
-            my $itemId = shift @itemIdsToProcess;
-            for (grep { $_->{f_from_item_id} == $itemId } @$singleItemTypeReferences) {
-                for (@{$_->{f_to_item_id}}) {
-                    $referencedItemIds{$_}++ == 0 and push @itemIdsToProcess, $_;
+    # Get the primary ID (from meta/pitm) and lookup all IDs that it
+    # references (using meta/iref), and loop over all the extents for
+    # those IDs (using meta/iloc's items).
+    my @extents = ();
+    my $iloc = $bmff->{b_meta}->{b_iloc};
+    for my $id (resolveIsobmffIref($bmff, $bmff->{b_meta}->{b_pitm}->{f_item_id})) {
+        for my $item (grep { $id == $_->{item_id} } @{$iloc->{f_items}}) {
+            $item->{data_reference_index} == 0 or die
+                "only iloc data_reference_index of 'this file' (0) is currently supported for " . getIsobmffBoxDiagName($mediaPath, $iloc);
+            my $method = $item->{construction_method};
+            if ($method == 0) { # 0 is 'file_offset'
+                for (@{$item->{extents}}) {
+                    print STDERR JSON->new->allow_nonref->pretty->canonical->encode($_);
+                    my $pos = $item->{base_offset} + $_->{extent_offset};
+                    my $size = $_->{extent_length};
+                    # TODO - verify this is inside of mdat?
+                    push @extents, { pos => $pos, size => $size };
                 }
+            } elsif ($method == 1) { # 1 is 'idat_offset'
+                my $idat = $bmff->{b_meta}->{b_idat};
+                my $baseOffset = $idat->{__data_pos} + $item->{base_offset};
+                for (@{$item->{extents}}) {
+                    my $pos = $baseOffset + $_->{extent_offset};
+                    my $size = $_->{extent_length};
+                    $idat->{__data_pos} <= $pos && $pos + $size <= $idat->{__data_pos} + $idat->{__data_size} or die
+                        "extent range of pos=$pos, size=$size out of idat bounds pos=$idat->{__data_pos}, size=$idat->{__data_size} for  " . getIsobmffBoxDiagName($mediaPath, $iloc);
+                    push @extents, { pos => $pos, size => $size };
+                }
+            } else {
+                die "only iloc construction_method of file_offset (0) or idat_offset (0) currently supported for " . getIsobmffBoxDiagName($mediaPath, $iloc);
             }
         }
-        return sort { $a <=> $b } map { $_+0 } keys %referencedItemIds;
-    };
-    
-    my @ilocItems = ();
-    for my $itemId ($resolveIref->($primaryItemId)) {
-        push @ilocItems, grep { $itemId == $_->{item_id} } $fobj->{b_meta}->{b_iloc}->{f_items};
     }
+    
+    # Join contiguous spans of extents, but don't do anything fancy with
+    # overlapping things or reordering to force joins - we want it to be
+    # as identical to original as possible
+    for (my $i = 1; $i < @extents; $i++) {
+        my ($x, $y) = @extents[$i - 1, $i];
+        if ($x->{pos} + $x->{size} == $y->{pos}) {
+            $x->{size} += $y->{size};
+            splice @extents, $i--, 1;
+        }
+    }
+
+    my $primaryItemId = $bmff->{b_meta}->{b_pitm}->{f_item_id};
+    my ($infePrimary) = grep { $_->{f_item_id} == $primaryItemId } @{$bmff->{b_meta}->{b_iinf}->{b_infe}};
+    my ($infeExif) = grep { $_->{f_item_type} eq 'Exif' } @{$bmff->{b_meta}->{b_iinf}->{b_infe}};
+    my ($ilocItemPrimary) = grep { $_->{item_id} == $primaryItemId } @{$iloc->{f_items}};
+    my ($ilocItemExif) = grep { $_->{item_id} == $infeExif->{f_item_id} } @{$iloc->{f_items}};
             
     print STDERR JSON->new->allow_nonref->pretty->canonical->encode({
         '1. Primary Item Info Entry' => $infePrimary,
         '2. Exif Item Info Entry' => $infeExif,
         '3. Primary iloc item' => $ilocItemPrimary,
         '4. Exif iloc item' => $ilocItemExif,
-        '5. items referenced by primary' => [ @ilocItems ],
+        '5. extents referenced by primary' => [ @extents ],
     });
 }
 sub doTest3 {
@@ -1944,7 +2010,7 @@ sub getMimeType {
     return getFileTypeInfo($ext, 'MIMETYPE') || '';
 }
 
-# MODEL (MD5) ------------------------------------------------------------------
+# MODEL (ISOBMFF) --------------------------------------------------------------
 # The ISO/IEC Base Media File Format (ISOBMFF) is a container format that was
 # adopted from QuickTime and is used by: MP4 (.mp4, .m4a, .m4p, .m4b, .m4r,
 # .m4v), .3gp, .3g2, .mj2, .dvb, .dcf, .m21, .f4v, HEIF (.heif, .heifs, .heic,
@@ -2003,7 +2069,7 @@ sub readIsobmffBoxHeader {
     return \%box;
 }
 
-# MODEL (MD5) ------------------------------------------------------------------
+# MODEL (ISOBMFF) --------------------------------------------------------------
 # Reads the File Type Box (ftyp) which should be the first box in an
 # ISOBMFF file. The returns a hashref with the general box header data
 # from readIsobmffBoxHeader as well as:
