@@ -1028,7 +1028,7 @@ sub unpackIsobmffBoxData {
         my $maxRead = $box->{__data_pos} + $box->{__data_size} - $pos;
         if (defined $size) {
             $size <= $maxRead or die
-                "can't read $size bytes from box data";
+                "can't read $size bytes at $pos from '$mediaPath': only $maxRead bytes left in box";
         } else {
             $size = $maxRead;
         }
@@ -1040,8 +1040,9 @@ sub unpackIsobmffBoxData {
             die "don't (yet) know how to do sizeless read and unpack in unbounded box";
         }        
     }
-    read($fh, my $fileData, $size) or die
-        "failed to read from '$mediaPath': $!";
+    my $bytesRead = read($fh, my $fileData, $size);
+    defined $bytesRead and $bytesRead == $size or die
+        "failed to read $size bytes at $pos from '$mediaPath': $!";
     return unpack($format, $fileData);
 }    
 
@@ -1074,8 +1075,8 @@ sub processBox {
         while ((!defined $count) || ($count-- > 0)) {
             my $child = readIsobmffBoxHeader($mediaPath, $fh);
             $processChildBox->($child);
-            #push(@childrenArray, $child);
-            push(@{$childrenHash{$child->{__type}}}, $child);
+            #push @childrenArray, $child;
+            push @{$childrenHash{$child->{__type}}}, $child;
             last unless exists $child->{__end_pos};
             my $pos = $child->{__end_pos};
             seek($fh, $pos, 0) or die "failed to seek '$mediaPath' to $pos: $!";
@@ -1172,25 +1173,29 @@ sub processBox {
                 $extent{extent_index} = $readIntegerSized->($indexSize) if $indexSize;
                 $extent{extent_offset} = $readIntegerSized->($offsetSize);
                 $extent{extent_length} = $readIntegerSized->($lengthSize);
-                push(@extents, \%extent);
+                push @extents, \%extent;
             }
             $item{extents} = \@extents;
-            push(@items, \%item);
+            push @items, \%item;
         }
         $box->{f_items} = \@items;
     } elsif ($type eq 'infe') { # --------------------- Item Info Entry --- infe
         my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
         if ($version == 0 || $version == 1) {
             @{$box}{qw(f_item_id f_item_protection_index f_item_name f_content_type f_content_encoding)} =
-                unpackIsobmffBoxData(@_, 'nnZZZ');
+                unpackIsobmffBoxData(@_, 'nnZ*Z*Z*');
         } elsif ($version == 2 || $version == 3) {
-            @{$box}{qw(f_item_id f_item_protection_index f_item_type f_item_name)} =
-                unpackIsobmffBoxData(@_, ($version == 2) ? 'nna4Z' : 'Nna4Z');
+            @{$box}{qw(f_item_id f_item_protection_index f_item_type)} = ($version == 2)
+                ? unpackIsobmffBoxData(@_, 'nna4', 8)
+                : unpackIsobmffBoxData(@_, 'Nna4', 10);
             if ($box->{f_item_type} eq 'mime') {
-                @{$box}{qw(f_content_type f_content_encoding)} =
-                    qw(TODO TODO); # TODO
+                @{$box}{qw(f_item_name f_content_type f_content_encoding)} = 
+                    unpackIsobmffBoxData(@_, 'Z*Z*Z*');
             } elsif ($box->{f_item_type} eq 'uri ') {
-                $box->{f_item_uri_type} = 'TODO'; # TODO
+                @{$box}{qw(f_item_name f_item_uri_type)} = 
+                    unpackIsobmffBoxData(@_, 'Z*Z*');
+            } else {
+                @{$box}{qw(f_item_name)} = unpackIsobmffBoxData(@_, 'Z*');
             }
         } else {
             die "unknown $type box version $version";
@@ -1207,11 +1212,9 @@ sub processBox {
         }
         $processChildBox = sub {
             my ($child) = @_;
-            my ($fromItemId, $referenceCount) =
-                unpackIsobmffBoxData($mediaPath, $fh, $child, "${idFormat}n", 4);
-            $child->{f_from_item_id} = $fromItemId;
-            $child->{f_to_item_id} = 
-                [unpackIsobmffBoxData($mediaPath, $fh, $child, "$idFormat$referenceCount")];
+            my @values = unpackIsobmffBoxData($mediaPath, $fh, $child, "$idFormat n/$idFormat");
+            $child->{f_from_item_id} = shift @values;
+            $child->{f_to_item_id} = [ @values ];
         };
         $readChildBoxes->();
     } elsif ($type eq 'mdat') { # -------------------------- Media Data --- mdat
@@ -1243,7 +1246,7 @@ sub doTest {
     my ($mediaPath) = @_;
     my $fh = openOrDie('<:raw', $mediaPath);
     my $ftyp = readIsobmffFtyp($mediaPath, $fh);
-    my $fobj = { _ftyp => $ftyp };
+    my $fobj = { b_ftyp => $ftyp };
     processBox($mediaPath, $fh, $fobj);
     print JSON->new->allow_nonref->pretty->canonical->encode($fobj);
 #    my ($meta) = grep { $_->{__type} eq 'meta' } @{$fobj->{children}};
