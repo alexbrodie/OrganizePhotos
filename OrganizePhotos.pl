@@ -1070,12 +1070,12 @@ sub processBox {
     # recursively processing and putting the child boxes into $box->{children}
     my $readChildBoxes = sub {
         my ($count) = @_;
-        #my @childrenArray = ();
+        my @childrenArray = ();
         my %childrenHash = ();
         while ((!defined $count) || ($count-- > 0)) {
             my $child = readIsobmffBoxHeader($mediaPath, $fh);
             $processChildBox->($child);
-            #push @childrenArray, $child;
+            push @childrenArray, $child;
             push @{$childrenHash{$child->{__type}}}, $child;
             last unless exists $child->{__end_pos};
             my $pos = $child->{__end_pos};
@@ -1087,11 +1087,11 @@ sub processBox {
             }
         }
         $count and die "failed to read all child boxes, $count still remain";
+        # TODO - let caller specify whether to use by type hash and/or by array?
+        $box->{b} = \@childrenArray;
         while (my ($k, $v) = each %childrenHash) {
             $box->{"b_$k"} = (@$v == 1) ? $v->[0] : $v;
         }
-        # TODO - let caller specify whether to use by type hash and/or by array?
-        #$box->{children} = \@childrenArray;
     };
     unless (my $type = $box->{__type}) {
         $readChildBoxes->();
@@ -1266,11 +1266,34 @@ sub doTest {
         "only iloc construction_method of file_offset (0) is currently supported";
     $ilocItem->{data_reference_index} == 0 or die
         "only iloc data_reference_index of 'this file' (0) is currently supported";
+
+    my $resolveIref = sub {
+        my %referencedItemIds = ();
+        my @itemIdsToProcess = ();
+        $referencedItemIds{$_}++ == 0 and push @itemIdsToProcess, $_ for @_;
+        my $singleItemTypeReferences = $fobj->{b_meta}->{b_iref}->{b};
+        while (@itemIdsToProcess > 0) {
+            my $itemId = shift @itemIdsToProcess;
+            for (grep { $_->{f_from_item_id} == $itemId } @$singleItemTypeReferences) {
+                for (@{$_->{f_to_item_id}}) {
+                    $referencedItemIds{$_}++ == 0 and push @itemIdsToProcess, $_;
+                }
+            }
+        }
+        return sort { $a <=> $b } map { $_+0 } keys %referencedItemIds;
+    };
+    
+    my @ilocItems = ();
+    for my $itemId ($resolveIref->($primaryItemId)) {
+        push @ilocItems, grep { $itemId == $_->{item_id} } $fobj->{b_meta}->{b_iloc}->{f_items};
+    }
+            
     print STDERR JSON->new->allow_nonref->pretty->canonical->encode({
         '1. Primary Item Info Entry' => $infePrimary,
         '2. Exif Item Info Entry' => $infeExif,
         '3. Primary iloc item' => $ilocItemPrimary,
         '4. Exif iloc item' => $ilocItemExif,
+        '5. items referenced by primary' => [ @ilocItems ],
     });
 }
 sub doTest3 {
