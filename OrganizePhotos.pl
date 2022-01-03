@@ -1018,6 +1018,17 @@ sub doRemoveEmpties {
 # EXPERIMENTAL
 # Execute test verb - usually just a playground for testing and new ideas
 sub doTest {
+    # Prints JSON representation of ISOBMFF file
+    for my $mediaPath (@_) {
+        print "$mediaPath:\n";
+        my $fh = openOrDie('<:raw', $mediaPath);
+        my $ftyp = readIsobmffFtyp($mediaPath, $fh);
+        my $bmff = { b_ftyp => $ftyp };
+        parseIsobmffBox($mediaPath, $fh, $bmff);
+        print JSON->new->allow_nonref->pretty->canonical->encode($bmff);
+    }
+}
+sub doTest4 {
     # Prints the primary item's data extents for an ISOBMFF file
     for my $mediaPath (@_) {
         print "$mediaPath:\n";
@@ -1749,6 +1760,8 @@ sub readIsobmffBoxHeader {
 # minor_version : the integer version of major_brand
 # compatible_brands : array of strings specifying other brands that the
 #       file is compliant with
+#
+# NB: in addition to ISOBMFF, this also works for QTFF (i.e. .mov)
 sub readIsobmffFtyp {
     my ($mediaPath, $fh) = @_;
     my $box = readIsobmffBoxHeader($mediaPath, $fh);
@@ -1769,6 +1782,8 @@ sub readIsobmffFtyp {
 # MODEL (ISOBMFF) --------------------------------------------------------------
 # Gets a short name for a box suitable for adding context alongside a filename
 # for diagnostics such as traces and die statements.
+#
+# NB: in addition to ISOBMFF, this also works for QTFF (i.e. .mov)
 sub getIsobmffBoxDiagName {
     my ($mediaPath, $box) = @_;
     return sprintf "'%s' %s@[0x%08x-0x%08x)", $mediaPath, @{$box}{qw(__type __begin_pos __end_pos)};
@@ -1776,6 +1791,8 @@ sub getIsobmffBoxDiagName {
 
 # MODEL (ISOBMFF) --------------------------------------------------------------
 # Helper routine for parseIsobmffBox to read and interpret ISOBMFF box data
+#
+# NB: in addition to ISOBMFF, this also works for QTFF (i.e. .mov)
 sub unpackIsobmffBoxData {
     my ($mediaPath, $fh, $box, $format, $size) = @_;
     my $pos = tell($fh);
@@ -1789,13 +1806,9 @@ sub unpackIsobmffBoxData {
         } else {
             $size = $maxRead;
         }
-    } else {
-        if (defined $size) {
-            # no verification to do here, just try to read
-        } else {
-            # i'm not sure we need to handle this case
-            die "don't (yet) know how to do sizeless read and unpack in unbounded box for " . getIsobmffBoxDiagName($mediaPath, $box);
-        }
+    } elsif (!defined $size) {
+        # i'm not sure we need to handle this case
+        die "don't (yet) know how to do sizeless read and unpack in unbounded box for " . getIsobmffBoxDiagName($mediaPath, $box);
     }
     my $bytesRead = read($fh, my $fileData, $size);
     defined $bytesRead and $bytesRead == $size or die
@@ -1806,13 +1819,58 @@ sub unpackIsobmffBoxData {
 # MODEL (ISOBMFF) --------------------------------------------------------------
 # Helper routine for parseIsobmffBox that parses ISOBMFF box data version
 # and flags which come at the beginning of "full" boxes' data.
+#
+# NB: in addition to ISOBMFF, this also works for QTFF (i.e. .mov)
 sub readIsobmffBoxVersionAndFlags {
-    my ($mediaPath, $fh, $box) = @_;
+    my ($mediaPath, $fh, $box, $maxSupportedVersion) = @_;
     my ($version, @flagsBytes) = unpackIsobmffBoxData($mediaPath, $fh, $box, 'C4', 4);
     my $flags = $flagsBytes[0] << 16 | $flagsBytes[1] << 8 | $flagsBytes[2];
     $box->{f_version} = $version;
     $box->{f_flags} = $flags;
+    !defined $maxSupportedVersion or $version <= $maxSupportedVersion or die
+        "unsupported version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
     return ($version, $flags);
+}
+
+# MODEL (ISOBMFF) --------------------------------------------------------------
+# Helper routine for parseIsobmffBox that parses a series of children
+#
+# NB: in addition to ISOBMFF, this also works for QTFF (i.e. .mov)
+sub parseIsobmffBoxChildren {
+    my ($mediaPath, $fh, $parent, $count, $parseChildBox) = @_;
+    $parseChildBox = \&parseIsobmffBox unless $parseChildBox;
+    my @childrenArray = ();
+    my %childrenHash = ();
+    while ((!defined $count) || ($count-- > 0)) {
+        # Deserialize and verify header
+        my $child = readIsobmffBoxHeader($mediaPath, $fh);
+        if (exists $child->{__end_pos}) {
+            !defined $parent->{__end_pos} or $child->{__end_pos} <= $parent->{__end_pos} or die
+                "box extended past parent end ($parent->{__end_pos}) for " . getIsobmffBoxDiagName($mediaPath, $child);
+        } elsif (exists $parent->{__end_pos}) {
+            $child->{__end_pos} = $parent->{__end_pos};
+        }
+        # Deserialize data
+        $parseChildBox->($mediaPath, $fh, $child);
+        push @childrenArray, $child;
+        push @{$childrenHash{$child->{__type}}}, $child;
+        # Advance to next box or terminate loop
+        last unless exists $child->{__end_pos};
+        seek($fh, $child->{__end_pos}, 0) or die 
+            "failed to seek to $child->{__end_pos} for " . getIsobmffBoxDiagName($mediaPath, $child) . ": $!";
+        if (exists $parent->{__end_pos}) {
+            last if $child->{__end_pos} >= $parent->{__end_pos};
+        } else {
+            last if eof($fh);
+        }
+    }
+    $count and die 
+        "failed to read all child boxes, $count still remain for" . getIsobmffBoxDiagName($mediaPath, $parent);
+    # TODO - let caller specify whether to use by type hash and/or by array?
+    $parent->{b} = \@childrenArray;
+    while (my ($k, $v) = each %childrenHash) {
+        $parent->{"b_$k"} = (@$v == 1) ? $v->[0] : $v;
+    }
 }
 
 # MODEL (ISOBMFF) --------------------------------------------------------------
@@ -1827,17 +1885,18 @@ sub readIsobmffBoxVersionAndFlags {
 #       an empty hashref that serves as sort of header node
 #
 # Usage:
-#
 #       my $fh = openOrDie('<:raw', $mediaPath);
 #       my $ftyp = readIsobmffFtyp($mediaPath, $fh);
 #       # (Add verification of $ftyp's brand/version here.)
 #       my $bmff = { b_ftyp => $ftyp };
 #       parseIsobmffBox($mediaPath, $fh, $bmff);
-#       # (Process deserialized box data here, e.g. get the primary's
-#       # 'ifde' box.)
-#       my $primaryItemId = $bmff->{b_meta}->{b_pitm}->{f_item_id};
-#       my ($infePrimary) = grep { $_->{f_item_id} == $primaryItemId } @{$bmff->{b_meta}->{b_iinf}->{b_infe}};
-# 
+#       # (Process box data here, e.g. get the primary's 'ifde' box.)
+#       my $id = $bmff->{b_meta}->{b_pitm}->{f_item_id};
+#       my ($infe) = grep { $_->{f_item_id} == $id } @{$bmff->{b_meta}->{b_iinf}->{b_infe}};
+#
+# NB: this does not work for QTFF (i.e. .mov) because the format of
+# data are not identical between boxes in each - for example 'meta'
+# contains version/flags in ISOBMFF but not QTFF.
 sub parseIsobmffBox {
     my ($mediaPath, $fh, $box) = @_;
     # By default when reading child boxes we just recurisvely process
@@ -1847,69 +1906,28 @@ sub parseIsobmffBox {
         my ($child) = @_;
         parseIsobmffBox($mediaPath, $fh, $child);
     };
-    # Reads boxes from the current seek position to the end of $box
-    # recursively processing and putting the child boxes into $box->{children}
-    my $readChildBoxes = sub {
-        my ($count) = @_;
-        my @childrenArray = ();
-        my %childrenHash = ();
-        while ((!defined $count) || ($count-- > 0)) {
-            my $child = readIsobmffBoxHeader($mediaPath, $fh);
-            $processChildBox->($child);
-            push @childrenArray, $child;
-            push @{$childrenHash{$child->{__type}}}, $child;
-            last unless exists $child->{__end_pos};
-            my $pos = $child->{__end_pos};
-            seek($fh, $pos, 0) or die 
-                "failed to seek to $pos for " . getIsobmffBoxDiagName($mediaPath, $box) . ": $!";
-            if (exists $box->{__end_pos}) {
-                last if $pos >= $box->{__end_pos};
-            } else {
-                last if eof($fh);
-            }
-        }
-        $count and die 
-            "failed to read all child boxes, $count still remain for" . getIsobmffBoxDiagName($mediaPath, $box);
-        # TODO - let caller specify whether to use by type hash and/or by array?
-        $box->{b} = \@childrenArray;
-        while (my ($k, $v) = each %childrenHash) {
-            $box->{"b_$k"} = (@$v == 1) ? $v->[0] : $v;
-        }
-    };
     unless (my $type = $box->{__type}) {
-        $readChildBoxes->();
+        parseIsobmffBoxChildren(@_);
     } elsif ($type eq 'dinf') { # -------------------- Data Information --- dinf
-        $readChildBoxes->();
+        parseIsobmffBoxChildren(@_);
     } elsif ($type eq 'dref') { # ---------------------- Data Reference --- dref
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
-        if ($version == 0) {
-            $readChildBoxes->(unpackIsobmffBoxData(@_, 'N', 4));
-        } else {
-            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
-        }
+        readIsobmffBoxVersionAndFlags(@_, 0);
+        parseIsobmffBoxChildren(@_, unpackIsobmffBoxData(@_, 'N', 4));
     } elsif ($type eq 'hdlr') { # ------------------- Handler Reference --- hdlr
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
-        if ($version == 0) {
-            @{$box}{qw(f_handler_type)} = unpackIsobmffBoxData(@_, 'x4a4', 8);
-        } else {
-            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
-        }
+        readIsobmffBoxVersionAndFlags(@_, 0);
+        @{$box}{qw(f_handler_type)} = unpackIsobmffBoxData(@_, 'x4a4', 8);
     } elsif ($type eq 'idat') { # --------------------------- Item Data --- idat
         # This blob of data can be referenced if iloc's construction_method is
         # idat_offset (1). There's no pre-structured data to be parsed.
     } elsif ($type eq 'iinf') { # -------------------- Item Information --- iinf
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
-        if ($version == 0) {
-            $readChildBoxes->(unpackIsobmffBoxData(@_, 'n', 2));
-        } else {
-            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
-        }
+        readIsobmffBoxVersionAndFlags(@_, 0);
+        parseIsobmffBoxChildren(@_, unpackIsobmffBoxData(@_, 'n', 2));
     } elsif ($type eq 'iloc') { # ----------------------- Item Location --- iloc
         # The fields offset_size, length_size, base_offset_size, index_size,
         # item_count, and extent_count are intermediate values only used to 
         # parse other values within this box and so provide little use other
         # than distraction and overhead if retained
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
+        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_, 2);
         my @values = unpackIsobmffBoxData(@_, 'C2', 2);
         my $offsetSize = $values[0] >> 4;
         my $lengthSize = $values[0] & 0xf;
@@ -1963,11 +1981,11 @@ sub parseIsobmffBox {
         }
         $box->{f_items} = \@items;
     } elsif ($type eq 'infe') { # --------------------- Item Info Entry --- infe
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
-        if ($version == 0 || $version == 1) {
+        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_, 3);
+        if ($version < 2) {
             @{$box}{qw(f_item_id f_item_protection_index f_item_name f_content_type f_content_encoding)} =
                 unpackIsobmffBoxData(@_, 'nnZ*Z*Z*');
-        } elsif ($version == 2 || $version == 3) {
+        } else {
             @{$box}{qw(f_item_id f_item_protection_index f_item_type)} = ($version == 2)
                 ? unpackIsobmffBoxData(@_, 'nna4', 8)
                 : unpackIsobmffBoxData(@_, 'Nna4', 10);
@@ -1980,50 +1998,37 @@ sub parseIsobmffBox {
             } else {
                 @{$box}{qw(f_item_name)} = unpackIsobmffBoxData(@_, 'Z*');
             }
-        } else {
-            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
         }
     } elsif ($type eq 'iprp') { # --------------------- Item Properties --- iprp
         # TODO - I can't find documentation for this, skip for now
     } elsif ($type eq 'iref') { # ---------------------- Item Reference --- iref
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
-        my $idFormat;
-        if ($version == 0) {
-            $idFormat = 'n';
-        } elsif ($version == 1) {
-            $idFormat = 'N';
-        } else {
-            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
-        }
-        $processChildBox = sub {
-            my ($child) = @_;
+        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_, 1);
+        my $idFormat = ($version == 0) ? 'n': 'N';
+        parseIsobmffBoxChildren(@_, undef, sub {
+            my ($mediaPath, $fh, $child) = @_;
             my @values = unpackIsobmffBoxData($mediaPath, $fh, $child, "$idFormat n/$idFormat");
             $child->{f_from_item_id} = shift @values;
             $child->{f_to_item_id} = [ @values ];
-        };
-        $readChildBoxes->();
+        });
     } elsif ($type eq 'mdat') { # -------------------------- Media Data --- mdat
         # This blob of data is referenced elsewhere (e.g. iloc) and has no
         # pre-structured data to be parsed.
     } elsif ($type eq 'meta') { # ---------------------------- Metadata --- meta
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
-        if ($version == 0) {
-            $readChildBoxes->();
-        } else {
-            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
-        }
+        # TODO - it seems like Apple QTFF (ftyp->major_brand = 'qt  ') 'meta' 
+        # atom is missing version/flags and ISO BMFF 'meta' box has version/flags? 
+        readIsobmffBoxVersionAndFlags(@_, 0);
+        parseIsobmffBoxChildren(@_);
+    } elsif ($type eq 'moov') { # ------------------------------- Movie --- moov
+        parseIsobmffBoxChildren(@_);
     } elsif ($type eq 'pitm') { # ------------------------ Primary Item --- pitm
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);
-        if ($version == 0) {
-            @{$box}{qw(f_item_id)} = unpackIsobmffBoxData(@_, 'n', 2);
-        } else {
-            die "unknown version $version for " . getIsobmffBoxDiagName($mediaPath, $box);
-        }
-    } elsif ($type eq 'url ') { # ---------------------- Data Entry Url --- url 
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_);        
+        readIsobmffBoxVersionAndFlags(@_, 0);
+        @{$box}{qw(f_item_id)} = unpackIsobmffBoxData(@_, 'n', 2);
+    } elsif ($type eq 'url ') { # ----------------------- Data Entry Url --- url 
+        readIsobmffBoxVersionAndFlags(@_, 0);
         # TODO - Then optional string?
         #$box->{f_location} = 
-    } elsif ($type ne 'free' and $type ne 'skip') {
+    } elsif ($type ne 'free' and $type ne 'skip' and $type ne 'wide') {
+        # free, skip, wide are just ignorable padding
         print STDERR "Unknown box type '$type' for ", getIsobmffBoxDiagName($mediaPath, $box), "\n";
     }
 }
@@ -2032,6 +2037,8 @@ sub parseIsobmffBox {
 # Given a deserialized ISOBMFF file and a set of item IDs, looks up the
 # direct and indirect references in the meta/iref box to build a set of
 # all referenced item IDs.
+#
+# NB: this does not work for QTFF
 sub resolveIsobmffIref {
     my ($bmff) = shift;
     my %refs = ();
@@ -2048,6 +2055,8 @@ sub resolveIsobmffIref {
 # MODEL (ISOBMFF) --------------------------------------------------------------
 # Gets an ordered list of pos/size data that specifies the data ranges
 # for the primary data item.
+#
+# NB: this does not work for QTFF
 sub getIsobmffPrimaryDataExtents {
     my ($mediaPath, $bmff) = @_;
     # Get the primary ID (from meta/pitm) and lookup all IDs that it
@@ -2101,7 +2110,8 @@ sub getIsobmffPrimaryDataExtents {
 sub getIsobmffMdatMd5 {
     my ($mediaPath, $fh) = @_;
     my $ftyp = readIsobmffFtyp($mediaPath, $fh);
-    any { $ftyp->{f_major_brand} eq $_ } ('mp41', 'qt  ', 'heic') or die
+    # This works for both Apple QTFF and ISO BMFF (i.e. mov, mp4, heic)
+    any { $ftyp->{f_major_brand} eq $_ } ('mp41', 'mp42', 'qt  ', 'heic') or die
         "unexpected brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
     until (eof($fh)) {
         my $box = readIsobmffBoxHeader($mediaPath, $fh);
@@ -2119,7 +2129,8 @@ sub getIsobmffMdatMd5 {
 sub getIsobmffPrimaryItemDataMd5 {
     my ($mediaPath, $fh) = @_;
     my $ftyp = readIsobmffFtyp($mediaPath, $fh);
-    any { $ftyp->{f_major_brand} eq $_ } ('mp41', 'qt  ', 'heic') or die
+    # This only works for ISO BMFF, not Apple QTFF (i.e. mp3, heic)
+    any { $ftyp->{f_major_brand} eq $_ } ('mp41', 'mp42', 'heic') or die
         "unexpected brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
     my $bmff = { b_ftyp => $ftyp };
     parseIsobmffBox($mediaPath, $fh, $bmff);
