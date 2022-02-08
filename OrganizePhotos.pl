@@ -276,7 +276,7 @@ my $cachedMd5Set = {};
 # Main entrypoint that parses command line a bit and routes to the 
 # subroutines starting with "do"
 sub main {
-    #print join("\n\t", 'Processing command line options:', @ARGV), "\n";
+    #printjoin("\n\t", 'Processing command line options:', @ARGV), "\n";
     sub myGetOptions {
         my $filter = undef;
         Getopt::Long::GetOptions(
@@ -290,6 +290,8 @@ sub main {
                 $filenameFilter = $mediaType;
             } elsif ($filter =~ /^qr(.*)$/) {
                 $filenameFilter = qr/$1/;
+            } elsif ($filter =~ /^\.(.*)$/) {
+                $filenameFilter = qr/\.(?i)(?:@{[ join '|', split '\.', $1 ]})$/;
             } else {
                 die "Unknown filter: $filter\n";
             }
@@ -462,7 +464,6 @@ sub doAppendMetadata {
 # Execute check-md5 verb
 sub doCheckMd5 {
     my ($addOnly, @globPatterns) = @_;
-    #print join("\n\t", 'Checking these:', @globPatterns), "\n";
     traverseFiles(
         undef, # isDirWanted
         undef, # isFileWanted
@@ -1250,7 +1251,8 @@ sub getFileTypeInfo {
 # cachedMd5Info:
 #   Caller supplied cached Md5Info value that this method will check to see
 #   if it is up to date and return that value if so (in the same way and
-#   together with the other caches). 
+#   together with the other caches). This is useful for ensuring Md5Info is up
+#   to date even if operations have taken place since originally retrieved.
 sub resolveMd5Info {
     my ($mediaPath, $addOnly, $cachedMd5Info) = @_;
     my $forceRecalc = 0; # TODO
@@ -2487,7 +2489,6 @@ sub traverseFiles {
     # or falsy if not wanted
     my $isWanted = sub {
         my ($fullPath, $rootFullPath) = @_;
-        #print "Considering '$fullPath' from '$rootFullPath'\n";
         my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
         if (-d $fullPath) {
             # Never peek inside of a .git folder or any folder
