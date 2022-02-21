@@ -9,8 +9,7 @@
 #
 # Code health:
 # * Tests covering at least the checkup verb code paths
-# * Use constants for some of the standard paths like .Trash,
-#   thumbs.db, etc
+# * Use constants for some of the standard paths like thumbs.db, etc
 # * Replace some hashes whose key sets never change with Class::Struct
 # * Move all colored to view
 # * Namespace somehow for view/model/API/etc?
@@ -43,7 +42,7 @@
 # * Add an export-md5 verb to export all Md5Info data to a csv file
 # * Add a trim-md5 verb to remove missing files from md5.txt files (and
 #   add it to checkup?)
-# * Add a new restore-trash verb that searches for .Trash dirs and for each
+# * Add a new restore-trash verb that searches for .orphtrash dirs and for each
 #   one calls consolidateTrash(self, self) and movePath(self, parent)
 # * Find mis-homed media (date taken/captured != folder name)
 # * calculateMd5Info: content only match for tiff
@@ -103,9 +102,17 @@ use if $^O eq 'MSWin32', 'Win32::Console::ANSI'; # must come before Term::ANSICo
 # TODO: be explicit with this and move usage to view layer
 use Term::ANSIColor ();
 
+my $autoTrashDuplicatesFrom = [
+    '/Volumes/CFexpress/',
+    '/Volumes/MicroSD/',
+    ];
+
 # Filename only portion of the path to Md5File which stores
 # Md5Info data for other files in the same directory
 const my $md5Filename => '.orphdat';
+
+# This subdirectory contains the trash for its parent
+const my $trashDirName => '.orphtrash';
 
 # What we expect an MD5 hash to look like
 const my $md5DigestPattern => qr/[0-9a-f]{32}/;
@@ -488,8 +495,8 @@ sub doCollectTrash {
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
             my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-            if (lc $filename eq '.trash') {
-                # Convert root/bunch/of/dirs/.Trash to root/.Trash/bunch/of/dirs
+            if (lc $filename eq $trashDirName) {
+                # Convert root/bunch/of/dirs/.orphtrash to root/.orphtrash/bunch/of/dirs
                 trashPathWithRoot($fullPath, $rootFullPath);
             }
         },
@@ -504,7 +511,7 @@ sub doFindDupeDirs {
     my %keyToPaths = ();
     File::Find::find({
         preprocess => sub {
-            return grep { !-d or lc ne '.trash' } @_; # skip trash
+            return grep { !-d or lc ne $trashDirName } @_; # skip trash
         },
         wanted => sub {
             if (-d and (/^(\d\d\d\d)-(\d\d)-(\d\d)\b/
@@ -562,13 +569,13 @@ sub doFindDupeFiles {
                     }
                 }
             }
-            my $usage = <<'EOM';
+            my $usage = <<"EOM";
 ?   Help: shows this help message
 c   Continue: go to the next group
 d   Diff: perform metadata diff of this group
 o#  Open Number: open the specified item
 q   Quit: exit the application
-t#  Trash Number: move the specified item to .Trash
+t#  Trash Number: move the specified item to $trashDirName
 EOM
             # Process the command(s)
             my $itemCount = @$group;
@@ -820,12 +827,19 @@ sub generateFindDupeFilesAutoAction {
         #@remainingIdx = ($remainingIdx[0])
     }
     if (all { $_ eq MATCH_FULL } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
-        # Put temp hacks here for one-shot automating
-        # For example to discard -2, -3 versions of files
         if (my @idx = grep { 
+            # Put temp hacks here for one-shot automating as a series
+            # of statements which must all be true to be included (any 
+            # statements) evaluating to false will be trashed
+            # vvvvv BEGIN HACKS
+            # For example to discard -2, -3 versions of files
             $group->[$_]->{fullPath} !~ /-\d+\.\w+$/ and
-            $group->[$_]->{fullPath} !~ / \(\d+\)\.\w+$/
-            } @remainingIdx) {
+            # For example to discard ' (2)', ' (3)' versions of files
+            $group->[$_]->{fullPath} !~ / \(\d+\)\.\w+$/ and
+            # For example to discard things from memory cards
+            $group->[$_]->{fullPath} !~ /^\/Volumes\/(?:CFexpress|MicroSD)\// and
+            # ^^^^^ END HACKS
+            1 } @remainingIdx) {
             @remainingIdx = @idx;
         } else {
             # TODO: just pick one of the files to leave in @remainingIdx?
@@ -2422,7 +2436,7 @@ sub splitExt {
 # Default behavior if isDirWanted is undefined for traverseFiles
 sub defaultIsDirWanted {
     my ($fullPath, $rootFullPath, $filename) = @_;
-    return (lc $filename ne '.trash');
+    return (lc $filename ne $trashDirName);
 }
 
 # MODEL (File Operations) ------------------------------------------------------
@@ -2607,7 +2621,7 @@ sub trashPathAndSidecars {
 }
 
 # MODEL (File Operations) ------------------------------------------------------
-# Trash the specified path by moving it to a .Trash subdir and moving
+# Trash the specified path by moving it to a .orphtrash subdir and moving
 # its entry from the per-directory database file
 sub trashPath {
     my ($fullPath) = @_;
@@ -2616,32 +2630,32 @@ sub trashPath {
     # a dir with no items proves problematic for future move-merges
     # and we wind up with a lot of orphaned empty containers.
     unless (tryRemoveEmptyDir($fullPath)) {
-        # Not an empty dir, so move to trash by inserting a .Trash
+        # Not an empty dir, so move to trash by inserting a .orphtrash
         # before the filename in the path, and moving it there
         my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-        my $trashDir = File::Spec->catdir($dir, '.Trash');
+        my $trashDir = File::Spec->catdir($dir, $trashDirName);
         my $newFullPath = combinePath($vol, $trashDir, $filename);
         movePath($fullPath, $newFullPath);
     }
 }
 
 # MODEL (File Operations) ------------------------------------------------------
-# Trash the specified fullPath by moving it to rootFullPath's .Trash
+# Trash the specified fullPath by moving it to rootFullPath's .orphtrash
 # subdir and moving its entry from the per-directory database file.
 # rootFullPath must be an ancestor of fullPath. If it is the direct
 # parent, this method behaves like trashPath.
 #
-# Example 1: (nested with intermediate .Trash)
-#   trashPathWithRoot('.../root/A/B/.Trash/C/D/.Trash', '.../root')
-#   moves file to: '.../root/.Trash/A/B/C/D'
+# Example 1: (nested with intermediate .orphtrash)
+#   trashPathWithRoot('.../root/A/B/.orphtrash/C/D/.orphtrash', '.../root')
+#   moves file to: '.../root/.orphtrash/A/B/C/D'
 #
 # Example 2: (degenerate trashPath case)
 #   trashPathWithRoot('.../root/foo', '.../root')
-#   moves file to: '.../root/.Trash/foo'
+#   moves file to: '.../root/.orphtrash/foo'
 #
 # Example 3: (edge case)
-#   trashPathWithRoot('.../root/.Trash/.Trash/.Trash', '.../root')
-#   moves file to: '.../root/.Trash'
+#   trashPathWithRoot('.../root/.orphtrash/.orphtrash/.orphtrash', '.../root')
+#   moves file to: '.../root/.orphtrash'
 sub trashPathWithRoot {
     my ($theFullPath, $rootFullPath) = @_;
     trace(VERBOSITY_ALL, "trashPathWithRoot('$theFullPath', '$rootFullPath');");
@@ -2651,7 +2665,7 @@ sub trashPathWithRoot {
     # which can make manipulation of dir arrays tricky.
     my ($theVol, $theDir, $theFilename) = File::Spec->splitpath($theFullPath);
     my ($rootVol, $rootDir, $rootFilename) = File::Spec->splitpath($rootFullPath);
-    # Example 1: theDirs = ( ..., root, A, B, .Trash, C, D )
+    # Example 1: theDirs = ( ..., root, A, B, .orphtrash, C, D )
     my @theDirs = File::Spec->splitdir(File::Spec->catdir($theDir, $theFilename));
     # Example N: rootDirs = ( ..., root )
     my @rootDirs = File::Spec->splitdir(File::Spec->catdir($rootDir, $rootFilename));
@@ -2669,21 +2683,21 @@ sub trashPathWithRoot {
     }
     # Figure out postRoot (theFullPath relative to rootFullPath without 
     # trash), and then append that to rootFullPath's trash dir's path
-    # Example 1: postRoot = ( .Trash, A, B, C, D )
-    # Example 2: postRoot = ( .Trash, foo )
-    # Example 3: postRoot = ( .Trash )
-    my @postRoot = ('.Trash', grep { lc ne '.trash' } @theDirs[@rootDirs .. @theDirs-1]);
-    # Example 1: postRoot = ( .Trash, A, B, C ); newFilename = D
-    # Example 2: postRoot = ( .Trash ); newFilename = foo
-    # Example 3: postRoot = (); newFilename = .Trash
+    # Example 1: postRoot = ( .orphtrash, A, B, C, D )
+    # Example 2: postRoot = ( .orphtrash, foo )
+    # Example 3: postRoot = ( .orphtrash )
+    my @postRoot = ($trashDirName, grep { lc ne $trashDirName } @theDirs[@rootDirs .. @theDirs-1]);
+    # Example 1: postRoot = ( .orphtrash, A, B, C ); newFilename = D
+    # Example 2: postRoot = ( .orphtrash ); newFilename = foo
+    # Example 3: postRoot = (); newFilename = .orphtrash
     my $newFilename = pop @postRoot;
-    # Example 1: newDir = '.../root/.Trash/A/B/C'
-    # Example 2: newDir = '.../root/.Trash'
+    # Example 1: newDir = '.../root/.orphtrash/A/B/C'
+    # Example 2: newDir = '.../root/.orphtrash'
     # Example 3: newDir = '.../root'
     my $newDir = File::Spec->catdir(@rootDirs, @postRoot);
-    # Example 1: newFullPath = '.../root/.Trash/A/B/C/D'
+    # Example 1: newFullPath = '.../root/.orphtrash/A/B/C/D'
     # Example 2: newFullPath = '.../root/.Trahs/foo'
-    # Example 3: newFullPath = '.../root/.Trash'
+    # Example 3: newFullPath = '.../root/.orphtrash'
     my $newFullPath = combinePath($theVol, $newDir, $newFilename);
     movePath($theFullPath, $newFullPath);
 }
@@ -2987,23 +3001,23 @@ the specified glob pattern(s).
 
 =head2 B<C<collect-trash>> I<(C<ct>)>
 
-Looks recursively for C<.Trash> subdirectories under the current directory
-and moves that content to the current directory's C<.Trash> perserving
+Looks recursively for C<.orphtrash> subdirectories under the current directory
+and moves that content to the current directory's C<.orphtrash> perserving
 directory structure.
 
 For example if we had the following trash:
 
-    ./Foo/.Trash/1.jpg
-    ./Foo/.Trash/2.jpg
-    ./Bar/.Trash/3.jpg
-    ./Bar/Baz/.Trash/4.jpg
+    ./Foo/.orphtrash/1.jpg
+    ./Foo/.orphtrash/2.jpg
+    ./Bar/.orphtrash/3.jpg
+    ./Bar/Baz/.orphtrash/4.jpg
 
 After collection we would have:
 
-    ./.Trash/Foo/1.jpg
-    ./.Trash/Foo/2.jpg
-    ./.Trash/Bar/3.jpg
-    ./.Trash/Bar/Baz/4.jpg
+    ./.orphtrash/Foo/1.jpg
+    ./.orphtrash/Foo/2.jpg
+    ./.orphtrash/Bar/3.jpg
+    ./.orphtrash/Bar/Baz/4.jpg
 
 =head3 Options & Arguments
 
@@ -3019,7 +3033,7 @@ the specified glob pattern(s).
 =head3 Examples
 
     # Collect trash in directories starting with Do, e.g.
-    # Documents/.Trash, Downloads/.Trash, etc.
+    # Documents/.orphtrash, Downloads/.orphtrash, etc.
     $ OrganizePhotos ct Do*
 
 =head2 B<C<find-dupe-files>> I<(C<fdf>)>
