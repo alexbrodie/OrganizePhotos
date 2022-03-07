@@ -357,6 +357,9 @@ sub main {
         } elsif ($verb eq 'remove-empties' or $verb eq 're') {
             myGetOptions();
             doRemoveEmpties(@ARGV);
+        } elsif ($verb eq 'restore-trash' or $verb eq 'rt') {
+            myGetOptions();
+            doRestoreTrash(@ARGV);
         } elsif ($verb eq 'test') {
             doTest(@ARGV);
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
@@ -1028,6 +1031,27 @@ sub doRemoveEmpties {
         die "Programmer Error: unprocessed items in doRemoveEmpties map";
     }
 }
+
+# API ==========================================================================
+# Execute restore-trash verb
+sub doRestoreTrash {
+    my (@globPatterns) = @_;
+    traverseFiles(
+        sub {  # isDirWanted
+            return 1;
+        },
+        sub {  # isFileWanted
+            return 0;
+        },
+        sub {  # callback
+            my ($fullPath, $rootFullPath) = @_;
+            my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+            if (lc $filename eq $trashDirName) {
+                movePath($fullPath, combinePath($vol, $dir));
+            }
+        },
+        @globPatterns);
+    }
 
 # API ==========================================================================
 # EXPERIMENTAL
@@ -2706,7 +2730,7 @@ sub trashPathWithRoot {
 # Move oldFullPath to newFullPath doing a move-merge where
 # necessary and possible
 sub movePath {
-    my ($oldFullPath, $newFullPath) = @_;
+    my ($oldFullPath, $newFullPath, $dryRun) = @_;
     trace(VERBOSITY_ALL, "movePath('$oldFullPath', '$newFullPath');");
     return if $oldFullPath eq $newFullPath;
     my $moveInternal = sub {
@@ -2714,14 +2738,18 @@ sub movePath {
         my $newParentFullPath = parentPath($newFullPath);
         unless (-d $newParentFullPath) {
             trace(VERBOSITY_MEDIUM, "File::Copy::make_path('$newParentFullPath');");
-            File::Path::make_path($newParentFullPath) or die
-                "Failed to make directory '$newParentFullPath': $!";
+            unless ($dryRun) {
+                File::Path::make_path($newParentFullPath) or die
+                    "Failed to make directory '$newParentFullPath': $!";
+            }
             printCrud(CRUD_CREATE, "Created dir '@{[prettyPath($newParentFullPath)]}'\n");
         }
         # Move the file/dir
         trace(VERBOSITY_MEDIUM, "File::Copy::move('$oldFullPath', '$newFullPath');");
-        File::Copy::move($oldFullPath, $newFullPath) or die
-            "Failed to move '$oldFullPath' to '$newFullPath': $!";
+        unless ($dryRun) {
+            File::Copy::move($oldFullPath, $newFullPath) or die
+                "Failed to move '$oldFullPath' to '$newFullPath': $!";
+        }
         # (caller is expected to printCrud with more context)
     };
     if (-f $oldFullPath) {
@@ -2731,8 +2759,10 @@ sub movePath {
             my (undef, undef, $oldFilename) = File::Spec->splitpath($oldFullPath);
             my (undef, undef, $newFilename) = File::Spec->splitpath($newFullPath);
             if (lc $oldFilename eq $md5Filename and lc $newFilename eq $md5Filename) {
-                appendMd5Files($newFullPath, $oldFullPath);
-                unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
+                unless ($dryRun) {
+                    appendMd5Files($newFullPath, $oldFullPath);
+                    unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
+                }
                 printCrud(CRUD_DELETE, "Deleted '@{[prettyPath($oldFullPath)]}' after ",
                           "appending MD5 information to '@{[prettyPath($newFullPath)]}'");
             } else {
@@ -2740,10 +2770,12 @@ sub movePath {
             }
         } else {
             $moveInternal->();
-            my $md5Info = deleteMd5Info($oldFullPath);
-            writeMd5Info($newFullPath, $md5Info) if $md5Info;
             printCrud(CRUD_UPDATE, "Moved file '@{[prettyPath($oldFullPath)]}' ",
                       "to '@{[prettyPath($newFullPath)]}'\n");
+            unless ($dryRun) {
+                my $md5Info = deleteMd5Info($oldFullPath);
+                writeMd5Info($newFullPath, $md5Info) if $md5Info;
+            }
         }
     } elsif (-d _) {
         if (-e $newFullPath) { 
@@ -2758,21 +2790,29 @@ sub movePath {
             # the rest (we only want one - not recursive, don't want to
             # change dir, don't support traversing symbolic links, etc.). 
             opendir(my $dh, $oldFullPath) or die "Couldn't open dir '$oldFullPath': $!";
-            my @filenames = readdir($dh);
+            my @filenames = grep { $_ ne '.' and $_ ne '..' } readdir($dh);
             closedir($dh);
+            # The database file should be processed last as it is modified
+            # as a side effect of moving its siblings
+            @filenames = sort {
+                (lc $a eq $md5Filename) <=> (lc $b eq $md5Filename) ||
+                lc $a cmp lc $b ||
+                $a cmp $b
+            } @filenames;
             for (@filenames) {
-                next if $_ eq '.' or $_ eq '..';
                 my $oldChildFullPath = File::Spec->canonpath(File::Spec->catfile($oldFullPath, $_));
                 my $newChildFullPath = File::Spec->canonpath(File::Spec->catfile($newFullPath, $_));
                 # If we move the last media from a folder in previous iteration
                 # of this loop, it can delete an empty Md5File via deleteMd5Info.
                 next if lc $_ eq $md5Filename and !(-e $oldChildFullPath);
-                movePath($oldChildFullPath, $newChildFullPath); 
+                movePath($oldChildFullPath, $newChildFullPath, $dryRun);
             }
             # If we've emptied out $oldFullPath my moving all its contents into
             # the already existing $newFullPath, we can safely delete it. If
             # not, this does nothing - also what we want.
-            tryRemoveEmptyDir($oldFullPath);
+            unless ($dryRun) {
+                tryRemoveEmptyDir($oldFullPath);
+            }
         } else {
             # Dest dir doesn't exist, so we can just move the whole directory
             $moveInternal->();
