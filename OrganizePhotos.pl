@@ -1445,6 +1445,9 @@ sub moveMd5Info {
         trace(VERBOSITY_ALL, "Can't move/remove missing Md5Info for '$oldMd5Key' from '$oldMd5Path'");
         return undef;
     }
+    # For a move we do a copy then a delete, but show it as a single CRUD
+    # operation. The logging info will be built up during the copy phase
+    # and then logged after deleting.
     my ($crudOp, $crudMessage);
     my $oldMd5Info = $oldMd5Set->{$oldMd5Key};
     if ($newMediaPath) {
