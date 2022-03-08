@@ -1431,38 +1431,76 @@ sub writeMd5Info {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
+# Moves a Md5Info for a file from one directory's storage to another. 
+sub moveMd5Info {
+    my ($oldMediaPath, $newMediaPath) = @_;
+    trace(VERBOSITY_ALL, "moveMd5Info('$oldMediaPath', '$newMediaPath');");
+    my ($oldMd5Path, $oldMd5Key) = getMd5PathAndMd5Key($oldMediaPath);
+    unless (-e $oldMd5Path) {
+        trace(VERBOSITY_ALL, "Can't move/remove Md5Info for '$oldMd5Key' from missing '$oldMd5Path'"); 
+        return undef;
+    }
+    my ($oldMd5File, $oldMd5Set) = readMd5File('+<:crlf', $oldMd5Path);
+    unless (exists $oldMd5Set->{$oldMd5Key}) {
+        trace(VERBOSITY_ALL, "Can't move/remove missing Md5Info for '$oldMd5Key' from '$oldMd5Path'");
+        return undef;
+    }
+    my ($crudOp, $crudMessage);
+    my $oldMd5Info = $oldMd5Set->{$oldMd5Key};
+    if ($newMediaPath) {
+        my (undef, undef, $newFilename) = File::Spec->splitpath($newMediaPath);
+        my $newMd5Info = { %$oldMd5Info, filename => $newFilename };
+        #writeMd5Info($newMediaPath, $newMd5Info);
+        my ($newMd5Path, $newMd5Key) = getMd5PathAndMd5Key($newMediaPath);
+        ($oldMd5Path ne $newMd5Path) or die "Not yet supported";
+        my ($newMd5File, $newMd5Set) = readOrCreateNewMd5File($newMd5Path);
+        #setMd5InfoAndWriteMd5File($newMediaPath, $newMd5Info, $newMd5Path, $newMd5Key, $newMd5File, $newMd5Set);
+        my $existingMd5Info = $newMd5Set->{$newMd5Key};
+        if ($existingMd5Info and Data::Compare::Compare($existingMd5Info, $newMd5Info)) {
+            # Existing Md5Info at target is identical, so target is up to date already
+            $crudOp = CRUD_DELETE;
+            $crudMessage = "Removed MD5 for '@{[prettyPath($oldMediaPath)]}' (up to date " .
+                           "MD5 already exists for '@{[prettyPath($newMediaPath)]}')";
+        } else {
+            $newMd5Set->{$newMd5Key} = $newMd5Info;
+            trace(VERBOSITY_MEDIUM, "Writing '$newMd5Path' after moving MD5 for '$newMd5Key'");
+            writeMd5File($newMd5Path, $newMd5File, $newMd5Set);
+            $crudOp = CRUD_UPDATE;
+            $crudMessage = "Moved MD5 for '@{[prettyPath($oldMediaPath)]}' to '@{[prettyPath($newMediaPath)]}'";
+            if (defined $existingMd5Info) {
+                $crudMessage = "$crudMessage overwriting existing value";
+            }
+        }
+    } else {
+        # No new media path, this is a delete only
+        $crudOp = CRUD_DELETE;
+        $crudMessage = "Removed MD5 for '@{[prettyPath($oldMediaPath)]}'";
+    }
+    # TODO: Should this if/else code move to writeMd5File/setMd5InfoAndWriteMd5File such
+    #       that any time someone tries to write an empty hashref, it deletes the file?
+    delete $oldMd5Set->{$oldMd5Key};
+    if (%$oldMd5Set) {
+        trace(VERBOSITY_MEDIUM, "Writing '$oldMd5Path' after removing MD5 for '$oldMd5Key'");
+        writeMd5File($oldMd5Path, $oldMd5File, $oldMd5Set);
+        printCrud($crudOp, $crudMessage, "\n");
+    } else {
+        # Empty files create trouble down the line (especially with move-merges)
+        trace(VERBOSITY_MEDIUM, "Deleting '$oldMd5Path' after removing MD5 for '$oldMd5Key' (the last one)");
+        close($oldMd5File);
+        unlink($oldMd5Path) or die "Couldn't delete '$oldMd5Path': $!";
+        printCrud($crudOp, $crudMessage, "\n");
+        printCrud(CRUD_DELETE, "Deleted empty '@{[prettyPath($oldMd5Path)]}'\n");
+    }
+    return $oldMd5Info;
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
 # Removes Md5Info for a MediaPath from storage. Returns the previous Md5Info
 # value if it existed (or undef if not).
 sub deleteMd5Info {
     my ($mediaPath) = @_;
     trace(VERBOSITY_ALL, "deleteMd5Info('$mediaPath');");
-    my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
-    unless (-e $md5Path) {
-        trace(VERBOSITY_ALL, "Non-existant '$md5Path' means we can't remove MD5 for '$md5Key'");
-        return undef;
-    }
-    my ($md5File, $md5Set) = readMd5File('+<:crlf', $md5Path);
-    unless (exists $md5Set->{$md5Key}) {
-        trace(VERBOSITY_ALL, "Leaving '$md5Path' alone since it doesn't contain MD5 for '$md5Key'");
-        return undef;
-    }
-    my $oldMd5Info = $md5Set->{$md5Key};
-    delete $md5Set->{$md5Key};
-    # TODO: Should this if/else code move to writeMd5File/setMd5InfoAndWriteMd5File such
-    #       that any time someone tries to write an empty hashref, it deletes the file?
-    if (%$md5Set) {
-        trace(VERBOSITY_MEDIUM, "Writing '$md5Path' after removing MD5 for '$md5Key'");
-        writeMd5File($md5Path, $md5File, $md5Set);
-        printCrud(CRUD_DELETE, "Removed MD5 for '@{[prettyPath($mediaPath)]}'\n");
-    } else {
-        # Empty files create trouble down the line (especially with move-merges)
-        trace(VERBOSITY_MEDIUM, "Deleting '$md5Path' after removing MD5 for '$md5Key' (the last one)");
-        close($md5File);
-        unlink($md5Path) or die "Couldn't delete '$md5Path': $!";
-        printCrud(CRUD_DELETE, "Removed MD5 for '@{[prettyPath($mediaPath)]}', ",
-                  " and deleted empty '@{[prettyPath($md5Path)]}'\n");
-    }
-    return $oldMd5Info;
+    return moveMd5Info($mediaPath);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -1613,6 +1651,9 @@ sub updateMd5FileCache {
 # Makes the base of a md5Info hash that can be used with
 # or added to the results of calculateMd5Info to produce
 # a full md5Info.
+#   filename:   the filename (only) of the path
+#   size:       size of the file in bytes
+#   mtime:      the mtime of the file
 sub makeMd5InfoBase {
     my ($mediaPath) = @_;
     my $stats = File::stat::stat($mediaPath) or die "Couldn't stat '$mediaPath': $!";
@@ -2773,8 +2814,7 @@ sub movePath {
             printCrud(CRUD_UPDATE, "Moved file '@{[prettyPath($oldFullPath)]}' ",
                       "to '@{[prettyPath($newFullPath)]}'\n");
             unless ($dryRun) {
-                my $md5Info = deleteMd5Info($oldFullPath);
-                writeMd5Info($newFullPath, $md5Info) if $md5Info;
+                moveMd5Info($oldFullPath, $newFullPath);
             }
         }
     } elsif (-d _) {
@@ -2803,7 +2843,7 @@ sub movePath {
                 my $oldChildFullPath = File::Spec->canonpath(File::Spec->catfile($oldFullPath, $_));
                 my $newChildFullPath = File::Spec->canonpath(File::Spec->catfile($newFullPath, $_));
                 # If we move the last media from a folder in previous iteration
-                # of this loop, it can delete an empty Md5File via deleteMd5Info.
+                # of this loop, it can delete an empty Md5File via moveMd5Info.
                 next if lc $_ eq $md5Filename and !(-e $oldChildFullPath);
                 movePath($oldChildFullPath, $newChildFullPath, $dryRun);
             }
