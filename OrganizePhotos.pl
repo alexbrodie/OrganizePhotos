@@ -84,6 +84,7 @@ use Const::Fast qw(const);
 use Data::Compare ();
 use Data::Dumper ();
 use DateTime::Format::HTTP ();
+#use DateTime::Format::ISO8601 ();
 use Digest::MD5 ();
 use File::Copy ();
 use File::Find ();
@@ -904,9 +905,10 @@ sub buildFindDupeFilesPrompt {
         }
         # Metadata
         if (my $md5Info = $elt->{md5Info}) {
-            my $mtime = exists $md5Info->{mtime} ? POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime $md5Info->{mtime}) : '?';
+            my $dateTaken = getDateTaken($elt->{fullPath}, 1, { DateFormat => '%F %T' }) || '?';
+            my $mtime = exists $md5Info->{mtime} ? POSIX::strftime('%F %T', localtime $md5Info->{mtime}) : '?';
             my $size = exists $md5Info->{size} ? Number::Bytes::Human::format_bytes($md5Info->{size}) : '?';
-            push @prompt, " $mtime, $size";
+            push @prompt, " $dateTaken, $mtime, $size";
         }
         unless ($elt->{exists}) {
             push @prompt, ' ', Term::ANSIColor::colored('[MISSING]', 'bold red on_white');
@@ -1057,6 +1059,11 @@ sub doRestoreTrash {
 # EXPERIMENTAL
 # Execute test verb - usually just a playground for testing and new ideas
 sub doTest {
+    my ($filename) = @_;
+    my $dateTaken = getDateTaken($filename, 1, { DateFormat => '%c' });
+    print "'@{[prettyPath($filename)]}' was taken on $dateTaken\n";
+}
+sub doTest5 {
     # Prints JSON representation of ISOBMFF file
     for my $mediaPath (@_) {
         print "$mediaPath:\n";
@@ -2361,12 +2368,37 @@ sub getSidecarPaths {
 }
 
 # MODEL (Metadata) -------------------------------------------------------------
+# Gets the date the media was captured by parsing the file (and potentially
+# sidecars). The format can be specified by adding an Image::ExifTool::ImageInfo
+# DateFormat option specifying the POSIX strftime format:
+#   my $dateTaken = getDateTaken($path, 1, { DateFormat => '%c' });
+#
+# Note on caching this value: this can change if this or any sidecars change,
+# so make sure it is invalidated when sidecars are as well.
+sub getDateTaken {
+    my ($path, $excludeSidecars, @exifToolArgs) = @_;
+    my $dateTaken;
+    eval {        
+        my @tags = qw(DateTimeOriginal);
+        my $info = readMetadata($path, $excludeSidecars, @exifToolArgs, \@tags);
+        for my $tag (@tags) {
+            $dateTaken = $info->{$tag} and last if exists $info->{$tag};
+        }
+    };
+    if (my $error = $@) {
+        warn "Unavailable date taken for '@{[prettyPath($path)]}' with error:\n\t$error\n";
+    }
+    return $dateTaken;
+}
+
+# MODEL (Metadata) -------------------------------------------------------------
 # Read metadata as an ExifTool hash for the specified path (and any
-# XMP sidecar when appropriate)
+# XMP sidecar when appropriate). Similar in use to Image::ExifTool::ImageInfo
+# except for the new $excludeSidecars param and stricter argument order.
 sub readMetadata {
-    my ($path, $excludeSidecars) = @_;
-    my $et = extractInfo($path);
-    my $info = $et->GetInfo();
+    my ($path, $excludeSidecars, @exifToolArgs) = @_;
+    my $et = extractInfo($path, undef, @exifToolArgs);
+    my $info = $et->GetInfo(@exifToolArgs);
     unless ($excludeSidecars) {
         # If this file can't hold XMP (i.e. not JPEG or TIFF), look for
         # XMP sidecar
@@ -2382,8 +2414,8 @@ sub readMetadata {
             # TODO: use path functions
             (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
             if (-s $xmpPath) {
-                $et = extractInfo($xmpPath, $et);
-                $info = { %{$et->GetInfo()}, %$info };
+                $et = extractInfo($xmpPath, $et, @exifToolArgs);
+                $info = { %{$et->GetInfo(@exifToolArgs)}, %$info };
             }
         }
     }
@@ -2394,10 +2426,14 @@ sub readMetadata {
 # MODEL (Metadata) -------------------------------------------------------------
 # Wrapper for Image::ExifTool::ExtractInfo with error handling
 sub extractInfo {
-    my ($path, $et) = @_;
-    $et = new Image::ExifTool unless $et;
+    my ($path, $et, @exifToolArgs) = @_;
+    unless ($et) {
+        $et = new Image::ExifTool;
+        # We do ISO 8601 dates by default
+        $et->Options(DateFormat => '%FT%T%z');
+    }
     trace(VERBOSITY_MEDIUM, "Image::ExifTool::ExtractInfo('$path');");
-    $et->ExtractInfo($path) or die
+    $et->ExtractInfo($path, @exifToolArgs) or die
         "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
     printCrud(CRUD_READ, "Read metadata for '@{[prettyPath($path)]}'");
     return $et;
