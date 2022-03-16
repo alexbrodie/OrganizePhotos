@@ -927,12 +927,26 @@ sub buildFindDupeFilesPrompt {
             $mtime = $md5Info->{mtime};
             $size = $md5Info->{size};
         }
-        my $dateTaken = getDateTaken($elt->{fullPath}, 1, { DateFormat => '%F %T' }) || '?';
+        my $dateTakenRaw = getDateTaken($elt->{fullPath});
+        my $dateTaken = $dateTakenRaw ? $dateTakenRaw->strftime('%F %T') : '?';
         $mtime = $mtime ? POSIX::strftime('%F %T', localtime $mtime) : '?';
         $size = $size ? Number::Bytes::Human::format_bytes($size) : '?';
         push @prompt, sprintf($metadataFormat, $dateTaken, $mtime, $size);
+        # Missing warning
         unless ($elt->{exists}) {
             push @prompt, $delim, Term::ANSIColor::colored('[MISSING]', 'bold red on_white');
+        }
+        # Wrong dir warning
+        if ($dateTakenRaw) {
+            my ($vol, $dir, $filename) = File::Spec->splitpath($elt->{fullPath});
+            my $parentDir = List::Util::first { $_ } reverse File::Spec->splitdir($dir);
+            if ($parentDir =~ /^(\d{4})-(\d\d)-(\d\d)/) {
+                if ($1 != $dateTakenRaw->year ||
+                    $2 != $dateTakenRaw->month ||
+                    $3 != $dateTakenRaw->day) {
+                    push @prompt, $delim, Term::ANSIColor::colored('[WRONG DIR]', 'bold red on_white');
+                }
+            }
         }
         push @prompt, "\n";
         # Collect all sidecars and add to prompt
@@ -1080,11 +1094,6 @@ sub doRestoreTrash {
 # EXPERIMENTAL
 # Execute test verb - usually just a playground for testing and new ideas
 sub doTest {
-    my ($filename) = @_;
-    my $dateTaken = getDateTaken($filename, 1, { DateFormat => '%c' });
-    print "'@{[prettyPath($filename)]}' was taken on $dateTaken\n";
-}
-sub doTest5 {
     # Prints JSON representation of ISOBMFF file
     for my $mediaPath (@_) {
         print "$mediaPath:\n";
@@ -2390,14 +2399,12 @@ sub getSidecarPaths {
 
 # MODEL (Metadata) -------------------------------------------------------------
 # Gets the date the media was captured by parsing the file (and potentially
-# sidecars). The format can be specified by adding an Image::ExifTool::ImageInfo
-# DateFormat option specifying the POSIX strftime format:
-#   my $dateTaken = getDateTaken($path, 1, { DateFormat => '%c' });
+# sidecars) as DateTime
 #
 # Note on caching this value: this can change if this or any sidecars change,
 # so make sure it is invalidated when sidecars are as well.
 sub getDateTaken {
-    my ($path, $excludeSidecars, @exifToolArgs) = @_;
+    my ($path, $excludeSidecars) = @_;
     my $dateTaken;
     eval {        
         # For image types, ExifIFD:DateTimeOriginal does the trick, but that isn't
@@ -2411,7 +2418,8 @@ sub getDateTaken {
         # for mov, mp4: 1) Keys:CreationDate, 2) UserData:DateTimeOriginal (mp4 only),
         # 3) Quicktime:CreateDate, 4) MacOS:FileCreateDate
         my @tags = qw(ExifIFD:DateTimeOriginal Keys:CreationDate);
-        my $info = readMetadata($path, $excludeSidecars, @exifToolArgs, \@tags);
+        my $info = readMetadata($path, $excludeSidecars, 
+                                { DateFormat => '%FT%T%z' }, \@tags);
         for my $tag (@tags) {
             $dateTaken = $info->{$tag} and last if exists $info->{$tag};
         }
@@ -2419,7 +2427,7 @@ sub getDateTaken {
     if (my $error = $@) {
         warn "Unavailable date taken for '@{[prettyPath($path)]}' with error:\n\t$error\n";
     }
-    return $dateTaken;
+    return $dateTaken ? DateTime::Format::HTTP->parse_datetime($dateTaken) : undef;
 }
 
 # MODEL (Metadata) -------------------------------------------------------------
