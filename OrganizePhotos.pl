@@ -553,9 +553,11 @@ sub doFindDupeFiles {
             # Default command is what happens if you hit enter with an empty string
             # (ignored if there's an auto command).
             my $defaultCommand = $defaultLastAction ? $lastCommand : undef;
-            my $prompt = buildFindDupeFilesPrompt(
-                $group, $defaultCommand, 
-                $dupeGroupsIdx + 1, scalar @$dupeGroups);
+            
+            # Main heading for group
+            my $prompt = "Resolving duplicate group @{[$dupeGroupsIdx + 1]} " .
+                         "of @{[scalar @$dupeGroups]}\n";
+            $prompt .= buildFindDupeFilesPrompt($group, $defaultCommand);
             doMetadataDiff(0, map { $_->{fullPath} } @$group) if $autoDiff;
             # Prompt for command(s)
             if ($command) {
@@ -877,21 +879,31 @@ sub generateFindDupeFilesAutoAction {
 # ------------------------------------------------------------------------------
 # doFindDupeFiles helper subroutine
 sub buildFindDupeFilesPrompt {
-    my ($group, $defaultCommand, $progressNumber, $progressCount) = @_;
+    my ($group, $defaultCommand) = @_;
     # Build base of prompt - indexed paths
     my @prompt = ();
-    # Main heading for group
-    push @prompt, "Resolving duplicate group $progressNumber of $progressCount\n";
     # The list of all files in the group
     my @paths = map { prettyPath($_->{fullPath}) } @$group;
-    my $maxPathLength = max map { length } @paths;
+    # Start by building the header row, the formats for other rows follows this
+    # Matches
+    my $delim = ' ';
+    push @prompt, ' ' x @$group, $delim;
+    # Index
+    my $indexFormat = "\%@{[length $#$group]}s.";
+    push @prompt, sprintf($indexFormat, '#'), $delim;
+    # Filename
+    my $lengthBeforePath = length join '', @prompt;
+    my $maxPathLength = max(64 - $lengthBeforePath, map { length } @paths);
+    my $pathFormat = "\%-${maxPathLength}s";
+    push @prompt, sprintf($pathFormat, 'File name' . ('_' x ($maxPathLength - 9))), $delim;
+    # Metadata
+    my $metadataFormat = "|$delim%-19s$delim|$delim%-19s$delim|$delim%s";
+    push @prompt, sprintf($metadataFormat, 'Taken______________', 'Modified___________', 'Size');
+    push @prompt, "\n";
     for (my $i = 0; $i < @$group; $i++) {
         my $elt = $group->[$i];
         my $path = $paths[$i];
-        push @prompt, '  ', Term::ANSIColor::colored(coloredByIndex("$i. ", $i), 'bold');
-        push @prompt, coloredByIndex($path, $i), ' ' x ($maxPathLength - length $path);
         # Matches
-        push @prompt, ' ';
         for my $matchType (@{$elt->{matches}}) {
             if ($matchType == MATCH_FULL) {
                 push @prompt, Term::ANSIColor::colored('F', 'black on_green');
@@ -903,20 +915,28 @@ sub buildFindDupeFilesPrompt {
                 push @prompt, '?';
             }
         }
+        push @prompt, $delim;
+        # Index
+        push @prompt, coloredByIndex(sprintf($indexFormat, $i), $i), $delim;
+        # Filename
+        push @prompt, coloredByIndex(sprintf($pathFormat, $path), $i), $delim;
         # Metadata
+        my ($mtime, $size);
         if (my $md5Info = $elt->{md5Info}) {
-            my $dateTaken = getDateTaken($elt->{fullPath}, 1, { DateFormat => '%F %T' }) || '?';
-            my $mtime = exists $md5Info->{mtime} ? POSIX::strftime('%F %T', localtime $md5Info->{mtime}) : '?';
-            my $size = exists $md5Info->{size} ? Number::Bytes::Human::format_bytes($md5Info->{size}) : '?';
-            push @prompt, " $dateTaken, $mtime, $size";
+            $mtime = $md5Info->{mtime};
+            $size = $md5Info->{size};
         }
+        my $dateTaken = getDateTaken($elt->{fullPath}, 1, { DateFormat => '%F %T' }) || '?';
+        $mtime = $mtime ? POSIX::strftime('%F %T', localtime $mtime) : '?';
+        $size = $size ? Number::Bytes::Human::format_bytes($size) : '?';
+        push @prompt, sprintf($metadataFormat, $dateTaken, $mtime, $size);
         unless ($elt->{exists}) {
-            push @prompt, ' ', Term::ANSIColor::colored('[MISSING]', 'bold red on_white');
+            push @prompt, $delim, Term::ANSIColor::colored('[MISSING]', 'bold red on_white');
         }
         push @prompt, "\n";
         # Collect all sidecars and add to prompt
         for (getSidecarPaths($elt->{fullPath})) {
-            push @prompt, '     ', coloredByIndex(Term::ANSIColor::colored(prettyPath($_), 'faint'), $i), "\n";
+            push @prompt, ' ' x $lengthBeforePath, coloredByIndex(Term::ANSIColor::colored(prettyPath($_), 'faint'), $i), "\n";
         }
     }
     # Returns either something like 'x0/x1' or 'x0/.../x42'
@@ -2379,7 +2399,17 @@ sub getDateTaken {
     my ($path, $excludeSidecars, @exifToolArgs) = @_;
     my $dateTaken;
     eval {        
-        my @tags = qw(DateTimeOriginal);
+        # For image types, ExifIFD:DateTimeOriginal does the trick, but that isn't
+        # available for some types (video especially), so fall back to others.
+        # A notable relevant distinction of similar named properties:
+        # CreateDate: Quicktime metadata UTC date field related to the Media, 
+        #             Track, and Modify variations (e.g. TrackModifyDate)
+        # FileCreateDate: Windows-only file system property
+        # CreationsDate:
+        # Photos.app 7.0 (macOS 12 Monterey) and Photos.app 6.0 (macOS 11 Big Sur) use the order
+        # for mov, mp4: 1) Keys:CreationDate, 2) UserData:DateTimeOriginal (mp4 only),
+        # 3) Quicktime:CreateDate, 4) MacOS:FileCreateDate
+        my @tags = qw(ExifIFD:DateTimeOriginal Keys:CreationDate);
         my $info = readMetadata($path, $excludeSidecars, @exifToolArgs, \@tags);
         for my $tag (@tags) {
             $dateTaken = $info->{$tag} and last if exists $info->{$tag};
@@ -3008,8 +3038,14 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 =head1 SYNOPSIS
 
-    $ OrganizePhotos -h
-    $ OrganizePhotos checkup directory/to/process
+    OrganizePhotos -h
+    OrganizePhotos check-md5|c5 [--add-only] [glob patterns...]
+    OrganizePhotos checkup|c [--add-only] [--auto-diff|-d] [--by-name|-n] [--no-default-last-action] [glob patterns...]
+    OrganizePhotos collect-trash|ct [glob patterns...]
+    OrganizePhotos find-dupe-files|fdf [--auto-diff|-d] [--by-name|-n] [--no-default-last-action] [glob-patterns...]
+    OrganizePhotos metadata-diff|md [--exclude-sidecars|-x] [glob-patterns...]
+    OrganizePhotos remove-empties|re [glob-patterns...]
+    OrganizePhotos restore-trash|rt [glob-patterns...]
 
 =head1 DESCRIPTION
 
