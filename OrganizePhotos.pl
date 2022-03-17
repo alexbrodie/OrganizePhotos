@@ -80,6 +80,9 @@ use strict;
 use warnings;
 use warnings FATAL => qw(uninitialized);
 
+use Carp ();
+$SIG{__DIE__} =  \&Carp::confess;
+$SIG{__WARN__} = \&Carp::confess;
 use Const::Fast qw(const);
 use Data::Compare ();
 use Data::Dumper ();
@@ -703,14 +706,18 @@ sub buildFindDupeFilesDupeGroups {
     while (my ($key, $fullPathList) = each %keyToFullPathList) {
         $fileCount += @$fullPathList;
         if (@$fullPathList > 1) {
-            my @group = sort { comparePathWithExtOrder($a->{fullPath}, $b->{fullPath}) } @$fullPathList;
+            my @group = sort { 
+                comparePathWithExtOrder($a->{fullPath}, $b->{fullPath}) 
+            } @$fullPathList;
             push @dupes, \@group;
         }
     }
     # The 2nd level is properly sorted, now let's sort the groups
     # themselves - this will be the order in which the groups
     # are processed, so we want it extorder based as well.
-    @dupes = sort { comparePathWithExtOrder($a->[0]->{fullPath}, $b->[0]->{fullPath}) } @dupes;
+    @dupes = sort { 
+        comparePathWithExtOrder($a->[0]->{fullPath}, $b->[0]->{fullPath}) 
+    } @dupes;
     trace(VERBOSITY_LOW, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
     return \@dupes;
 }
@@ -721,6 +728,7 @@ sub buildFindDupeFilesDupeGroups {
 # buildFindDupeFilesDupeGroups:
 #   exists: cached result of -e check
 #   md5Info: Md5Info data
+#   dateTaken: a DateTime value obtained via getDateTaken
 #   matches: array of MATCH_* values of comparison with other group elements
 sub populateFindDupeFilesDupeGroup {
     my ($group) = @_;
@@ -730,10 +738,13 @@ sub populateFindDupeFilesDupeGroup {
         $elt->{exists} = -e $elt->{fullPath};
         if ($fast or !$elt->{exists}) {
             delete $elt->{md5Info};
+            delete $elt->{dateTaken};
         } else {
             $elt->{md5Info} = resolveMd5Info($elt->{fullPath}, 0,
                 exists $elt->{md5Info} ? $elt->{md5Info} : $elt->{cachedMd5Info});
+            $elt->{dateTaken} = getDateTaken($elt->{fullPath});
         }
+        $elt->{sidecars} = $elt->{exists} ? [getSidecarPaths($elt->{fullPath})] : [];
     }
     for (my $i = 0; $i < @$group; $i++) {
         $group->[$i]->{matches}->[$i] = MATCH_FULL;
@@ -823,35 +834,26 @@ sub generateFindDupeFilesAutoAction {
     my @autoCommands = ();
     # Figure out what's trashable, starting by excluding missing files
     my @remainingIdx = grep { $group->[$_]->{exists} } (0..$#$group);
-    #if (@remainingIdx > 1 and 
-    #    all { $_ eq MATCH_FULL or $_ eq MATCH_CONTENT } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
-    if (my @idx = grep { 
-        $group->[$_]->{fullPath} !~ /[\/\\]ToImport[\/\\]/
-        } @remainingIdx) {
-        @remainingIdx = @idx;
-    } else {
-        # TODO: just pick one of the files to leave in @remainingIdx?
-        #@remainingIdx = ($remainingIdx[0])
-    }
-    if (all { $_ eq MATCH_FULL } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
-        if (my @idx = grep { 
-            # Put temp hacks here for one-shot automating as a series
-            # of statements which must all be true to be included (any 
-            # statements) evaluating to false will be trashed
-            # vvvvv BEGIN HACKS
-            # For example to discard -2, -3 versions of files
-            $group->[$_]->{fullPath} !~ /-\d+\.\w+$/ and
-            # For example to discard ' (2)', ' (3)' versions of files
-            $group->[$_]->{fullPath} !~ / \(\d+\)\.\w+$/ and
-            # For example to discard things from memory cards
-            $group->[$_]->{fullPath} !~ /^\/Volumes\/(?:CFexpress|MicroSD)\// and
-            # ^^^^^ END HACKS
-            1 } @remainingIdx) {
-            @remainingIdx = @idx;
-        } else {
-            # TODO: just pick one of the files to leave in @remainingIdx?
-            #@remainingIdx = ($remainingIdx[0])
-        }
+    filterIndicies($group, \@remainingIdx, sub {
+        $_->{fullPath} !~ /[\/\\]ToImport[\/\\]/
+    });
+    if (@remainingIdx > 1 &&
+        all { $_ eq MATCH_FULL } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx] &&
+        all { !$group->[$_]->{matches} } @remainingIdx) {
+        # We have several things left that are all exact matches with no sidecars
+        # Discard versions of files in folder with wrong date
+        filterIndicies($group, \@remainingIdx, sub {
+            my $date = $_->{dateTaken};
+            if ($date && $_->{fullPath} =~ /(\d{4})-(\d\d)-(\d\d).*[\/\\]/) {
+                return $1 == $date->year && $2 == $date->month && $3 == $date->day;
+            } else {
+                return 0;
+            }
+        });
+        # Discard -2, -3 versions of files
+        filterIndicies($group, \@remainingIdx, sub {
+            $_->{fullPath} !~ /-\d+\.\w+$/
+        });
     }
     # Now take everything that isn't in @reminingIdx and suggest trash it
     my @isTrashable = map { 1 } (0..$#$group);
@@ -875,6 +877,15 @@ sub generateFindDupeFilesAutoAction {
         push @autoCommands, 'c';
     }
     return join ';', @autoCommands;
+}
+
+# ------------------------------------------------------------------------------
+# generateFindDupeFilesAutoAction helper subroutine
+sub filterIndicies {
+    my ($dataArrayRef, $indiciesArrayRef, $predicate) = @_;
+    if (my @idx = grep { local $_ = $dataArrayRef->[$_]; $predicate->() } @$indiciesArrayRef) {
+        @$indiciesArrayRef = @idx;
+    }
 }
 
 # ------------------------------------------------------------------------------
@@ -927,31 +938,35 @@ sub buildFindDupeFilesPrompt {
             $mtime = $md5Info->{mtime};
             $size = $md5Info->{size};
         }
-        my $dateTakenRaw = getDateTaken($elt->{fullPath});
-        my $dateTaken = $dateTakenRaw ? $dateTakenRaw->strftime('%F %T') : '?';
+        my $dateTaken = $elt->{dateTaken} ? $elt->{dateTaken}->strftime('%F %T') : '?';
         $mtime = $mtime ? POSIX::strftime('%F %T', localtime $mtime) : '?';
         $size = $size ? Number::Bytes::Human::format_bytes($size) : '?';
         push @prompt, sprintf($metadataFormat, $dateTaken, $mtime, $size);
         # Missing warning
         unless ($elt->{exists}) {
-            push @prompt, $delim, Term::ANSIColor::colored('[MISSING]', 'bold red on_white');
+            push @prompt, $delim, Term::ANSIColor::colored(
+                '[MISSING]', 'bold red on_white');
         }
         # Wrong dir warning
-        if ($dateTakenRaw) {
+        if ($elt->{dateTaken}) {
             my ($vol, $dir, $filename) = File::Spec->splitpath($elt->{fullPath});
             my $parentDir = List::Util::first { $_ } reverse File::Spec->splitdir($dir);
             if ($parentDir =~ /^(\d{4})-(\d\d)-(\d\d)/) {
-                if ($1 != $dateTakenRaw->year ||
-                    $2 != $dateTakenRaw->month ||
-                    $3 != $dateTakenRaw->day) {
-                    push @prompt, $delim, Term::ANSIColor::colored('[WRONG DIR]', 'bold red on_white');
+                if ($1 != $elt->{dateTaken}->year ||
+                    $2 != $elt->{dateTaken}->month ||
+                    $3 != $elt->{dateTaken}->day) {
+                    push @prompt, $delim, Term::ANSIColor::colored(
+                        '[WRONG DIR]', 'bold red on_white');
                 }
             }
         }
         push @prompt, "\n";
         # Collect all sidecars and add to prompt
-        for (getSidecarPaths($elt->{fullPath})) {
-            push @prompt, ' ' x $lengthBeforePath, coloredByIndex(Term::ANSIColor::colored(prettyPath($_), 'faint'), $i), "\n";
+        for (@{$elt->{sidecars}}) {
+            push @prompt, 
+                ' ' x $lengthBeforePath, 
+                coloredByIndex(coloredBold(prettyPath($_)), $i), 
+                "\n";
         }
     }
     # Returns either something like 'x0/x1' or 'x0/.../x42'
@@ -1005,9 +1020,9 @@ sub doMetadataDiff {
     my $indentLen = 3 + max map { length } @keys; 
     for my $key (@keys) {
         for (my $i = 0; $i < @items; $i++) {
-            my $message = $items[$i]->{$key} || Term::ANSIColor::colored('undef', 'faint');
+            my $message = $items[$i]->{$key} || coloredFaint('undef');
             if ($i == 0) {
-                print Term::ANSIColor::colored("$key", 'bold'), '.' x ($indentLen - length $key);
+                print coloredBold($key), '.' x ($indentLen - length $key);
             } else {
                 print ' ' x $indentLen;
             }
@@ -1136,9 +1151,12 @@ sub doTest3 {
     #   concealed: text doesn't render
     # So none of that really matters here
 
-    print "\n", ' ' x 38, '_' x 13, 'Bright', '_' x 13, "\n      ", (map { "$_ "} @colorLabels) x 2, "\n";
+    print "\n", ' ' x 38, '_' x 13, 'Bright', '_' x 13, 
+          "\n      ", (map { "$_ "} @colorLabels) x 2, "\n";
     for (my $i = 0; $i < @colors; $i++) {
-        print(' ', ($i < @colorLabels ? '  ' : substr(' Bright ', $i - @colorLabels, 1) . '|'), $colorLabels[$i % @colorLabels]);
+        print(' ', 
+              ($i < @colorLabels ? '  ' : substr(' Bright ', $i - @colorLabels, 1) . '|'), 
+              $colorLabels[$i % @colorLabels]);
         for my $bg (@colors) {
             print Term::ANSIColor::colored(' XO ', $colors[$i % @colors] . ' on_' . $bg);
         }
@@ -1471,7 +1489,8 @@ sub writeMd5Info {
 # Moves a Md5Info for a file from one directory's storage to another. 
 sub moveMd5Info {
     my ($oldMediaPath, $newMediaPath) = @_;
-    trace(VERBOSITY_ALL, "moveMd5Info('$oldMediaPath', '$newMediaPath');");
+    trace(VERBOSITY_ALL, "moveMd5Info('$oldMediaPath', " . 
+                         (defined $newMediaPath ? "'$newMediaPath'" : 'undef') . ");");
     my ($oldMd5Path, $oldMd5Key) = getMd5PathAndMd5Key($oldMediaPath);
     unless (-e $oldMd5Path) {
         trace(VERBOSITY_ALL, "Can't move/remove Md5Info for '$oldMd5Key' from missing '$oldMd5Path'"); 
@@ -2188,7 +2207,8 @@ sub getIsobmffPrimaryDataExtents {
     for my $id (resolveIsobmffIref($bmff, $bmff->{b_meta}->{b_pitm}->{f_item_id})) {
         for my $item (grep { $id == $_->{item_id} } @{$iloc->{f_items}}) {
             $item->{data_reference_index} == 0 or die
-                "only iloc data_reference_index of 'this file' (0) is currently supported for " . getIsobmffBoxDiagName($mediaPath, $iloc);
+                "only iloc data_reference_index of 'this file' (0) is currently supported for " . 
+                getIsobmffBoxDiagName($mediaPath, $iloc);
             my $method = $item->{construction_method};
             if ($method == 0) { # 0 is 'file_offset'
                 for (@{$item->{extents}}) {
@@ -2203,12 +2223,16 @@ sub getIsobmffPrimaryDataExtents {
                 for (@{$item->{extents}}) {
                     my $pos = $baseOffset + $_->{extent_offset};
                     my $size = $_->{extent_length};
-                    $idat->{__data_pos} <= $pos && $pos + $size <= $idat->{__data_pos} + $idat->{__data_size} or die
-                        "extent range of pos=$pos, size=$size out of idat bounds pos=$idat->{__data_pos}, size=$idat->{__data_size} for  " . getIsobmffBoxDiagName($mediaPath, $iloc);
+                    ($idat->{__data_pos} <= $pos && 
+                     $pos + $size <= $idat->{__data_pos} + $idat->{__data_size}) or die
+                        "extent range of pos=$pos, size=$size out of idat bounds " .
+                        "pos=$idat->{__data_pos}, size=$idat->{__data_size} for  " . 
+                        getIsobmffBoxDiagName($mediaPath, $iloc);
                     push @extents, { pos => $pos, size => $size };
                 }
             } else {
-                die "only iloc construction_method of file_offset (0) or idat_offset (0) currently supported for " . getIsobmffBoxDiagName($mediaPath, $iloc);
+                die "only iloc construction_method of file_offset (0) or idat_offset (0) " .
+                    "currently supported for " . getIsobmffBoxDiagName($mediaPath, $iloc);
             }
         }
     }
@@ -2413,11 +2437,11 @@ sub getDateTaken {
         # CreateDate: Quicktime metadata UTC date field related to the Media, 
         #             Track, and Modify variations (e.g. TrackModifyDate)
         # FileCreateDate: Windows-only file system property
-        # CreationsDate:
+        # CreationDate:
         # Photos.app 7.0 (macOS 12 Monterey) and Photos.app 6.0 (macOS 11 Big Sur) use the order
         # for mov, mp4: 1) Keys:CreationDate, 2) UserData:DateTimeOriginal (mp4 only),
         # 3) Quicktime:CreateDate, 4) MacOS:FileCreateDate
-        my @tags = qw(ExifIFD:DateTimeOriginal Keys:CreationDate);
+        my @tags = qw(ExifIFD:DateTimeOriginal Keys:CreationDate Quicktime:CreateDate);
         my $info = readMetadata($path, $excludeSidecars, 
                                 { DateFormat => '%FT%T%z' }, \@tags);
         for my $tag (@tags) {
@@ -2970,6 +2994,18 @@ sub openOrDie {
 }
 
 # VIEW -------------------------------------------------------------------------
+sub coloredFaint {
+    my ($message) = @_;
+    return Term::ANSIColor::colored($message, 'faint');
+}
+
+# VIEW -------------------------------------------------------------------------
+sub coloredBold {
+    my ($message) = @_;
+    return Term::ANSIColor::colored($message, 'bold');
+}
+
+# VIEW -------------------------------------------------------------------------
 # Colorizes text for diffing purposes
 # [message] - Text to color
 # [colorIndex] - Index for a color class
@@ -3049,9 +3085,11 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
     OrganizePhotos -h
     OrganizePhotos check-md5|c5 [--add-only] [glob patterns...]
-    OrganizePhotos checkup|c [--add-only] [--auto-diff|-d] [--by-name|-n] [--no-default-last-action] [glob patterns...]
+    OrganizePhotos checkup|c [--add-only] [--auto-diff|-d] [--by-name|-n]
+        [--no-default-last-action] [glob patterns...]
     OrganizePhotos collect-trash|ct [glob patterns...]
-    OrganizePhotos find-dupe-files|fdf [--auto-diff|-d] [--by-name|-n] [--no-default-last-action] [glob-patterns...]
+    OrganizePhotos find-dupe-files|fdf [--auto-diff|-d] [--by-name|-n]
+        [--no-default-last-action] [glob-patterns...]
     OrganizePhotos metadata-diff|md [--exclude-sidecars|-x] [glob-patterns...]
     OrganizePhotos remove-empties|re [glob-patterns...]
     OrganizePhotos restore-trash|rt [glob-patterns...]
