@@ -80,9 +80,9 @@ use strict;
 use warnings;
 use warnings FATAL => qw(uninitialized);
 
-use Carp ();
-$SIG{__DIE__} =  \&Carp::confess;
-$SIG{__WARN__} = \&Carp::confess;
+#use Carp ();
+#$SIG{__DIE__} =  \&Carp::confess;
+#$SIG{__WARN__} = \&Carp::confess;
 use Const::Fast qw(const);
 use Data::Compare ();
 use Data::Dumper ();
