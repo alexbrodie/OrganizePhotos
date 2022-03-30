@@ -1569,7 +1569,7 @@ sub moveMd5Info {
         close($oldMd5File);
         unlink($oldMd5Path) or die "Couldn't delete '$oldMd5Path': $!";
         printCrud($crudOp, $crudMessage, "\n");
-        printCrud(CRUD_DELETE, "Deleted empty '@{[prettyPath($oldMd5Path)]}'\n");
+        printCrud(CRUD_DELETE, "Deleted empty   '@{[prettyPath($oldMd5Path)]}'\n");
     }
     return $oldMd5Info;
 }
