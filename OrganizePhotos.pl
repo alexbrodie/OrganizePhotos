@@ -838,20 +838,36 @@ sub generateFindDupeFilesAutoAction {
         $_->{fullPath} !~ /[\/\\]ToImport[\/\\]/
     });
     if (@remainingIdx > 1 &&
-        all { $_ eq MATCH_FULL } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx] &&
-        all { !$group->[$_]->{matches} } @remainingIdx) {
+        all { $_ eq MATCH_FULL } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
         # We have several things left that are all exact matches with no sidecars
-        # Discard versions of files in folder with wrong date
         filterIndicies($group, \@remainingIdx, sub {
+            # Don't auto trash things with sidecars
+            #return 1 if $_->{sidecars};
+            return 1 if @{$_->{sidecars}};
+            # Discard versions of files in folder with wrong date
             my $date = $_->{dateTaken};
-            if ($date && $_->{fullPath} =~ /(\d{4})-(\d\d)-(\d\d).*[\/\\]/) {
-                return $1 == $date->year && $2 == $date->month && $3 == $date->day;
+            if ($date) {
+                if ($_->{fullPath} =~ /(\d{4})-(\d\d)-(\d\d).*[\/\\]/) {
+                    if ($1 == $date->year && $2 == $date->month && $3 == $date->day) {
+                         # Date is in the path
+                         return 1;
+                    } else {
+                        # A different date is in the path
+                        return 0;
+                    }
+                } else {
+                    # Path doesn't have date in it
+                    return 0;
+                }
             } else {
+                # Item has no date
                 return 0;
             }
         });
         # Discard -2, -3 versions of files
         filterIndicies($group, \@remainingIdx, sub {
+            # Don't auto trash things with sidecars
+            return 1 if $_->{sidecars};
             $_->{fullPath} !~ /-\d+\.\w+$/
         });
     }
@@ -883,9 +899,14 @@ sub generateFindDupeFilesAutoAction {
 # generateFindDupeFilesAutoAction helper subroutine
 sub filterIndicies {
     my ($dataArrayRef, $indiciesArrayRef, $predicate) = @_;
-    if (my @idx = grep { local $_ = $dataArrayRef->[$_]; $predicate->() } @$indiciesArrayRef) {
-        @$indiciesArrayRef = @idx;
-    }
+    my @idx = grep { 
+        local $_ = $dataArrayRef->[$_];
+        #print "Filtering $_->{fullPath}... ";
+        my $result = $predicate->();
+        #print $result ? "Yes\n" : "No\n";
+        $result
+     } @$indiciesArrayRef;
+    @$indiciesArrayRef = @idx if @idx;
 }
 
 # ------------------------------------------------------------------------------
@@ -1525,7 +1546,7 @@ sub moveMd5Info {
             trace(VERBOSITY_MEDIUM, "Writing '$newMd5Path' after moving MD5 for '$newMd5Key'");
             writeMd5File($newMd5Path, $newMd5File, $newMd5Set);
             $crudOp = CRUD_UPDATE;
-            $crudMessage = "Moved MD5 for '@{[prettyPath($oldMediaPath)]}' to '@{[prettyPath($newMediaPath)]}'";
+            $crudMessage = "Moved MD5 for   '@{[prettyPath($oldMediaPath)]}' to '@{[prettyPath($newMediaPath)]}'";
             if (defined $existingMd5Info) {
                 $crudMessage = "$crudMessage overwriting existing value";
             }
@@ -1589,7 +1610,7 @@ sub appendMd5Files {
               scalar @sourceMd5Paths, " files");
         writeMd5File($targetMd5Path, $targetMd5File, $targetMd5Set);
         my $itemsAdded = (scalar keys %$targetMd5Set) - $oldTargetMd5SetCount;
-        printCrud(CRUD_CREATE, "Added $itemsAdded entries to '${\prettyPath($targetMd5Path)}' from ",
+        printCrud(CRUD_CREATE, "Added $itemsAdded MD5s to '${\prettyPath($targetMd5Path)}' from ",
                   join ', ', map { "'${\prettyPath($_)}'" } @sourceMd5Paths);
     }
 }
@@ -1651,7 +1672,7 @@ sub readMd5File {
         }
     }
     updateMd5FileCache($md5Path, $md5Set);
-    printCrud(CRUD_READ, "Read MD5 info from '@{[prettyPath($md5Path)]}'\n");
+    printCrud(CRUD_READ, "Read MD5s from  '@{[prettyPath($md5Path)]}'\n");
     return ($md5File, $md5Set);
 }
 
@@ -1671,7 +1692,7 @@ sub setMd5InfoAndWriteMd5File {
         if (defined $oldMd5Info) {
             printCrud(CRUD_UPDATE, "Updated MD5 for '@{[prettyPath($mediaPath)]}'\n");
         } else {
-            printCrud(CRUD_CREATE, "Added MD5 for '@{[prettyPath($mediaPath)]}'\n");
+            printCrud(CRUD_CREATE, "Added MD5 for   '@{[prettyPath($mediaPath)]}'\n");
         }
     }
     return $oldMd5Info;
@@ -1812,7 +1833,7 @@ sub calculateMd5Info {
         # Can't get the partial MD5, so we'll just use the full hash
         warn "Unavailable content MD5 for '@{[prettyPath($mediaPath)]}' with error:\n\t$error\n";
     }
-    printCrud(CRUD_READ, "Computed MD5 hash of '@{[prettyPath($mediaPath)]}'",
+    printCrud(CRUD_READ, "Computed MD5 of '@{[prettyPath($mediaPath)]}'",
               ($partialMd5Hash ? ", including content only hash" : ''), "\n");
     return {
         version => $calculateMd5InfoVersion,
@@ -2498,7 +2519,7 @@ sub extractInfo {
     trace(VERBOSITY_MEDIUM, "Image::ExifTool::ExtractInfo('$path');");
     $et->ExtractInfo($path, @exifToolArgs) or die
         "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
-    printCrud(CRUD_READ, "Read metadata for '@{[prettyPath($path)]}'");
+    printCrud(CRUD_READ, "Extract meta of '@{[prettyPath($path)]}'");
     return $et;
 }
 
@@ -2885,7 +2906,7 @@ sub movePath {
                 File::Path::make_path($newParentFullPath) or die
                     "Failed to make directory '$newParentFullPath': $!";
             }
-            printCrud(CRUD_CREATE, "Created dir '@{[prettyPath($newParentFullPath)]}'\n");
+            printCrud(CRUD_CREATE, "Created dir     '@{[prettyPath($newParentFullPath)]}'\n");
         }
         # Move the file/dir
         trace(VERBOSITY_MEDIUM, "File::Copy::move('$oldFullPath', '$newFullPath');");
@@ -2906,14 +2927,14 @@ sub movePath {
                     appendMd5Files($newFullPath, $oldFullPath);
                     unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
                 }
-                printCrud(CRUD_DELETE, "Deleted '@{[prettyPath($oldFullPath)]}' after ",
-                          "appending MD5 information to '@{[prettyPath($newFullPath)]}'");
+                printCrud(CRUD_DELETE, "Deleted now-old '@{[prettyPath($oldFullPath)]}' after ",
+                          "appending its MD5 information to '@{[prettyPath($newFullPath)]}'");
             } else {
                 die "Can't overwrite '$newFullPath' with '$oldFullPath'";
             }
         } else {
             $moveInternal->();
-            printCrud(CRUD_UPDATE, "Moved file '@{[prettyPath($oldFullPath)]}' ",
+            printCrud(CRUD_UPDATE, "Moved file at   '@{[prettyPath($oldFullPath)]}' ",
                       "to '@{[prettyPath($newFullPath)]}'\n");
             unless ($dryRun) {
                 moveMd5Info($oldFullPath, $newFullPath);
@@ -2958,7 +2979,7 @@ sub movePath {
         } else {
             # Dest dir doesn't exist, so we can just move the whole directory
             $moveInternal->();
-            printCrud(CRUD_UPDATE, "Moved dir '@{[prettyPath($oldFullPath)]}'",
+            printCrud(CRUD_UPDATE, "Moved directory '@{[prettyPath($oldFullPath)]}'",
                       " to '@{[prettyPath($newFullPath)]}'\n");
         }
     } else {
@@ -2974,7 +2995,7 @@ sub tryRemoveEmptyDir {
     my ($path) = @_;
     trace(VERBOSITY_ALL, "tryRemoveEmptyDir('$path');");
     if (-d $path and rmdir $path) {
-        printCrud(CRUD_DELETE, "Deleted empty dir '@{[prettyPath($path)]}'\n");
+        printCrud(CRUD_DELETE, "Deleted empty   '@{[prettyPath($path)]}'\n");
         return 1;
     } else {
         return 0;
