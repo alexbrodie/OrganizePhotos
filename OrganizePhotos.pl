@@ -834,15 +834,14 @@ sub generateFindDupeFilesAutoAction {
     my @autoCommands = ();
     # Figure out what's trashable, starting by excluding missing files
     my @remainingIdx = grep { $group->[$_]->{exists} } (0..$#$group);
-    filterIndicies($group, \@remainingIdx, sub {
-        $_->{fullPath} !~ /[\/\\]ToImport[\/\\]/
-    });
+    #filterIndicies($group, \@remainingIdx, sub {
+    #    $_->{fullPath} !~ /[\/\\]ToImport[\/\\]/
+    #});
     if (@remainingIdx > 1 &&
         all { $_ eq MATCH_FULL } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
         # We have several things left that are all exact matches with no sidecars
         filterIndicies($group, \@remainingIdx, sub {
             # Don't auto trash things with sidecars
-            #return 1 if $_->{sidecars};
             return 1 if @{$_->{sidecars}};
             # Discard versions of files in folder with wrong date
             my $date = $_->{dateTaken};
@@ -867,8 +866,12 @@ sub generateFindDupeFilesAutoAction {
         # Discard -2, -3 versions of files
         filterIndicies($group, \@remainingIdx, sub {
             # Don't auto trash things with sidecars
-            return 1 if $_->{sidecars};
-            $_->{fullPath} !~ /-\d+\.\w+$/
+            return 1 if @{$_->{sidecars}};
+            for ($_->{fullPath}) {
+                return 0 if /-\d+\.\w+$/;
+                return 0 if /\s\(\d+\)\.\w+$/;
+            }
+            return 1;
         });
     }
     # Now take everything that isn't in @reminingIdx and suggest trash it
