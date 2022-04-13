@@ -834,9 +834,11 @@ sub generateFindDupeFilesAutoAction {
     my @autoCommands = ();
     # Figure out what's trashable, starting by excluding missing files
     my @remainingIdx = grep { $group->[$_]->{exists} } (0..$#$group);
-    #filterIndicies($group, \@remainingIdx, sub {
-    #    $_->{fullPath} !~ /[\/\\]ToImport[\/\\]/
-    #});
+    filterIndicies($group, \@remainingIdx, sub {
+        # Don't auto trash things with sidecars
+        return 1 if @{$_->{sidecars}};
+        $_->{fullPath} !~ /[\/\\]ToImport[\/\\]/
+    });
     if (@remainingIdx > 1 &&
         all { $_ eq MATCH_FULL } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
         # We have several things left that are all exact matches with no sidecars
@@ -895,6 +897,8 @@ sub generateFindDupeFilesAutoAction {
     if (all { $isShortMovieSidecar->() } @{$group}[@remainingIdx]) {
         push @autoCommands, 'c';
     }
+    # Appending continue command will auto skip to the next for full auto mode
+    #push @autoCommands, 'c';
     return join ';', @autoCommands;
 }
 
@@ -1600,7 +1604,7 @@ sub appendMd5Files {
             if (exists $targetMd5Set->{$md5Key}) {
                 my $targetMd5Info = $targetMd5Set->{$md5Key};
                 Data::Compare::Compare($sourceMd5Info, $targetMd5Info) or die
-                    "Can't append MD5 info to '$targetMd5Path'" .
+                    "Can't append MD5 info from '$sourceMd5Path' to '$targetMd5Path'" .
                     " due to key collision for '$md5Key'";
             } else {
                 $targetMd5Set->{$md5Key} = $sourceMd5Info;
