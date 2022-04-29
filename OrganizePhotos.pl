@@ -888,7 +888,7 @@ sub generateFindDupeFilesAutoAction {
     my $isShortMovieSidecar = sub {
         my ($basename, $ext) = splitExt($_->{fullPath});
         return 0 if defined $ext and lc $ext ne 'mov';
-        return 0 unless exists $_->{md5Info}->{size};
+        return 0 unless exists $_->{md5Info} and exists $_->{md5Info}->{size};
         my $altSize = -s catExt($basename, 'heic');
         $altSize = -s catExt($basename, 'jpg') unless defined $altSize;
         return 0 unless defined $altSize;
@@ -1439,7 +1439,12 @@ EOM
             warn Term::ANSIColor::colored("MISMATCH OF MD5 for '@{[prettyPath($mediaPath)]}'", 'red'), 
                  " [$oldMd5Info->{md5} vs $newMd5Info->{md5}]\n";
             while (1) {
-                print "Ignore, Overwrite, Quit (i/o/q)? ", "\a";
+                print <<"EOM", "i/o/s/q? ", "\a"; 
+[I]gnore changes and used cached value
+[O]verwrite cached value with new data
+[S]kip using either conflicting value
+[Q]uit
+EOM
                 chomp(my $in = <STDIN>);
                 if ($in eq 'i') {
                     # Ignore newMd5Info, so we don't want to return that. Return
@@ -1447,6 +1452,8 @@ EOM
                     return { %$oldMd5Info, %$newMd5InfoBase };
                 } elsif ($in eq 'o') {
                     last;
+                } elsif ($in eq 's') {
+                    return undef;
                 } elsif ($in eq 'q') {
                     exit 0;
                 } else {
