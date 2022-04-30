@@ -4,11 +4,16 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 
 # SYNOPSIS
 
-    # Get help
-    $ OrganizePhotos -h
-
-    # Run checkup on a directory
-    $ OrganizePhotos c /photos/root/dir
+    OrganizePhotos -h
+    OrganizePhotos check-md5|c5 [--add-only] [glob patterns...]
+    OrganizePhotos checkup|c [--add-only] [--auto-diff|-d] [--by-name|-n]
+        [--no-default-last-action] [glob patterns...]
+    OrganizePhotos collect-trash|ct [glob patterns...]
+    OrganizePhotos find-dupe-files|fdf [--auto-diff|-d] [--by-name|-n]
+        [--no-default-last-action] [glob-patterns...]
+    OrganizePhotos metadata-diff|md [--exclude-sidecars|-x] [glob-patterns...]
+    OrganizePhotos remove-empties|re [glob-patterns...]
+    OrganizePhotos restore-trash|rt [glob-patterns...]
 
 # DESCRIPTION
 
@@ -17,11 +22,11 @@ managed by Adobe Lightroom. This helps with tasks not covered by
 Lightroom such as: backup/archive, integrity checks, consolidation,
 and other OCD metadata organization.
 
-Metadata this program needs to persist are stored in `md5.txt` files in
+Metadata this program needs to persist are stored in database files in
 the same directory as the files that data was generated for. If they 
 are separated, the metadata will no longer be associated and the separated
 media files will be treated as new. The expectation is that if files move,
-the `md5.txt` file is also moved or copied.
+the per-directory database file is also moved or copied.
 
 Metadata operations are powered by [`Image::ExifTool`](https://metacpan.org/pod/Image%3A%3AExifTool).
 
@@ -39,15 +44,15 @@ The following verbs are available:
 ## **`check-md5`** _(`c5`)_
 
 For each media file under the current directory, generate the MD5 hash
-and either add to `md5.txt` file if missing or verify hashes match if
+and either add to the database if missing or verify hashes match if
 already present.
 
-This method is read/write for `md5.txt` files. If you want to perform
-read-only MD5 checks (i.e., don't write to `md5.txt`), then use the
-`verify-md5` verb.
+This method is read/write for per-directory database files. If you want
+to perform read-only MD5 checks (i.e., don't write to the database), 
+then use the `verify-md5` verb.
 
 This does not modify media files or their sidecars, it only modifies
-the `md5.txt` files.
+the per-directory database files.
 
 ### Options & Arguments
 
@@ -78,14 +83,15 @@ This command runs the following suggested suite of commands:
 
 ### Options & Arguments
 
-- **`--auto-diff`** _(`-d`)_
+- **`-d`**, **`--auto-diff`**
 
     Automatically do the `d` diff command for every new group of files
 
-- **`--default-last-action`** _(`-l`)_
+- **`--no-default-last-action`**
 
-    Use the last action as the default action (what is used if an
-    empty command is specified, i.e. you just press Enter)
+    Don't use the last action as the default action (what is used if an
+    empty command is specified, i.e. you just press Enter). Enter without
+    entering a command will re-prompt.
 
 - **glob patterns**
 
@@ -104,25 +110,28 @@ This command runs the following suggested suite of commands:
     $ OrganizePhotos re foo
     $ OrganizePhotos ct foo
 
+    # Find all the duplicate windows binaries under the bin dir
+    $ OrganizePhotos c -fqr"\.(?:(?i)dll|exe|scr)$" bin
+
 ## **`collect-trash`** _(`ct`)_
 
-Looks recursively for `.Trash` subdirectories under the current directory
-and moves that content to the current directory's `.Trash` perserving
+Looks recursively for `.orphtrash` subdirectories under the current directory
+and moves that content to the current directory's `.orphtrash` perserving
 directory structure.
 
 For example if we had the following trash:
 
-    ./Foo/.Trash/1.jpg
-    ./Foo/.Trash/2.jpg
-    ./Bar/.Trash/3.jpg
-    ./Bar/Baz/.Trash/4.jpg
+    ./Foo/.orphtrash/1.jpg
+    ./Foo/.orphtrash/2.jpg
+    ./Bar/.orphtrash/3.jpg
+    ./Bar/Baz/.orphtrash/4.jpg
 
 After collection we would have:
 
-    ./.Trash/Foo/1.jpg
-    ./.Trash/Foo/2.jpg
-    ./.Trash/Bar/3.jpg
-    ./.Trash/Bar/Baz/4.jpg
+    ./.orphtrash/Foo/1.jpg
+    ./.orphtrash/Foo/2.jpg
+    ./.orphtrash/Bar/3.jpg
+    ./.orphtrash/Bar/Baz/4.jpg
 
 ### Options & Arguments
 
@@ -134,7 +143,7 @@ After collection we would have:
 ### Examples
 
     # Collect trash in directories starting with Do, e.g.
-    # Documents/.Trash, Downloads/.Trash, etc.
+    # Documents/.orphtrash, Downloads/.orphtrash, etc.
     $ OrganizePhotos ct Do*
 
 ## **`find-dupe-files`** _(`fdf`)_
@@ -144,16 +153,17 @@ and walks through a series of interactive prompts for resolution.
 
 ### Options & Arguments
 
-- **`--auto-diff`** _(`-d`)_
+- **`-d`**, **`--auto-diff`** 
 
     Automatically do the `d` diff command for every new group of files
 
-- **`--default-last-action`** _(`-l`)_
+- **`--no-default-last-action`**
 
-    Use the last action as the default action (what is used if an
-    empty command is specified, i.e. you just press Enter)
+    Don't use the last action as the default action (what is used if an
+    empty command is specified, i.e. you just press Enter). Enter without
+    entering a command will re-prompt.
 
-- **`--by-name`** _(`-n`)_
+- **`-n`**, **`--by-name`**
 
     Search for duplicates based on name rather than the default of MD5
 
@@ -175,7 +185,7 @@ This method does not modify any file.
 
 ### Options & Arguments
 
-- **`--exclude-sidecars`** _(`-x`)_
+- **`-x`**, **`--exclude-sidecars`**
 
     Don't include sidecar metadata for a file. For example, a CR2 file wouldn't 
     include any metadata from a sidecar XMP which typically is the place where
@@ -192,7 +202,9 @@ This method does not modify any file.
 
 ## **`remove-empties`** _(`re`)_
 
-Remove any subdirectories that are empty save an `md5.txt` file.
+Trash any subdirectories that are empty except for disposable files.
+Disposable files include .DS\_Store, thumbs.db, and our per-directory
+database files.
 
 ### Options & Arguments
 
@@ -207,9 +219,25 @@ Remove any subdirectories that are empty save an `md5.txt` file.
     # in the current directory that have 'abc' in their name
     $ OrganizePhotos re *abc*
 
+## **`restore-trash`** _(`rt`)_
+
+Put any trash generated by this app back
+
+### Options & Arguments
+
+- **glob patterns**
+
+    Rather than operate on files under the current directory, operate on
+    the specified glob pattern(s).
+
+### Examples
+
+    # Restores all trash under the Foo directory
+    $ OrganizePhotos rt Foo
+
 ## **`verify-md5`** _(`v5`)_
 
-Verifies the MD5 hashes for all contents of all `md5.txt` files below
+Verifies the MD5 hashes for all contents of all database files below
 the current directory.
 
 This method is read-only, if you want to add/update MD5s, use `check-md5`.
