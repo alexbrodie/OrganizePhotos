@@ -1964,28 +1964,28 @@ sub parseIsobmffBox {
         parseIsobmffBox($mediaPath, $fh, $child);
     };
     unless (my $type = $box->{__type}) {
-        parseIsobmffBoxChildren(@_);
+        parseIsobmffBoxChildren($mediaPath, $fh, $box);
     } elsif ($type eq 'dinf') { # -------------------- Data Information --- dinf
-        parseIsobmffBoxChildren(@_);
+        parseIsobmffBoxChildren($mediaPath, $fh, $box);
     } elsif ($type eq 'dref') { # ---------------------- Data Reference --- dref
-        readIsobmffBoxVersionAndFlags(@_, 0);
-        parseIsobmffBoxChildren(@_, unpackIsobmffBoxData(@_, 'N', 4));
+        readIsobmffBoxVersionAndFlags($mediaPath, $fh, $box, 0);
+        parseIsobmffBoxChildren($mediaPath, $fh, $box, unpackIsobmffBoxData($mediaPath, $fh, $box, 'N', 4));
     } elsif ($type eq 'hdlr') { # ------------------- Handler Reference --- hdlr
-        readIsobmffBoxVersionAndFlags(@_, 0);
-        @{$box}{qw(f_handler_type)} = unpackIsobmffBoxData(@_, 'x4a4', 8);
+        readIsobmffBoxVersionAndFlags($mediaPath, $fh, $box, 0);
+        @{$box}{qw(f_handler_type)} = unpackIsobmffBoxData($mediaPath, $fh, $box, 'x4a4', 8);
     } elsif ($type eq 'idat') { # --------------------------- Item Data --- idat
         # This blob of data can be referenced if iloc's construction_method is
         # idat_offset (1). There's no pre-structured data to be parsed.
     } elsif ($type eq 'iinf') { # -------------------- Item Information --- iinf
-        readIsobmffBoxVersionAndFlags(@_, 0);
-        parseIsobmffBoxChildren(@_, unpackIsobmffBoxData(@_, 'n', 2));
+        readIsobmffBoxVersionAndFlags($mediaPath, $fh, $box, 0);
+        parseIsobmffBoxChildren($mediaPath, $fh, $box, unpackIsobmffBoxData($mediaPath, $fh, $box, 'n', 2));
     } elsif ($type eq 'iloc') { # ----------------------- Item Location --- iloc
         # The fields offset_size, length_size, base_offset_size, index_size,
         # item_count, and extent_count are intermediate values only used to 
         # parse other values within this box and so provide little use other
         # than distraction and overhead if retained
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_, 2);
-        my @values = unpackIsobmffBoxData(@_, 'C2', 2);
+        my ($version, $flags) = readIsobmffBoxVersionAndFlags($mediaPath, $fh, $box, 2);
+        my @values = unpackIsobmffBoxData($mediaPath, $fh, $box, 'C2', 2);
         my $offsetSize = $values[0] >> 4;
         my $lengthSize = $values[0] & 0xf;
         my $baseOffsetSize = $values[1] >> 4;
@@ -1995,9 +1995,9 @@ sub parseIsobmffBox {
         }
         my $itemCount = 0;
         if ($version < 2) {
-            $itemCount = unpackIsobmffBoxData(@_, 'n', 2);
+            $itemCount = unpackIsobmffBoxData($mediaPath, $fh, $box, 'n', 2);
         } elsif ($version == 2) {
-            $itemCount  = unpackIsobmffBoxData(@_, 'N', 4);
+            $itemCount  = unpackIsobmffBoxData($mediaPath, $fh, $box, 'N', 4);
         }
         my $readIntegerSized = sub {
             my ($byteSize) = @_;
@@ -2015,16 +2015,16 @@ sub parseIsobmffBox {
         for (my $i = 0; $i < $itemCount; $i++) {
             my %item = ();
             if ($version < 2) {
-                @item{qw(item_id)} = unpackIsobmffBoxData(@_, 'n', 2);
+                @item{qw(item_id)} = unpackIsobmffBoxData($mediaPath, $fh, $box, 'n', 2);
             } elsif ($version == 2) {
-                @item{qw(item_id)} = unpackIsobmffBoxData(@_, 'N', 4);
+                @item{qw(item_id)} = unpackIsobmffBoxData($mediaPath, $fh, $box, 'N', 4);
             }
             if ($version == 1 or $version == 2) {
-                @item{qw(construction_method)} = unpackIsobmffBoxData(@_, 'n', 2);
+                @item{qw(construction_method)} = unpackIsobmffBoxData($mediaPath, $fh, $box, 'n', 2);
             }
-            @item{qw(data_reference_index)} = unpackIsobmffBoxData(@_, 'n', 2);
+            @item{qw(data_reference_index)} = unpackIsobmffBoxData($mediaPath, $fh, $box, 'n', 2);
             $item{base_offset} = $readIntegerSized->($baseOffsetSize);
-            my $extentCount = unpackIsobmffBoxData(@_, 'n', 2);
+            my $extentCount = unpackIsobmffBoxData($mediaPath, $fh, $box, 'n', 2);
             my @extents = ();
             for (my $j = 0; $j < $extentCount; $j++) {
                 my %extent = ();
@@ -2038,30 +2038,30 @@ sub parseIsobmffBox {
         }
         $box->{f_items} = \@items;
     } elsif ($type eq 'infe') { # --------------------- Item Info Entry --- infe
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_, 3);
+        my ($version, $flags) = readIsobmffBoxVersionAndFlags($mediaPath, $fh, $box, 3);
         if ($version < 2) {
             @{$box}{qw(f_item_id f_item_protection_index f_item_name f_content_type f_content_encoding)} =
-                unpackIsobmffBoxData(@_, 'nnZ*Z*Z*');
+                unpackIsobmffBoxData($mediaPath, $fh, $box, 'nnZ*Z*Z*');
         } else {
             @{$box}{qw(f_item_id f_item_protection_index f_item_type)} = ($version == 2)
-                ? unpackIsobmffBoxData(@_, 'nna4', 8)
-                : unpackIsobmffBoxData(@_, 'Nna4', 10);
+                ? unpackIsobmffBoxData($mediaPath, $fh, $box, 'nna4', 8)
+                : unpackIsobmffBoxData($mediaPath, $fh, $box, 'Nna4', 10);
             if ($box->{f_item_type} eq 'mime') {
                 @{$box}{qw(f_item_name f_content_type f_content_encoding)} = 
-                    unpackIsobmffBoxData(@_, 'Z*Z*Z*');
+                    unpackIsobmffBoxData($mediaPath, $fh, $box, 'Z*Z*Z*');
             } elsif ($box->{f_item_type} eq 'uri ') {
                 @{$box}{qw(f_item_name f_item_uri_type)} = 
-                    unpackIsobmffBoxData(@_, 'Z*Z*');
+                    unpackIsobmffBoxData($mediaPath, $fh, $box, 'Z*Z*');
             } else {
-                @{$box}{qw(f_item_name)} = unpackIsobmffBoxData(@_, 'Z*');
+                @{$box}{qw(f_item_name)} = unpackIsobmffBoxData($mediaPath, $fh, $box, 'Z*');
             }
         }
     } elsif ($type eq 'iprp') { # --------------------- Item Properties --- iprp
         # TODO - I can't find documentation for this, skip for now
     } elsif ($type eq 'iref') { # ---------------------- Item Reference --- iref
-        my ($version, $flags) = readIsobmffBoxVersionAndFlags(@_, 1);
+        my ($version, $flags) = readIsobmffBoxVersionAndFlags($mediaPath, $fh, $box, 1);
         my $idFormat = ($version == 0) ? 'n': 'N';
-        parseIsobmffBoxChildren(@_, undef, sub {
+        parseIsobmffBoxChildren($mediaPath, $fh, $box, undef, sub {
             my ($mediaPath, $fh, $child) = @_;
             my @values = unpackIsobmffBoxData($mediaPath, $fh, $child, "$idFormat n/$idFormat");
             $child->{f_from_item_id} = shift @values;
@@ -2073,15 +2073,15 @@ sub parseIsobmffBox {
     } elsif ($type eq 'meta') { # ---------------------------- Metadata --- meta
         # TODO - it seems like Apple QTFF (ftyp->major_brand = 'qt  ') 'meta' 
         # atom is missing version/flags and ISO BMFF 'meta' box has version/flags? 
-        readIsobmffBoxVersionAndFlags(@_, 0);
-        parseIsobmffBoxChildren(@_);
+        readIsobmffBoxVersionAndFlags($mediaPath, $fh, $box, 0);
+        parseIsobmffBoxChildren($mediaPath, $fh, $box);
     } elsif ($type eq 'moov') { # ------------------------------- Movie --- moov
-        parseIsobmffBoxChildren(@_);
+        parseIsobmffBoxChildren($mediaPath, $fh, $box);
     } elsif ($type eq 'pitm') { # ------------------------ Primary Item --- pitm
-        readIsobmffBoxVersionAndFlags(@_, 0);
-        @{$box}{qw(f_item_id)} = unpackIsobmffBoxData(@_, 'n', 2);
+        readIsobmffBoxVersionAndFlags($mediaPath, $fh, $box, 0);
+        @{$box}{qw(f_item_id)} = unpackIsobmffBoxData($mediaPath, $fh, $box, 'n', 2);
     } elsif ($type eq 'url ') { # ----------------------- Data Entry Url --- url 
-        readIsobmffBoxVersionAndFlags(@_, 0);
+        readIsobmffBoxVersionAndFlags($mediaPath, $fh, $box, 0);
         # TODO - Then optional string?
         #$box->{f_location} = 
     } elsif ($type ne 'free' and $type ne 'skip' and $type ne 'wide') {
