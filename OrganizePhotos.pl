@@ -341,6 +341,7 @@ sub main {
             doFindDupeFiles($byName, $autoDiff, 
                             !$noDefaultLastAction, @args);
             doRemoveEmpties(@args);
+            doPurgeMd5(@args);
             doCollectTrash(@args);
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
             my @args = myGetOptions();
@@ -637,7 +638,7 @@ EOM
                         if ($group->[$1]->{exists}) {
                             trashPathAndSidecars($group->[$1]->{fullPath});
                         } else {
-                            deleteMd5Info($group->[$1]->{fullPath});
+                            trashMd5Info($group->[$1]->{fullPath});
                         }
                         $group->[$1] = undef;
                         $itemCount--;
@@ -1124,6 +1125,12 @@ sub doRemoveEmpties {
 # Execute purge-md5 verb
 sub doPurgeMd5 {
     my (@globPatterns) = @_;
+    # Note that this is O(N^2) because it was easier to reuse already
+    # written and tested code (especially on the error paths and atomic-ness).
+    # To make this O(N) we'd want to unroll the findMd5s method, in the loop
+    # over all the keys just move the apprpriate Md5Info to a temp hash, do a
+    # single append of the collected Md5Info to .orphtrash/.orphdat (similar 
+    # to appendMd5Files), and then write back out the pruned .orphdat.
     findMd5s(
         undef, # isDirWanted
         sub { # isFileWanted
@@ -1131,9 +1138,7 @@ sub doPurgeMd5 {
         },
         sub {  #callback
             my ($fullPath, $md5Info) = @_;
-            unless (-e $fullPath) {
-                print "$fullPath is missing\n";
-            }
+            trashMd5Info($fullPath) unless -e $fullPath;
         }, @globPatterns);
 }
 
@@ -1422,10 +1427,13 @@ sub getMd5PathAndMd5Key {
 sub writeMd5Info {
     my ($mediaPath, $newMd5Info) = @_;
     trace(VERBOSITY_ALL, "writeMd5Info('$mediaPath', {...});");
-    return deleteMd5Info($mediaPath) unless $newMd5Info;
-    my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
-    my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
-    return setMd5InfoAndWriteMd5File($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set);
+    if ($newMd5Info) {
+        my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
+        my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
+        return setMd5InfoAndWriteMd5File($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set);
+    } else {
+        return deleteMd5Info($mediaPath);
+    }
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -1452,11 +1460,15 @@ sub moveMd5Info {
     if ($newMediaPath) {
         my (undef, undef, $newFilename) = File::Spec->splitpath($newMediaPath);
         my $newMd5Info = { %$oldMd5Info, filename => $newFilename };
-        #writeMd5Info($newMediaPath, $newMd5Info);
+        # The code for the remainder of this scope is very similar to 
+        #   writeMd5Info($newMediaPath, $newMd5Info);
+        # but with additional cases considered and improved context in traces
         my ($newMd5Path, $newMd5Key) = getMd5PathAndMd5Key($newMediaPath);
         ($oldMd5Path ne $newMd5Path) or die "Not yet supported";
         my ($newMd5File, $newMd5Set) = readOrCreateNewMd5File($newMd5Path);
-        #setMd5InfoAndWriteMd5File($newMediaPath, $newMd5Info, $newMd5Path, $newMd5Key, $newMd5File, $newMd5Set);
+        # The code for the remainder of this scope is very similar to 
+        #   setMd5InfoAndWriteMd5File($newMediaPath, $newMd5Info, $newMd5Path, $newMd5Key, $newMd5File, $newMd5Set);
+        # but with additional cases considered and improved context in traces
         my $existingMd5Info = $newMd5Set->{$newMd5Key};
         if ($existingMd5Info and Data::Compare::Compare($existingMd5Info, $newMd5Info)) {
             # Existing Md5Info at target is identical, so target is up to date already
@@ -1494,6 +1506,17 @@ sub moveMd5Info {
         printCrud(CRUD_DELETE, "Deleted empty   '@{[prettyPath($oldMd5Path)]}'\n");
     }
     return $oldMd5Info;
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Moves Md5Info for a MediaPath to local trash. Returns the previous Md5Info
+# value if it existed (or undef if not).
+sub trashMd5Info {
+    my ($mediaPath) = @_;
+    trace(VERBOSITY_ALL, "trashMd5Info('$mediaPath');");
+    my $trashPath = getTrashPathFor($mediaPath);
+    ensureParentDirExists($trashPath);
+    return moveMd5Info($mediaPath, $trashPath);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -2446,6 +2469,16 @@ sub extractInfo {
 }
 
 # MODEL (Path Operations) ------------------------------------------------------
+# Gets the local trash location for the specified path: the same filename
+# in the .orphtrash subdirectory.
+sub getTrashPathFor {
+    my ($fullPath) = @_;
+    my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+    my $trashDir = File::Spec->catdir($dir, $trashDirName);
+    return combinePath($vol, $trashDir, $filename);
+}
+
+# MODEL (Path Operations) ------------------------------------------------------
 sub comparePathWithExtOrder {
     my ($fullPathA, $fullPathB) = @_;
     my ($volA, $dirA, $filenameA) = File::Spec->splitpath($fullPathA);
@@ -2742,10 +2775,7 @@ sub trashPath {
     unless (tryRemoveEmptyDir($fullPath)) {
         # Not an empty dir, so move to trash by inserting a .orphtrash
         # before the filename in the path, and moving it there
-        my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-        my $trashDir = File::Spec->catdir($dir, $trashDirName);
-        my $newFullPath = combinePath($vol, $trashDir, $filename);
-        movePath($fullPath, $newFullPath);
+        movePath($fullPath, getTrashPathFor($fullPath));
     }
 }
 
@@ -2820,16 +2850,7 @@ sub movePath {
     trace(VERBOSITY_ALL, "movePath('$oldFullPath', '$newFullPath');");
     return if $oldFullPath eq $newFullPath;
     my $moveInternal = sub {
-        # Ensure parent dir exists
-        my $newParentFullPath = parentPath($newFullPath);
-        unless (-d $newParentFullPath) {
-            trace(VERBOSITY_MEDIUM, "File::Copy::make_path('$newParentFullPath');");
-            unless ($dryRun) {
-                File::Path::make_path($newParentFullPath) or die
-                    "Failed to make directory '$newParentFullPath': $!";
-            }
-            printCrud(CRUD_CREATE, "Created dir     '@{[prettyPath($newParentFullPath)]}'\n");
-        }
+        ensureParentDirExists($newFullPath, $dryRun);
         # Move the file/dir
         trace(VERBOSITY_MEDIUM, "File::Copy::move('$oldFullPath', '$newFullPath');");
         unless ($dryRun) {
@@ -2906,6 +2927,20 @@ sub movePath {
         }
     } else {
         die "Programmer Error: unexpected type for object '$oldFullPath'";
+    }
+}
+
+# MODEL (File Operations) ------------------------------------------------------
+sub ensureParentDirExists {
+    my ($fullPath, $dryRun) = @_;
+    my $parentFullPath = parentPath($fullPath);
+    unless (-d $parentFullPath) {
+        trace(VERBOSITY_MEDIUM, "File::Copy::make_path('$parentFullPath');");
+        unless ($dryRun) {
+            File::Path::make_path($parentFullPath) or die
+                "Failed to make directory '$parentFullPath': $!";
+        }
+        printCrud(CRUD_CREATE, "Created dir     '@{[prettyPath($parentFullPath)]}'\n");
     }
 }
 
@@ -3107,6 +3142,7 @@ This command runs the following suggested suite of commands:
     find-dupe-files [--auto-diff|d] [--by-name|n]
         [--no-default-last-action] [glob patterns]
     remove-empties [glob patterns]
+    prune-md5 [glob patterns]
     collect-trash [glob patterns]
 
 =head3 Options & Arguments
