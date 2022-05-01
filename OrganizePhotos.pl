@@ -374,7 +374,7 @@ sub main {
             my @args = myGetOptions();
             doRestoreTrash(@args);
         } elsif ($verb eq 'test') {
-            doTest(@args);
+            doTest(@ARGV);
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
             my @args = myGetOptions();
             doVerifyMd5(@args);
