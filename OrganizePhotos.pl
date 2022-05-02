@@ -3138,7 +3138,7 @@ the specified glob pattern(s).
 
 This command runs the following suggested suite of commands:
 
-    check-md5 [--add-only] [--purge|-p] [glob patterns]
+    check-md5 [--add-only] [glob patterns]
     find-dupe-files [--auto-diff|d] [--by-name|n]
         [--no-default-last-action] [glob patterns]
     remove-empties [glob patterns]
@@ -3167,12 +3167,6 @@ entering a command will re-prompt.
 =item B<C<-n>>, B<C<--by-name>>
 
 Search for duplicates based on name rather than the default of MD5.
-
-=item B<C<-p>>, B<C<--purge>>
-
-Trash database entries that reference files that no longer exist at the
-location where they were indexed, presumably because they were moved
-or deleted.
 
 =item B<glob patterns>
 
