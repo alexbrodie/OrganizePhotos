@@ -309,6 +309,7 @@ sub main {
             }
             trace(VERBOSITY_LOW, "Filter set to: ", $filenameFilter);
         }
+        return @ARGV;
     }
     # Parse args (using GetOptions) and delegate to the doVerb methods...
     unless (@ARGV) {
@@ -319,57 +320,65 @@ sub main {
         Getopt::Long::Configure('bundling');
         my $verb = shift @ARGV;
         if ($verb eq 'append-metadata' or $verb eq 'am') {
-            myGetOptions();
-            doAppendMetadata(@ARGV);
+            my @args = myGetOptions();
+            doAppendMetadata(@args);
         } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
             my $addOnly = 0;
-            myGetOptions('add-only' => \$addOnly);
-            doCheckMd5($addOnly, @ARGV);
+            my @args = myGetOptions(
+                'add-only' => \$addOnly);
+            doCheckMd5($addOnly, @args);
         } elsif ($verb eq 'checkup' or $verb eq 'c') {
             my $addOnly = 0;
             my $autoDiff = 0;
             my $byName = 0;
             my $noDefaultLastAction = 0;
-            myGetOptions('add-only' => \$addOnly,
-                         'auto-diff|d' => \$autoDiff,
-                         'by-name|n' => \$byName,
-                         'no-default-last-action' => \$noDefaultLastAction);
-            doCheckMd5($addOnly, @ARGV);
+            my @args = myGetOptions(
+                'add-only' => \$addOnly,
+                'auto-diff|d' => \$autoDiff,
+                'by-name|n' => \$byName,
+                'no-default-last-action' => \$noDefaultLastAction);
+            doCheckMd5($addOnly, @args);
             doFindDupeFiles($byName, $autoDiff, 
-                            !$noDefaultLastAction, @ARGV);
-            doRemoveEmpties(@ARGV);
-            doCollectTrash(@ARGV);
+                            !$noDefaultLastAction, @args);
+            doRemoveEmpties(@args);
+            doPurgeMd5(@args);
+            doCollectTrash(@args);
         } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
-            myGetOptions();
-            doCollectTrash(@ARGV);
+            my @args = myGetOptions();
+            doCollectTrash(@args);
         } elsif ($verb eq 'find-dupe-dirs' or $verb eq 'fdd') {
-            myGetOptions();
-            @ARGV and die "Unexpected parameters: @ARGV\n";
+            my @args = myGetOptions();
+            @args and die "Unexpected parameters: @args\n";
             doFindDupeDirs();
         } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
             my $autoDiff = 0;
             my $byName = 0;
             my $noDefaultLastAction = 0;
-            myGetOptions('auto-diff|d' => \$autoDiff,
-                         'by-name|n' => \$byName,
-                         'no-default-last-action' => \$noDefaultLastAction);
+            my @args = myGetOptions(
+                'auto-diff|d' => \$autoDiff,
+                'by-name|n' => \$byName,
+                'no-default-last-action' => \$noDefaultLastAction);
             doFindDupeFiles($byName, $autoDiff, 
-                            !$noDefaultLastAction, @ARGV);
+                            !$noDefaultLastAction, @args);
         } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
             my $excludeSidecars = 0;
-            myGetOptions('exclude-sidecars|x' => \$excludeSidecars);
-            doMetadataDiff($excludeSidecars, @ARGV);
+            my @args = myGetOptions(
+                'exclude-sidecars|x' => \$excludeSidecars);
+            doMetadataDiff($excludeSidecars, @args);
+        } elsif ($verb eq 'purge-md5' or $verb eq 'p5') {
+            my @args = myGetOptions();
+            doPurgeMd5(@args);
         } elsif ($verb eq 'remove-empties' or $verb eq 're') {
-            myGetOptions();
-            doRemoveEmpties(@ARGV);
+            my @args = myGetOptions();
+            doRemoveEmpties(@args);
         } elsif ($verb eq 'restore-trash' or $verb eq 'rt') {
-            myGetOptions();
-            doRestoreTrash(@ARGV);
+            my @args = myGetOptions();
+            doRestoreTrash(@args);
         } elsif ($verb eq 'test') {
             doTest(@ARGV);
         } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
-            myGetOptions();
-            doVerifyMd5(@ARGV);
+            my @args = myGetOptions();
+            doVerifyMd5(@args);
         } else {
             die "Unknown verb: $verb\n";
         }
@@ -629,7 +638,7 @@ EOM
                         if ($group->[$1]->{exists}) {
                             trashPathAndSidecars($group->[$1]->{fullPath});
                         } else {
-                            deleteMd5Info($group->[$1]->{fullPath});
+                            trashMd5Info($group->[$1]->{fullPath});
                         }
                         $group->[$1] = undef;
                         $itemCount--;
@@ -1113,6 +1122,27 @@ sub doRemoveEmpties {
 }
 
 # API ==========================================================================
+# Execute purge-md5 verb
+sub doPurgeMd5 {
+    my (@globPatterns) = @_;
+    # Note that this is O(N^2) because it was easier to reuse already
+    # written and tested code (especially on the error paths and atomic-ness).
+    # To make this O(N) we'd want to unroll the findMd5s method, in the loop
+    # over all the keys just move the apprpriate Md5Info to a temp hash, do a
+    # single append of the collected Md5Info to .orphtrash/.orphdat (similar 
+    # to appendMd5Files), and then write back out the pruned .orphdat.
+    findMd5s(
+        undef, # isDirWanted
+        sub { # isFileWanted
+            return 1; # skip all filters for this
+        },
+        sub {  #callback
+            my ($fullPath, $md5Info) = @_;
+            trashMd5Info($fullPath) unless -e $fullPath;
+        }, @globPatterns);
+}
+
+# API ==========================================================================
 # Execute restore-trash verb
 sub doRestoreTrash {
     my (@globPatterns) = @_;
@@ -1238,8 +1268,9 @@ sub getFileTypeInfo {
 # the file has been modified since the last time this was called), the new
 # Md5Info is calculated, verified, and the cache updated.
 #
-# Returns the current Md5Info for the file, or undef if the MD5 can't be
-# computed (e.g. can't open the file to hash it).
+# Returns the current Md5Info for the file, or undef if
+#   a) the MD5 can't be computed (e.g. can't open the file to hash it)
+#   b) there's a conflict and the user chooses to skip resolving (for now)
 #
 # The default behavior explained above is altered by parameters:
 #
@@ -1396,10 +1427,13 @@ sub getMd5PathAndMd5Key {
 sub writeMd5Info {
     my ($mediaPath, $newMd5Info) = @_;
     trace(VERBOSITY_ALL, "writeMd5Info('$mediaPath', {...});");
-    return deleteMd5Info($mediaPath) unless $newMd5Info;
-    my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
-    my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
-    return setMd5InfoAndWriteMd5File($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set);
+    if ($newMd5Info) {
+        my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
+        my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
+        return setMd5InfoAndWriteMd5File($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set);
+    } else {
+        return deleteMd5Info($mediaPath);
+    }
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -1426,11 +1460,15 @@ sub moveMd5Info {
     if ($newMediaPath) {
         my (undef, undef, $newFilename) = File::Spec->splitpath($newMediaPath);
         my $newMd5Info = { %$oldMd5Info, filename => $newFilename };
-        #writeMd5Info($newMediaPath, $newMd5Info);
+        # The code for the remainder of this scope is very similar to 
+        #   writeMd5Info($newMediaPath, $newMd5Info);
+        # but with additional cases considered and improved context in traces
         my ($newMd5Path, $newMd5Key) = getMd5PathAndMd5Key($newMediaPath);
         ($oldMd5Path ne $newMd5Path) or die "Not yet supported";
         my ($newMd5File, $newMd5Set) = readOrCreateNewMd5File($newMd5Path);
-        #setMd5InfoAndWriteMd5File($newMediaPath, $newMd5Info, $newMd5Path, $newMd5Key, $newMd5File, $newMd5Set);
+        # The code for the remainder of this scope is very similar to 
+        #   setMd5InfoAndWriteMd5File($newMediaPath, $newMd5Info, $newMd5Path, $newMd5Key, $newMd5File, $newMd5Set);
+        # but with additional cases considered and improved context in traces
         my $existingMd5Info = $newMd5Set->{$newMd5Key};
         if ($existingMd5Info and Data::Compare::Compare($existingMd5Info, $newMd5Info)) {
             # Existing Md5Info at target is identical, so target is up to date already
@@ -1468,6 +1506,17 @@ sub moveMd5Info {
         printCrud(CRUD_DELETE, "Deleted empty   '@{[prettyPath($oldMd5Path)]}'\n");
     }
     return $oldMd5Info;
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Moves Md5Info for a MediaPath to local trash. Returns the previous Md5Info
+# value if it existed (or undef if not).
+sub trashMd5Info {
+    my ($mediaPath) = @_;
+    trace(VERBOSITY_ALL, "trashMd5Info('$mediaPath');");
+    my $trashPath = getTrashPathFor($mediaPath);
+    ensureParentDirExists($trashPath);
+    return moveMd5Info($mediaPath, $trashPath);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -2420,6 +2469,16 @@ sub extractInfo {
 }
 
 # MODEL (Path Operations) ------------------------------------------------------
+# Gets the local trash location for the specified path: the same filename
+# in the .orphtrash subdirectory.
+sub getTrashPathFor {
+    my ($fullPath) = @_;
+    my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+    my $trashDir = File::Spec->catdir($dir, $trashDirName);
+    return combinePath($vol, $trashDir, $filename);
+}
+
+# MODEL (Path Operations) ------------------------------------------------------
 sub comparePathWithExtOrder {
     my ($fullPathA, $fullPathB) = @_;
     my ($volA, $dirA, $filenameA) = File::Spec->splitpath($fullPathA);
@@ -2716,10 +2775,7 @@ sub trashPath {
     unless (tryRemoveEmptyDir($fullPath)) {
         # Not an empty dir, so move to trash by inserting a .orphtrash
         # before the filename in the path, and moving it there
-        my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-        my $trashDir = File::Spec->catdir($dir, $trashDirName);
-        my $newFullPath = combinePath($vol, $trashDir, $filename);
-        movePath($fullPath, $newFullPath);
+        movePath($fullPath, getTrashPathFor($fullPath));
     }
 }
 
@@ -2794,16 +2850,7 @@ sub movePath {
     trace(VERBOSITY_ALL, "movePath('$oldFullPath', '$newFullPath');");
     return if $oldFullPath eq $newFullPath;
     my $moveInternal = sub {
-        # Ensure parent dir exists
-        my $newParentFullPath = parentPath($newFullPath);
-        unless (-d $newParentFullPath) {
-            trace(VERBOSITY_MEDIUM, "File::Copy::make_path('$newParentFullPath');");
-            unless ($dryRun) {
-                File::Path::make_path($newParentFullPath) or die
-                    "Failed to make directory '$newParentFullPath': $!";
-            }
-            printCrud(CRUD_CREATE, "Created dir     '@{[prettyPath($newParentFullPath)]}'\n");
-        }
+        ensureParentDirExists($newFullPath, $dryRun);
         # Move the file/dir
         trace(VERBOSITY_MEDIUM, "File::Copy::move('$oldFullPath', '$newFullPath');");
         unless ($dryRun) {
@@ -2880,6 +2927,20 @@ sub movePath {
         }
     } else {
         die "Programmer Error: unexpected type for object '$oldFullPath'";
+    }
+}
+
+# MODEL (File Operations) ------------------------------------------------------
+sub ensureParentDirExists {
+    my ($fullPath, $dryRun) = @_;
+    my $parentFullPath = parentPath($fullPath);
+    unless (-d $parentFullPath) {
+        trace(VERBOSITY_MEDIUM, "File::Copy::make_path('$parentFullPath');");
+        unless ($dryRun) {
+            File::Path::make_path($parentFullPath) or die
+                "Failed to make directory '$parentFullPath': $!";
+        }
+        printCrud(CRUD_CREATE, "Created dir     '@{[prettyPath($parentFullPath)]}'\n");
     }
 }
 
@@ -3008,6 +3069,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
     OrganizePhotos find-dupe-files|fdf [--auto-diff|-d] [--by-name|-n]
         [--no-default-last-action] [glob-patterns...]
     OrganizePhotos metadata-diff|md [--exclude-sidecars|-x] [glob-patterns...]
+    OrganizePhotos purge-md5|p5 [glob-patterns...]
     OrganizePhotos remove-empties|re [glob-patterns...]
     OrganizePhotos restore-trash|rt [glob-patterns...]
 
@@ -3036,7 +3098,6 @@ Most verbs' non-option arguments are glob patterns describing which files
 to operate on.
 
 The following verbs are available:
-
 
 =head2 B<C<check-md5>> I<(C<c5>)>
 
@@ -3077,14 +3138,21 @@ the specified glob pattern(s).
 
 This command runs the following suggested suite of commands:
 
-    check-md5
-    find-dupe-files
-    remove-empties
-    collect-trash
+    check-md5 [--add-only] [glob patterns]
+    find-dupe-files [--auto-diff|d] [--by-name|n]
+        [--no-default-last-action] [glob patterns]
+    remove-empties [glob patterns]
+    prune-md5 [glob patterns]
+    collect-trash [glob patterns]
 
 =head3 Options & Arguments
 
 =over 24
+
+=item B<C<--add-only>>
+
+Only operate on files that haven't had their MD5 computed and stored
+yet. This option means that no existing MD5s will be verified.
 
 =item B<C<-d>>, B<C<--auto-diff>>
 
@@ -3095,6 +3163,10 @@ Automatically do the C<d> diff command for every new group of files
 Don't use the last action as the default action (what is used if an
 empty command is specified, i.e. you just press Enter). Enter without
 entering a command will re-prompt.
+
+=item B<C<-n>>, B<C<--by-name>>
+
+Search for duplicates based on name rather than the default of MD5.
 
 =item B<glob patterns>
 
@@ -3176,7 +3248,7 @@ entering a command will re-prompt.
 
 =item B<C<-n>>, B<C<--by-name>>
 
-Search for duplicates based on name rather than the default of MD5
+Search for duplicates based on name rather than the default of MD5.
 
 =item B<glob patterns>
 
@@ -3216,6 +3288,28 @@ Specifies which files to diff
 
     # Do a three way diff between the metadata in the JPGs
     $ OrganizePhotos md one.jpg two.jpg three.jpg
+
+=head2 B<C<purge-md5>> I<(C<p5>)>
+
+Trash database entries that reference files that no longer exist at the
+location where they were indexed, presumably because they were moved
+or deleted.
+
+=head3 Options & Arguments
+
+=over 24
+
+=item B<glob patterns>
+
+Rather than operate on files under the current directory, operate on
+the specified glob pattern(s).
+
+=back
+
+=head3 Examples
+
+    # Trash all orphaned MD5 data under the current directory
+    $ OrganizePhotos p5
 
 =head2 B<C<remove-empties>> I<(C<re>)>
 
