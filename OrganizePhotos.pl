@@ -324,20 +324,23 @@ sub main {
             doAppendMetadata(@args);
         } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
             my $addOnly = 0;
+            my $forceRecalc = 0;
             my @args = myGetOptions(
-                'add-only' => \$addOnly);
-            doCheckMd5($addOnly, @args);
+                'add-only' => \$addOnly,
+                'force-recalc' => \$forceRecalc);
+            doCheckMd5($addOnly, $forceRecalc, @args);
         } elsif ($verb eq 'checkup' or $verb eq 'c') {
             my $addOnly = 0;
             my $autoDiff = 0;
             my $byName = 0;
+            my $forceRecalc = 0;
             my $noDefaultLastAction = 0;
             my @args = myGetOptions(
                 'add-only' => \$addOnly,
                 'auto-diff|d' => \$autoDiff,
                 'by-name|n' => \$byName,
                 'no-default-last-action' => \$noDefaultLastAction);
-            doCheckMd5($addOnly, @args);
+            doCheckMd5($addOnly, $forceRecalc, @args);
             doFindDupeFiles($byName, $autoDiff, 
                             !$noDefaultLastAction, @args);
             doRemoveEmpties(@args);
@@ -487,13 +490,13 @@ sub doAppendMetadata {
 # API ==========================================================================
 # Execute check-md5 verb
 sub doCheckMd5 {
-    my ($addOnly, @globPatterns) = @_;
+    my ($addOnly, $forceRecalc, @globPatterns) = @_;
     traverseFiles(
         undef, # isDirWanted
         undef, # isFileWanted
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
-            -f $fullPath and resolveMd5Info($fullPath, $addOnly);
+            -f $fullPath and resolveMd5Info($fullPath, $addOnly, $forceRecalc);
         },
         @globPatterns);
 }
@@ -749,7 +752,7 @@ sub populateFindDupeFilesDupeGroup {
             delete $elt->{md5Info};
             delete $elt->{dateTaken};
         } else {
-            $elt->{md5Info} = resolveMd5Info($elt->{fullPath}, 0,
+            $elt->{md5Info} = resolveMd5Info($elt->{fullPath}, 0, 0,
                 exists $elt->{md5Info} ? $elt->{md5Info} : $elt->{cachedMd5Info});
             $elt->{dateTaken} = getDateTaken($elt->{fullPath});
         }
@@ -1288,17 +1291,18 @@ sub getFileTypeInfo {
 #   together with the other caches). This is useful for ensuring Md5Info is up
 #   to date even if operations have taken place since originally retrieved.
 sub resolveMd5Info {
-    my ($mediaPath, $addOnly, $cachedMd5Info) = @_;
-    my $forceRecalc = 0; # TODO
+    my ($mediaPath, $addOnly, $forceRecalc, $cachedMd5Info) = @_;
     # First try to get suitable Md5Info from various cache locations
     # without opening or hashing the MediaFile
     my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
     my $newMd5InfoBase = makeMd5InfoBase($mediaPath);
-    if (canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Info, $newMd5InfoBase)) {
+    if (!$forceRecalc and 
+        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Info, $newMd5InfoBase)) {
         # Caller supplied cached Md5Info is up to date
         return { %{Storable::dclone($cachedMd5Info)}, %$newMd5InfoBase };
     }
-    if ($md5Path eq $cachedMd5Path and
+    if (!$forceRecalc and 
+        $md5Path eq $cachedMd5Path and
         canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Set->{$md5Key}, $newMd5InfoBase)) {
         # memory cache of Md5Info is up to date
         return { %{Storable::dclone($cachedMd5Set->{$md5Key})}, %$newMd5InfoBase };
@@ -2221,9 +2225,21 @@ sub getIsobmffPrimaryDataExtents {
 sub getIsobmffMdatMd5 {
     my ($mediaPath, $fh) = @_;
     my $ftyp = readIsobmffFtyp($mediaPath, $fh);
+    my $majorBrand = $ftyp->{f_major_brand};
+    # 'isom' means the first version of ISO Base Media, and is not supposed to
+    # ever be a major brand, but it happens. Try to handle a little bit.
+    if ($majorBrand eq 'isom') {
+        my @compatible = grep { $_ ne 'isom' } @{$ftyp->{f_compatible_brands}};
+        $majorBrand = $compatible[0] if @compatible == 1;
+    } 
     # This works for both Apple QTFF and ISO BMFF (i.e. mov, mp4, heic)
-    any { $ftyp->{f_major_brand} eq $_ } ('mp41', 'mp42', 'qt  ', 'heic') or die
-        "unexpected brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
+    unless (any { $majorBrand eq $_ } ('mp41', 'mp42', 'qt  ', 'heic')) {
+        my $brand = "'$ftyp->{f_major_brand}'";
+        if (@{$ftyp->{f_compatible_brands}}) {
+            $brand = $brand . ' (\'' . join('\', \'', @{$ftyp->{f_compatible_brands}}) . '\')';
+        }
+        die "unexpected brand $brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
+    }
     until (eof($fh)) {
         my $box = readIsobmffBoxHeader($mediaPath, $fh);
         if ($box->{__type} eq 'mdat') {
