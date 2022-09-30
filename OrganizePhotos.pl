@@ -2233,7 +2233,7 @@ sub getIsobmffMdatMd5 {
         $majorBrand = $compatible[0] if @compatible == 1;
     } 
     # This works for both Apple QTFF and ISO BMFF (i.e. mov, mp4, heic)
-    unless (any { $majorBrand eq $_ } ('mp41', 'mp42', 'qt  ', 'heic')) {
+    unless (any { $majorBrand eq $_ } ('avc1', 'heic', 'mp41', 'mp42', 'qt  ')) {
         my $brand = "'$ftyp->{f_major_brand}'";
         if (@{$ftyp->{f_compatible_brands}}) {
             $brand = $brand . ' (\'' . join('\', \'', @{$ftyp->{f_compatible_brands}}) . '\')';
