@@ -7,7 +7,18 @@ use warnings FATAL => qw(uninitialized);
 package View;
 use Exporter;
 our @ISA = ('Exporter');
-our @EXPORT = qw(coloredFaint coloredBold coloredByIndex colorByIndex prettyPath printCrud trace printWithIcon);
+our @EXPORT = qw(
+    coloredBold
+    coloredFaint
+    coloredByIndex
+    prettyPath
+    printCrud
+    printWithIcon
+    trace
+);
+our @EXPORT_OK = qw(
+    getColorForIndex
+);
 
 use if $^O eq 'MSWin32', 'Win32::Console::ANSI'; # must come before Term::ANSIColor
 # TODO: be explicit with this and move usage to view layer
@@ -45,13 +56,13 @@ sub coloredBold {
 # [colorIndex] - Index for a color class
 sub coloredByIndex {
     my ($message, $colorIndex) = @_;
-    return Term::ANSIColor::colored($message, colorByIndex($colorIndex));
+    return Term::ANSIColor::colored($message, getColorForIndex($colorIndex));
 }
 
 # VIEW -------------------------------------------------------------------------
 # Returns a color name (usable with colored()) based on an index
 # [colorIndex] - Index for a color class
-sub colorByIndex {
+sub getColorForIndex {
     my ($colorIndex) = @_;
     my @colors = ('green', 'red', 'blue', 'yellow', 'magenta', 'cyan');
     return 'bright_' . $colors[$colorIndex % scalar @colors];
@@ -84,6 +95,15 @@ sub printCrud {
 }
 
 # VIEW -------------------------------------------------------------------------
+sub printWithIcon {
+    my ($icon, $color, @statements) = @_;
+    my @lines = map { Term::ANSIColor::colored($_, $color) } split /\n/, join '', @statements;
+    $lines[0]  = Term::ANSIColor::colored($icon, "black on_$color") . ' ' . $lines[0];
+    $lines[$_] = (' ' x length $icon) . ' ' . $lines[$_] for 1..$#lines;
+    print map { ($_, "\n") } @lines;
+}
+
+# VIEW -------------------------------------------------------------------------
 sub trace {
     my ($level, @args) = @_;
     if ($level <= $verbosity) {
@@ -91,15 +111,6 @@ sub trace {
         my $icon = sprintf("T%02d@%04d", $level, $line);
         printWithIcon($icon, 'bright_black', @args);
     }
-}
-
-# VIEW -------------------------------------------------------------------------
-sub printWithIcon {
-    my ($icon, $color, @statements) = @_;
-    my @lines = map { Term::ANSIColor::colored($_, $color) } split /\n/, join '', @statements;
-    $lines[0]  = Term::ANSIColor::colored($icon, "black on_$color") . ' ' . $lines[0];
-    $lines[$_] = (' ' x length $icon) . ' ' . $lines[$_] for 1..$#lines;
-    print map { ($_, "\n") } @lines;
 }
 
 1;
