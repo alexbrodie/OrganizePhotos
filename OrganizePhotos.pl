@@ -103,9 +103,12 @@ use Number::Bytes::Human ();
 BEGIN { $Pod::Usage::Formatter = 'Pod::Text::Termcap'; }
 use Pod::Usage ();
 use POSIX ();
-use if $^O eq 'MSWin32', 'Win32::Console::ANSI'; # must come before Term::ANSIColor
-# TODO: be explicit with this and move usage to view layer
-use Term::ANSIColor ();
+
+use File::Basename;
+use Cwd qw(abs_path);
+use lib dirname(abs_path(__FILE__));
+
+use View;
 
 my $autoTrashDuplicatesFrom = [
     '/Volumes/CFexpress/',
@@ -268,18 +271,7 @@ use constant MATCH_UNKNOWN => 0;
 use constant MATCH_NONE => 1;
 use constant MATCH_FULL => 2;
 use constant MATCH_CONTENT => 3;
-use constant VERBOSITY_NONE => 0;    # all traces off
-use constant VERBOSITY_LOW => 1;     # only important traces on
-use constant VERBOSITY_MEDIUM => 2;  # moderate amount of traces on
-use constant VERBOSITY_HIGH => 3;    # most traces on
-use constant VERBOSITY_ALL => 4;     # all traces on
-use constant CRUD_UNKNOWN => 0;
-use constant CRUD_CREATE => 1;
-use constant CRUD_READ => 2;
-use constant CRUD_UPDATE => 3;
-use constant CRUD_DELETE => 4;
 
-my $verbosity = VERBOSITY_NONE;
 my $filenameFilter = $mediaType;
 my $cachedMd5Path = '';
 my $cachedMd5Set = {};
@@ -292,7 +284,7 @@ sub main {
     sub myGetOptions {
         my $filter = undef;
         Getopt::Long::GetOptions(
-            'verbosity|v:+' => \$verbosity,
+            'verbosity|v:+' => \$View::verbosity,
             'filter|f=s' => \$filter, 
             @_) or die "Error in command line, aborting.";
         if ($filter) {
@@ -307,7 +299,7 @@ sub main {
             } else {
                 die "Unknown filter: $filter\n";
             }
-            trace(VERBOSITY_LOW, "Filter set to: ", $filenameFilter);
+            trace(View::VERBOSITY_LOW, "Filter set to: ", $filenameFilter);
         }
         return @ARGV;
     }
@@ -400,7 +392,7 @@ sub doAppendMetadata {
     my $etTarget = extractInfo($target);
     my $infoTarget = $etTarget->GetInfo(@properties);
 
-    trace(VERBOSITY_ALL, "$target: ", Data::Dumper::Dumper($infoTarget));
+    trace(View::VERBOSITY_ALL, "$target: ", Data::Dumper::Dumper($infoTarget));
 
     my $rating = $infoTarget->{Rating};
     my $oldRating = $rating;
@@ -419,7 +411,7 @@ sub doAppendMetadata {
         my $etSource = extractInfo($source);
         my $infoSource = $etSource->GetInfo(@properties);
 
-        trace(VERBOSITY_ALL, "$source: ", Data::Dumper::Dumper($infoSource));
+        trace(View::VERBOSITY_ALL, "$source: ", Data::Dumper::Dumper($infoSource));
 
         # Add rating if we don't already have one
         unless (defined $rating) {
@@ -707,7 +699,7 @@ sub buildFindDupeFilesDupeGroups {
             }, 
             @globPatterns);
     }
-    trace(VERBOSITY_ALL, "Found @{[scalar keys %keyToFullPathList]} initial groups");
+    trace(View::VERBOSITY_ALL, "Found @{[scalar keys %keyToFullPathList]} initial groups");
     # Go through each element in the %keyToFullPathList map, and we'll 
     # want the ones with multiple things in the array of paths. If
     # there  are multiple paths for an element, sort the paths array
@@ -730,7 +722,7 @@ sub buildFindDupeFilesDupeGroups {
     @dupes = sort { 
         comparePathWithExtOrder($a->[0]->{fullPath}, $b->[0]->{fullPath}) 
     } @dupes;
-    trace(VERBOSITY_LOW, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
+    trace(View::VERBOSITY_LOW, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
     return \@dupes;
 }
 
@@ -1347,7 +1339,7 @@ $mediaPath
     Actual:  $newMd5Info->{version}        $newMd5Info->{full_md5}  $newMd5Info->{md5}
 EOM
             } else {
-                trace(VERBOSITY_MEDIUM, "Content MD5 calculation has changed, upgrading from version ",
+                trace(View::VERBOSITY_MEDIUM, "Content MD5 calculation has changed, upgrading from version ",
                       "$oldMd5Info->{version} to $newMd5Info->{version} for '$mediaPath'");
             }
         } else {
@@ -1390,7 +1382,7 @@ EOM
 sub findMd5s {
     my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
     $isFileWanted = \&defaultIsFileWanted unless $isFileWanted;
-    trace(VERBOSITY_ALL, 'findMd5s(...); with @globPatterns of', 
+    trace(View::VERBOSITY_ALL, 'findMd5s(...); with @globPatterns of', 
           (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (current dir)'));
     traverseFiles(
         $isDirWanted,
@@ -1430,7 +1422,7 @@ sub getMd5PathAndMd5Key {
 # value if it existed (or undef if not).
 sub writeMd5Info {
     my ($mediaPath, $newMd5Info) = @_;
-    trace(VERBOSITY_ALL, "writeMd5Info('$mediaPath', {...});");
+    trace(View::VERBOSITY_ALL, "writeMd5Info('$mediaPath', {...});");
     if ($newMd5Info) {
         my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
         my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
@@ -1444,16 +1436,16 @@ sub writeMd5Info {
 # Moves a Md5Info for a file from one directory's storage to another. 
 sub moveMd5Info {
     my ($oldMediaPath, $newMediaPath) = @_;
-    trace(VERBOSITY_ALL, "moveMd5Info('$oldMediaPath', " . 
+    trace(View::VERBOSITY_ALL, "moveMd5Info('$oldMediaPath', " . 
                          (defined $newMediaPath ? "'$newMediaPath'" : 'undef') . ");");
     my ($oldMd5Path, $oldMd5Key) = getMd5PathAndMd5Key($oldMediaPath);
     unless (-e $oldMd5Path) {
-        trace(VERBOSITY_ALL, "Can't move/remove Md5Info for '$oldMd5Key' from missing '$oldMd5Path'"); 
+        trace(View::VERBOSITY_ALL, "Can't move/remove Md5Info for '$oldMd5Key' from missing '$oldMd5Path'"); 
         return undef;
     }
     my ($oldMd5File, $oldMd5Set) = readMd5File('+<:crlf', $oldMd5Path);
     unless (exists $oldMd5Set->{$oldMd5Key}) {
-        trace(VERBOSITY_ALL, "Can't move/remove missing Md5Info for '$oldMd5Key' from '$oldMd5Path'");
+        trace(View::VERBOSITY_ALL, "Can't move/remove missing Md5Info for '$oldMd5Key' from '$oldMd5Path'");
         return undef;
     }
     # For a move we do a copy then a delete, but show it as a single CRUD
@@ -1476,14 +1468,14 @@ sub moveMd5Info {
         my $existingMd5Info = $newMd5Set->{$newMd5Key};
         if ($existingMd5Info and Data::Compare::Compare($existingMd5Info, $newMd5Info)) {
             # Existing Md5Info at target is identical, so target is up to date already
-            $crudOp = CRUD_DELETE;
+            $crudOp = View::CRUD_DELETE;
             $crudMessage = "Removed MD5 for '@{[prettyPath($oldMediaPath)]}' (up to date " .
                            "MD5 already exists for '@{[prettyPath($newMediaPath)]}')";
         } else {
             $newMd5Set->{$newMd5Key} = $newMd5Info;
-            trace(VERBOSITY_MEDIUM, "Writing '$newMd5Path' after moving MD5 for '$newMd5Key'");
+            trace(View::VERBOSITY_MEDIUM, "Writing '$newMd5Path' after moving MD5 for '$newMd5Key'");
             writeMd5File($newMd5Path, $newMd5File, $newMd5Set);
-            $crudOp = CRUD_UPDATE;
+            $crudOp = View::CRUD_UPDATE;
             $crudMessage = "Moved MD5 for   '@{[prettyPath($oldMediaPath)]}' to '@{[prettyPath($newMediaPath)]}'";
             if (defined $existingMd5Info) {
                 $crudMessage = "$crudMessage overwriting existing value";
@@ -1491,23 +1483,23 @@ sub moveMd5Info {
         }
     } else {
         # No new media path, this is a delete only
-        $crudOp = CRUD_DELETE;
+        $crudOp = View::CRUD_DELETE;
         $crudMessage = "Removed MD5 for '@{[prettyPath($oldMediaPath)]}'";
     }
     # TODO: Should this if/else code move to writeMd5File/setMd5InfoAndWriteMd5File such
     #       that any time someone tries to write an empty hashref, it deletes the file?
     delete $oldMd5Set->{$oldMd5Key};
     if (%$oldMd5Set) {
-        trace(VERBOSITY_MEDIUM, "Writing '$oldMd5Path' after removing MD5 for '$oldMd5Key'");
+        trace(View::VERBOSITY_MEDIUM, "Writing '$oldMd5Path' after removing MD5 for '$oldMd5Key'");
         writeMd5File($oldMd5Path, $oldMd5File, $oldMd5Set);
         printCrud($crudOp, $crudMessage, "\n");
     } else {
         # Empty files create trouble down the line (especially with move-merges)
-        trace(VERBOSITY_MEDIUM, "Deleting '$oldMd5Path' after removing MD5 for '$oldMd5Key' (the last one)");
+        trace(View::VERBOSITY_MEDIUM, "Deleting '$oldMd5Path' after removing MD5 for '$oldMd5Key' (the last one)");
         close($oldMd5File);
         unlink($oldMd5Path) or die "Couldn't delete '$oldMd5Path': $!";
         printCrud($crudOp, $crudMessage, "\n");
-        printCrud(CRUD_DELETE, "Deleted empty   '@{[prettyPath($oldMd5Path)]}'\n");
+        printCrud(View::CRUD_DELETE, "Deleted empty   '@{[prettyPath($oldMd5Path)]}'\n");
     }
     return $oldMd5Info;
 }
@@ -1517,7 +1509,7 @@ sub moveMd5Info {
 # value if it existed (or undef if not).
 sub trashMd5Info {
     my ($mediaPath) = @_;
-    trace(VERBOSITY_ALL, "trashMd5Info('$mediaPath');");
+    trace(View::VERBOSITY_ALL, "trashMd5Info('$mediaPath');");
     my $trashPath = getTrashPathFor($mediaPath);
     ensureParentDirExists($trashPath);
     return moveMd5Info($mediaPath, $trashPath);
@@ -1528,7 +1520,7 @@ sub trashMd5Info {
 # value if it existed (or undef if not).
 sub deleteMd5Info {
     my ($mediaPath) = @_;
-    trace(VERBOSITY_ALL, "deleteMd5Info('$mediaPath');");
+    trace(View::VERBOSITY_ALL, "deleteMd5Info('$mediaPath');");
     return moveMd5Info($mediaPath);
 }
 
@@ -1555,11 +1547,11 @@ sub appendMd5Files {
         }
     }
     if ($dirty) {
-        trace(VERBOSITY_MEDIUM, "Writing '$targetMd5Path' after appending data from ",
+        trace(View::VERBOSITY_MEDIUM, "Writing '$targetMd5Path' after appending data from ",
               scalar @sourceMd5Paths, " files");
         writeMd5File($targetMd5Path, $targetMd5File, $targetMd5Set);
         my $itemsAdded = (scalar keys %$targetMd5Set) - $oldTargetMd5SetCount;
-        printCrud(CRUD_CREATE, "Added $itemsAdded MD5s to '${\prettyPath($targetMd5Path)}' from ",
+        printCrud(View::CRUD_CREATE, "Added $itemsAdded MD5s to '${\prettyPath($targetMd5Path)}' from ",
                   join ', ', map { "'${\prettyPath($_)}'" } @sourceMd5Paths);
     }
 }
@@ -1569,7 +1561,7 @@ sub appendMd5Files {
 # it. Returns the Md5File and Md5Set.
 sub readOrCreateNewMd5File {
     my ($md5Path) = @_;
-    trace(VERBOSITY_ALL, "readOrCreateNewMd5File('$md5Path');");
+    trace(View::VERBOSITY_ALL, "readOrCreateNewMd5File('$md5Path');");
     if (-e $md5Path) {
         return readMd5File('+<:crlf', $md5Path);
     } else {
@@ -1584,7 +1576,7 @@ sub readOrCreateNewMd5File {
 # on that. Returns the Md5File and Md5Set.
 sub readMd5File {
     my ($openMode, $md5Path) = @_;
-    trace(VERBOSITY_MEDIUM, "readMd5File('$openMode', '$md5Path');");
+    trace(View::VERBOSITY_MEDIUM, "readMd5File('$openMode', '$md5Path');");
     # TODO: Should we validate filename is $md5Filename or do we care?
     my $md5File = openOrDie($openMode, $md5Path);
     # If the first char is a open curly brace, treat as JSON,
@@ -1621,7 +1613,7 @@ sub readMd5File {
         }
     }
     updateMd5FileCache($md5Path, $md5Set);
-    printCrud(CRUD_READ, "Read MD5s from  '@{[prettyPath($md5Path)]}'\n");
+    printCrud(View::CRUD_READ, "Read MD5s from  '@{[prettyPath($md5Path)]}'\n");
     return ($md5File, $md5Set);
 }
 
@@ -1636,12 +1628,12 @@ sub setMd5InfoAndWriteMd5File {
     my $oldMd5Info = $md5Set->{$md5Key};
     unless ($oldMd5Info and Data::Compare::Compare($oldMd5Info, $newMd5Info)) {
         $md5Set->{$md5Key} = $newMd5Info;
-        trace(VERBOSITY_MEDIUM, "Writing '$md5Path' after setting MD5 for '$md5Key'");
+        trace(View::VERBOSITY_MEDIUM, "Writing '$md5Path' after setting MD5 for '$md5Key'");
         writeMd5File($md5Path, $md5File, $md5Set);
         if (defined $oldMd5Info) {
-            printCrud(CRUD_UPDATE, "Updated MD5 for '@{[prettyPath($mediaPath)]}'\n");
+            printCrud(View::CRUD_UPDATE, "Updated MD5 for '@{[prettyPath($mediaPath)]}'\n");
         } else {
-            printCrud(CRUD_CREATE, "Added MD5 for   '@{[prettyPath($mediaPath)]}'\n");
+            printCrud(View::CRUD_CREATE, "Added MD5 for   '@{[prettyPath($mediaPath)]}'\n");
         }
     }
     return $oldMd5Info;
@@ -1658,7 +1650,7 @@ sub writeMd5File {
     #       a fully cross compatable way (older file versions as well as
     #       Windows/Mac compat)
     # TODO: Should we validate filename is $md5Filename or do we care?
-    trace(VERBOSITY_ALL, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5Set ]} items });');
+    trace(View::VERBOSITY_ALL, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5Set ]} items });');
     seek($md5File, 0, 0) or die "Couldn't reset seek on file: $!";
     truncate($md5File, 0) or die "Couldn't truncate file: $!";
     if (%$md5Set) {
@@ -1695,10 +1687,10 @@ sub makeMd5InfoBase {
 # base-only Md5Info without bothering to calculateMd5Info. 
 sub canUseCachedMd5InfoForBase {
     my ($mediaPath, $addOnly, $cachedMd5Info, $currentMd5InfoBase) = @_;
-    #trace(VERBOSITY_ALL, 'canUseCachedMd5InfoForBase(...);');
+    #trace(View::VERBOSITY_ALL, 'canUseCachedMd5InfoForBase(...);');
     if (defined $cachedMd5Info) {
         if ($addOnly) {
-            trace(VERBOSITY_ALL, "Skipping MD5 recalculation for '$mediaPath' (add-only mode)");
+            trace(View::VERBOSITY_ALL, "Skipping MD5 recalculation for '$mediaPath' (add-only mode)");
             return 1;
         }
         if (defined $cachedMd5Info->{size} and 
@@ -1707,7 +1699,7 @@ sub canUseCachedMd5InfoForBase {
             isMd5InfoVersionUpToDate($mediaPath, $cachedMd5Info->{version}) and
             $currentMd5InfoBase->{size} == $cachedMd5Info->{size} and
             $currentMd5InfoBase->{mtime} == $cachedMd5Info->{mtime}) {
-            trace(VERBOSITY_ALL, "Skipping MD5 recalculation for '$mediaPath' (same size/date-modified)");
+            trace(View::VERBOSITY_ALL, "Skipping MD5 recalculation for '$mediaPath' (same size/date-modified)");
             return 1;
         }
     }
@@ -1721,7 +1713,7 @@ sub canUseCachedMd5InfoForBase {
 # file type.
 sub isMd5InfoVersionUpToDate {
     my ($mediaPath, $version) = @_;
-    #trace(VERBOSITY_ALL, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
+    #trace(View::VERBOSITY_ALL, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
     my $type = getMimeType($mediaPath);
     if ($type eq 'image/heic') {
         return ($version >= 6) ? 1 : 0; # unchanged since V5
@@ -1749,7 +1741,7 @@ sub isMd5InfoVersionUpToDate {
 #   full_md5: full MD5 calculation for exact match
 sub calculateMd5Info {
     my ($mediaPath) = @_;
-    trace(VERBOSITY_MEDIUM, "getMd5('$mediaPath');");
+    trace(View::VERBOSITY_MEDIUM, "getMd5('$mediaPath');");
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
     #!!!   $calculateMd5InfoVersion should be incremented whenever the output
     #!!!   of this method changes in such a way that old values need to be 
@@ -1782,7 +1774,7 @@ sub calculateMd5Info {
         # Can't get the partial MD5, so we'll just use the full hash
         warn "Unavailable content MD5 for '@{[prettyPath($mediaPath)]}' with error:\n\t$error\n";
     }
-    printCrud(CRUD_READ, "Computed MD5 of '@{[prettyPath($mediaPath)]}'",
+    printCrud(View::CRUD_READ, "Computed MD5 of '@{[prettyPath($mediaPath)]}'",
               ($partialMd5Hash ? ", including content only hash" : ''), "\n");
     return {
         version => $calculateMd5InfoVersion,
@@ -2477,10 +2469,10 @@ sub extractInfo {
         # We do ISO 8601 dates by default
         $et->Options(DateFormat => '%FT%T%z');
     }
-    trace(VERBOSITY_MEDIUM, "Image::ExifTool::ExtractInfo('$path');");
+    trace(View::VERBOSITY_MEDIUM, "Image::ExifTool::ExtractInfo('$path');");
     $et->ExtractInfo($path, @exifToolArgs) or die
         "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
-    printCrud(CRUD_READ, "Extract meta of '@{[prettyPath($path)]}'");
+    printCrud(View::CRUD_READ, "Extract meta of '@{[prettyPath($path)]}'");
     return $et;
 }
 
@@ -2697,7 +2689,7 @@ sub traverseFiles {
         for (my $i = 2; $i < 16; $i++) {
             $myCaller = $1 and last if (caller($i))[3] =~ /^main::do(.*)/;
         }
-        trace(VERBOSITY_LOW, "$myCaller is traversing '$rootPartialPath' ('$rootFullPath')");
+        trace(View::VERBOSITY_LOW, "$myCaller is traversing '$rootPartialPath' ('$rootFullPath')");
         # Find::find's final wanted call for $rootFullPath doesn't have a 
         # matching preprocess call, so doing one up front for symetry with
         # all other pairs while also doing the other filtering we want.
@@ -2773,7 +2765,7 @@ sub traverseFiles {
 # except for extension)
 sub trashPathAndSidecars {
     my ($fullPath) = @_;
-    trace(VERBOSITY_ALL, "trashPathAndSidecars('$fullPath');");
+    trace(View::VERBOSITY_ALL, "trashPathAndSidecars('$fullPath');");
     # TODO: check all for existance before performing any operations to
     # make file+sidecar opererations more atomic
     trashPath($_) for ($fullPath, getSidecarPaths($fullPath));
@@ -2784,7 +2776,7 @@ sub trashPathAndSidecars {
 # its entry from the per-directory database file
 sub trashPath {
     my ($fullPath) = @_;
-    trace(VERBOSITY_ALL, "trashPath('$fullPath');");
+    trace(View::VERBOSITY_ALL, "trashPath('$fullPath');");
     # If it's an empty directory, just delete it. Trying to trash
     # a dir with no items proves problematic for future move-merges
     # and we wind up with a lot of orphaned empty containers.
@@ -2814,7 +2806,7 @@ sub trashPath {
 #   moves file to: '.../root/.orphtrash'
 sub trashPathWithRoot {
     my ($theFullPath, $rootFullPath) = @_;
-    trace(VERBOSITY_ALL, "trashPathWithRoot('$theFullPath', '$rootFullPath');");
+    trace(View::VERBOSITY_ALL, "trashPathWithRoot('$theFullPath', '$rootFullPath');");
     # Split the directories into pieces assuming root is a dir
     # Note the careful use of splitdir and catdir - splitdir can return
     # empty string entries in the array, notably at beginning and end
@@ -2863,12 +2855,12 @@ sub trashPathWithRoot {
 # necessary and possible
 sub movePath {
     my ($oldFullPath, $newFullPath, $dryRun) = @_;
-    trace(VERBOSITY_ALL, "movePath('$oldFullPath', '$newFullPath');");
+    trace(View::VERBOSITY_ALL, "movePath('$oldFullPath', '$newFullPath');");
     return if $oldFullPath eq $newFullPath;
     my $moveInternal = sub {
         ensureParentDirExists($newFullPath, $dryRun);
         # Move the file/dir
-        trace(VERBOSITY_MEDIUM, "File::Copy::move('$oldFullPath', '$newFullPath');");
+        trace(View::VERBOSITY_MEDIUM, "File::Copy::move('$oldFullPath', '$newFullPath');");
         unless ($dryRun) {
             File::Copy::move($oldFullPath, $newFullPath) or die
                 "Failed to move '$oldFullPath' to '$newFullPath': $!";
@@ -2886,14 +2878,14 @@ sub movePath {
                     appendMd5Files($newFullPath, $oldFullPath);
                     unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
                 }
-                printCrud(CRUD_DELETE, "Deleted now-old '@{[prettyPath($oldFullPath)]}' after ",
+                printCrud(View::CRUD_DELETE, "Deleted now-old '@{[prettyPath($oldFullPath)]}' after ",
                           "appending its MD5 information to '@{[prettyPath($newFullPath)]}'");
             } else {
                 die "Can't overwrite '$newFullPath' with '$oldFullPath'";
             }
         } else {
             $moveInternal->();
-            printCrud(CRUD_UPDATE, "Moved file at   '@{[prettyPath($oldFullPath)]}' ",
+            printCrud(View::CRUD_UPDATE, "Moved file at   '@{[prettyPath($oldFullPath)]}' ",
                       "to '@{[prettyPath($newFullPath)]}'\n");
             unless ($dryRun) {
                 moveMd5Info($oldFullPath, $newFullPath);
@@ -2902,7 +2894,7 @@ sub movePath {
     } elsif (-d _) {
         if (-e $newFullPath) { 
             # Dest dir path already exists, need to move-merge.
-            trace(VERBOSITY_ALL, "Move merge '$oldFullPath' to '$newFullPath'");
+            trace(View::VERBOSITY_ALL, "Move merge '$oldFullPath' to '$newFullPath'");
             -d _ or die
                 "Can't move a directory - file already exists " .
                 "at destination ('$oldFullPath' => '$newFullPath')";
@@ -2938,7 +2930,7 @@ sub movePath {
         } else {
             # Dest dir doesn't exist, so we can just move the whole directory
             $moveInternal->();
-            printCrud(CRUD_UPDATE, "Moved directory '@{[prettyPath($oldFullPath)]}'",
+            printCrud(View::CRUD_UPDATE, "Moved directory '@{[prettyPath($oldFullPath)]}'",
                       " to '@{[prettyPath($newFullPath)]}'\n");
         }
     } else {
@@ -2951,12 +2943,12 @@ sub ensureParentDirExists {
     my ($fullPath, $dryRun) = @_;
     my $parentFullPath = parentPath($fullPath);
     unless (-d $parentFullPath) {
-        trace(VERBOSITY_MEDIUM, "File::Copy::make_path('$parentFullPath');");
+        trace(View::VERBOSITY_MEDIUM, "File::Copy::make_path('$parentFullPath');");
         unless ($dryRun) {
             File::Path::make_path($parentFullPath) or die
                 "Failed to make directory '$parentFullPath': $!";
         }
-        printCrud(CRUD_CREATE, "Created dir     '@{[prettyPath($parentFullPath)]}'\n");
+        printCrud(View::CRUD_CREATE, "Created dir     '@{[prettyPath($parentFullPath)]}'\n");
     }
 }
 
@@ -2966,9 +2958,9 @@ sub ensureParentDirExists {
 # and return falsy.
 sub tryRemoveEmptyDir {
     my ($path) = @_;
-    trace(VERBOSITY_ALL, "tryRemoveEmptyDir('$path');");
+    trace(View::VERBOSITY_ALL, "tryRemoveEmptyDir('$path');");
     if (-d $path and rmdir $path) {
-        printCrud(CRUD_DELETE, "Deleted empty   '@{[prettyPath($path)]}'\n");
+        printCrud(View::CRUD_DELETE, "Deleted empty   '@{[prettyPath($path)]}'\n");
         return 1;
     } else {
         return 0;
@@ -2978,88 +2970,13 @@ sub tryRemoveEmptyDir {
 # MODEL (File Operations) ------------------------------------------------------
 sub openOrDie {
     my ($mode, $path) = @_;
-    trace(VERBOSITY_ALL, "openOrDie('$path');");
+    trace(View::VERBOSITY_ALL, "openOrDie('$path');");
     open(my $fh, $mode, $path) or die "Couldn't open '$path' in $mode mode: $!";
     # TODO: Can we determine why and add a helpful error message. E.g. if in R/W
     # mode, maybe suggest they run one of the following
     #  $ chflags nouchg '$path'
     #  $ find <root_dir> -type f -name .orphdat -print -exec chflags nouchg {} \;
     return $fh;
-}
-
-# VIEW -------------------------------------------------------------------------
-sub coloredFaint {
-    my ($message) = @_;
-    return Term::ANSIColor::colored($message, 'faint');
-}
-
-# VIEW -------------------------------------------------------------------------
-sub coloredBold {
-    my ($message) = @_;
-    return Term::ANSIColor::colored($message, 'bold');
-}
-
-# VIEW -------------------------------------------------------------------------
-# Colorizes text for diffing purposes
-# [message] - Text to color
-# [colorIndex] - Index for a color class
-sub coloredByIndex {
-    my ($message, $colorIndex) = @_;
-    return Term::ANSIColor::colored($message, colorByIndex($colorIndex));
-}
-
-# VIEW -------------------------------------------------------------------------
-# Returns a color name (usable with colored()) based on an index
-# [colorIndex] - Index for a color class
-sub colorByIndex {
-    my ($colorIndex) = @_;
-    my @colors = ('green', 'red', 'blue', 'yellow', 'magenta', 'cyan');
-    return 'bright_' . $colors[$colorIndex % scalar @colors];
-}
-
-# VIEW -------------------------------------------------------------------------
-# Returns a form of the specified path prettified for display/reading
-sub prettyPath {
-    my ($path) = @_;
-    $path = File::Spec->abs2rel($path);
-    return $path;
-}
-
-# VIEW -------------------------------------------------------------------------
-# This should be called when any crud operations have been performed
-sub printCrud {
-    my $type = shift @_;
-    my ($icon, $color) = ('', '');
-    if ($type == CRUD_CREATE) {
-        ($icon, $color) = ('(+)', 'blue');
-    } elsif ($type == CRUD_READ) {
-        return if $verbosity <= VERBOSITY_NONE;
-        ($icon, $color) = ('(<)', 'magenta');
-    } elsif ($type == CRUD_UPDATE) {
-        ($icon, $color) = ('(>)', 'cyan');
-    } elsif ($type == CRUD_DELETE) {
-        ($icon, $color) = ('(X)', 'yellow');
-    }
-    printWithIcon($icon, $color, @_);
-}
-
-# VIEW -------------------------------------------------------------------------
-sub trace {
-    my ($level, @args) = @_;
-    if ($level <= $verbosity) {
-        my ($package, $filename, $line) = caller;
-        my $icon = sprintf("T%02d@%04d", $level, $line);
-        printWithIcon($icon, 'bright_black', @args);
-    }
-}
-
-# VIEW -------------------------------------------------------------------------
-sub printWithIcon {
-    my ($icon, $color, @statements) = @_;
-    my @lines = map { Term::ANSIColor::colored($_, $color) } split /\n/, join '', @statements;
-    $lines[0]  = Term::ANSIColor::colored($icon, "black on_$color") . ' ' . $lines[0];
-    $lines[$_] = (' ' x length $icon) . ' ' . $lines[$_] for 1..$#lines;
-    print map { ($_, "\n") } @lines;
 }
 
 main();
