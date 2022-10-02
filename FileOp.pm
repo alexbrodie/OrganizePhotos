@@ -68,8 +68,8 @@ const my $trashDirName => '.orphtrash';
 # would match Alex.jpg twice, and invoke isFileWanted/callback twice as well.
 sub traverseFiles {
     my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
-    $isDirWanted = \&main::defaultIsDirWanted unless $isDirWanted;
-    $isFileWanted = \&main::defaultIsFileWanted unless $isFileWanted;
+    $isDirWanted = \&OrganizePhotos::defaultIsDirWanted unless $isDirWanted;
+    $isFileWanted = \&OrganizePhotos::defaultIsFileWanted unless $isFileWanted;
     # Record base now so that no_chdir doesn't affect rel2abs/abs2rel below
     # (and - bonus - just resolve and canonicalize once)
     my $curDir = File::Spec->curdir();
@@ -122,7 +122,7 @@ sub traverseFiles {
         my $rootFullPath = $makeFullPath->($rootPartialPath);
         my $myCaller = 'unknown';
         for (my $i = 2; $i < 16; $i++) {
-            $myCaller = $1 and last if (caller($i))[3] =~ /^main::do(.*)/;
+            $myCaller = $1 and last if (caller($i))[3] =~ /^\w+::do(.*)/;
         }
         trace(View::VERBOSITY_LOW, "$myCaller is traversing '$rootPartialPath' ('$rootFullPath')");
         # Find::find's final wanted call for $rootFullPath doesn't have a 
