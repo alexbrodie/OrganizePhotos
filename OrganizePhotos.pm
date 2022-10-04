@@ -98,6 +98,7 @@ our @EXPORT = qw(
     getFileTypeInfo
 );
 
+
 #use Carp ();
 #$SIG{__DIE__} =  \&Carp::confess;
 #$SIG{__WARN__} = \&Carp::confess;
@@ -113,13 +114,10 @@ use File::Glob qw(:globally :nocase);
 use File::Path ();
 use File::Spec ();
 use File::stat ();
-use Getopt::Long ();
 use Image::ExifTool ();
 use JSON ();
 use List::Util qw(any all uniqstr max);
 use Number::Bytes::Human ();
-BEGIN { $Pod::Usage::Formatter = 'Pod::Text::Termcap'; }
-use Pod::Usage ();
 use POSIX ();
 
 use FileOp;

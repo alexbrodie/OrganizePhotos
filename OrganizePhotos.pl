@@ -10,6 +10,10 @@ use lib dirname(abs_path(__FILE__));
 
 use OrganizePhotos;
 
+use Getopt::Long ();
+BEGIN { $Pod::Usage::Formatter = 'Pod::Text::Termcap'; }
+use Pod::Usage ();
+
 #===============================================================================
 # Main entrypoint that parses command line a bit and routes to the 
 # subroutines starting with "do"
