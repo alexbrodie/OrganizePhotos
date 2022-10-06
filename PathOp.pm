@@ -17,6 +17,7 @@ our @EXPORT = qw(
     splitExt
 );
 
+# Library uses
 use Const::Fast qw(const);
 
 # TODO!! Consolidate $md5Filename and $trashDirName once we know where they should live
@@ -82,8 +83,8 @@ sub compareFilenameWithExtOrder {
     my $c = lc ($basenameA || '') cmp lc ($basenameB || '');
     return $c if $c;
     # Next by extorder
-    my $extOrderA = main::getFileTypeInfo($extA, 'EXTORDER') || 0;
-    my $extOrderB = main::getFileTypeInfo($extB, 'EXTORDER') || 0;
+    my $extOrderA = OrPhDat::getFileTypeInfo($extA, 'EXTORDER') || 0;
+    my $extOrderB = OrPhDat::getFileTypeInfo($extB, 'EXTORDER') || 0;
     $c = $extOrderA <=> $extOrderB;
     return $c if $c;
     # And then just the extension as a string

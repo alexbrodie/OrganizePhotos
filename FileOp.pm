@@ -18,10 +18,15 @@ our @EXPORT = qw(
     openOrDie
 );
 
+# Local uses
+use View;
+
+# Library uses
 use Const::Fast qw(const);
 use File::Copy ();
-
-use View;
+use File::Find ();
+use File::Path ();
+use File::Spec ();
 
 # TODO!! Consolidate $md5Filename and $trashDirName once we know where they should live
 

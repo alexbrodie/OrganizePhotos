@@ -8,117 +8,116 @@ use File::Basename;
 use Cwd qw(abs_path);
 use lib dirname(abs_path(__FILE__));
 
+# Local uses
 use OrganizePhotos;
 
+# Library uses
+use Carp;
+$SIG{__DIE__} =  \&Carp::confess;
+$SIG{__WARN__} = \&Carp::confess;
 use Getopt::Long ();
 BEGIN { $Pod::Usage::Formatter = 'Pod::Text::Termcap'; }
 use Pod::Usage ();
 
-#===============================================================================
-# Main entrypoint that parses command line a bit and routes to the 
-# subroutines starting with "do"
-sub main {
-    #printjoin("\n\t", 'Processing command line options:', @ARGV), "\n";
-    sub myGetOptions {
-        my $filter = undef;
-        Getopt::Long::GetOptions(
-            'verbosity|v:+' => \$View::verbosity,
-            'filter|f=s' => \$filter, 
-            @_) or die "Error in command line, aborting.";
-        if ($filter) {
-            if ($filter eq 'all') {
-                $OrganizePhotos::filenameFilter = qr//;
-            } elsif ($filter eq 'media') {
-                $OrganizePhotos::filenameFilter = $OrganizePhotos::mediaTypeFilenameFilter;
-            } elsif ($filter =~ /^qr(.*)$/) {
-                $OrganizePhotos::filenameFilter = qr/$1/;
-            } elsif ($filter =~ /^\.(.*)$/) {
-                $OrganizePhotos::filenameFilter = qr/\.(?i)(?:@{[ join '|', split '\.', $1 ]})$/;
-            } else {
-                die "Unknown filter: $filter\n";
-            }
-            trace(View::VERBOSITY_LOW, "Filter set to: ", $OrganizePhotos::filenameFilter);
-        }
-        return @ARGV;
-    }
-    # Parse args (using GetOptions) and delegate to the doVerb methods...
-    unless (@ARGV) {
-        Pod::Usage::pod2usage();
-    } elsif ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]|help$/i) {
-        Pod::Usage::pod2usage(-verbose => 2);
-    } else {
-        Getopt::Long::Configure('bundling');
-        my $verb = shift @ARGV;
-        if ($verb eq 'append-metadata' or $verb eq 'am') {
-            my @args = myGetOptions();
-            doAppendMetadata(@args);
-        } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
-            my $addOnly = 0;
-            my $forceRecalc = 0;
-            my @args = myGetOptions(
-                'add-only' => \$addOnly,
-                'force-recalc' => \$forceRecalc);
-            doCheckMd5($addOnly, $forceRecalc, @args);
-        } elsif ($verb eq 'checkup' or $verb eq 'c') {
-            my $addOnly = 0;
-            my $autoDiff = 0;
-            my $byName = 0;
-            my $forceRecalc = 0;
-            my $noDefaultLastAction = 0;
-            my @args = myGetOptions(
-                'add-only' => \$addOnly,
-                'auto-diff|d' => \$autoDiff,
-                'by-name|n' => \$byName,
-                'no-default-last-action' => \$noDefaultLastAction);
-            doCheckMd5($addOnly, $forceRecalc, @args);
-            doFindDupeFiles($byName, $autoDiff, 
-                            !$noDefaultLastAction, @args);
-            doRemoveEmpties(@args);
-            doPurgeMd5(@args);
-            doCollectTrash(@args);
-        } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
-            my @args = myGetOptions();
-            doCollectTrash(@args);
-        } elsif ($verb eq 'find-dupe-dirs' or $verb eq 'fdd') {
-            my @args = myGetOptions();
-            @args and die "Unexpected parameters: @args\n";
-            doFindDupeDirs();
-        } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
-            my $autoDiff = 0;
-            my $byName = 0;
-            my $noDefaultLastAction = 0;
-            my @args = myGetOptions(
-                'auto-diff|d' => \$autoDiff,
-                'by-name|n' => \$byName,
-                'no-default-last-action' => \$noDefaultLastAction);
-            doFindDupeFiles($byName, $autoDiff, 
-                            !$noDefaultLastAction, @args);
-        } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
-            my $excludeSidecars = 0;
-            my @args = myGetOptions(
-                'exclude-sidecars|x' => \$excludeSidecars);
-            doMetadataDiff($excludeSidecars, @args);
-        } elsif ($verb eq 'purge-md5' or $verb eq 'p5') {
-            my @args = myGetOptions();
-            doPurgeMd5(@args);
-        } elsif ($verb eq 'remove-empties' or $verb eq 're') {
-            my @args = myGetOptions();
-            doRemoveEmpties(@args);
-        } elsif ($verb eq 'restore-trash' or $verb eq 'rt') {
-            my @args = myGetOptions();
-            doRestoreTrash(@args);
-        } elsif ($verb eq 'test') {
-            doTest(@ARGV);
-        } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
-            my @args = myGetOptions();
-            doVerifyMd5(@args);
+sub myGetOptions {
+    my $filter = undef;
+    Getopt::Long::GetOptions(
+        'verbosity|v:+' => \$View::verbosity,
+        'filter|f=s' => \$filter, 
+        @_) or die "Error in command line, aborting.";
+    if ($filter) {
+        if ($filter eq 'all') {
+            $OrganizePhotos::filenameFilter = qr//;
+        } elsif ($filter eq 'media') {
+            $OrganizePhotos::filenameFilter = $OrPhDat::mediaTypeFilenameFilter;
+        } elsif ($filter =~ /^qr(.*)$/) {
+            $OrganizePhotos::filenameFilter = qr/$1/;
+        } elsif ($filter =~ /^\.(.*)$/) {
+            $OrganizePhotos::filenameFilter = qr/\.(?i)(?:@{[ join '|', split '\.', $1 ]})$/;
         } else {
-            die "Unknown verb: $verb\n";
+            die "Unknown filter: $filter\n";
         }
+        trace(View::VERBOSITY_LOW, "Filter set to: ", $OrganizePhotos::filenameFilter);
+    }
+    return @ARGV;
+}
+
+# Parse args (using GetOptions) and delegate to the doVerb methods...
+unless (@ARGV) {
+    Pod::Usage::pod2usage();
+} elsif ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]|help$/i) {
+    Pod::Usage::pod2usage(-verbose => 2);
+} else {
+    Getopt::Long::Configure('bundling');
+    my $verb = shift @ARGV;
+    if ($verb eq 'append-metadata' or $verb eq 'am') {
+        my @args = myGetOptions();
+        doAppendMetadata(@args);
+    } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
+        my $addOnly = 0;
+        my $forceRecalc = 0;
+        my @args = myGetOptions(
+            'add-only' => \$addOnly,
+            'force-recalc' => \$forceRecalc);
+        doCheckMd5($addOnly, $forceRecalc, @args);
+    } elsif ($verb eq 'checkup' or $verb eq 'c') {
+        my $addOnly = 0;
+        my $autoDiff = 0;
+        my $byName = 0;
+        my $forceRecalc = 0;
+        my $noDefaultLastAction = 0;
+        my @args = myGetOptions(
+            'add-only' => \$addOnly,
+            'auto-diff|d' => \$autoDiff,
+            'by-name|n' => \$byName,
+            'no-default-last-action' => \$noDefaultLastAction);
+        doCheckMd5($addOnly, $forceRecalc, @args);
+        doFindDupeFiles($byName, $autoDiff, 
+                        !$noDefaultLastAction, @args);
+        doRemoveEmpties(@args);
+        doPurgeMd5(@args);
+        doCollectTrash(@args);
+    } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
+        my @args = myGetOptions();
+        doCollectTrash(@args);
+    } elsif ($verb eq 'find-dupe-dirs' or $verb eq 'fdd') {
+        my @args = myGetOptions();
+        @args and die "Unexpected parameters: @args\n";
+        doFindDupeDirs();
+    } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
+        my $autoDiff = 0;
+        my $byName = 0;
+        my $noDefaultLastAction = 0;
+        my @args = myGetOptions(
+            'auto-diff|d' => \$autoDiff,
+            'by-name|n' => \$byName,
+            'no-default-last-action' => \$noDefaultLastAction);
+        doFindDupeFiles($byName, $autoDiff, 
+                        !$noDefaultLastAction, @args);
+    } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
+        my $excludeSidecars = 0;
+        my @args = myGetOptions(
+            'exclude-sidecars|x' => \$excludeSidecars);
+        doMetadataDiff($excludeSidecars, @args);
+    } elsif ($verb eq 'purge-md5' or $verb eq 'p5') {
+        my @args = myGetOptions();
+        doPurgeMd5(@args);
+    } elsif ($verb eq 'remove-empties' or $verb eq 're') {
+        my @args = myGetOptions();
+        doRemoveEmpties(@args);
+    } elsif ($verb eq 'restore-trash' or $verb eq 'rt') {
+        my @args = myGetOptions();
+        doRestoreTrash(@args);
+    } elsif ($verb eq 'test') {
+        doTest(@ARGV);
+    } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
+        my @args = myGetOptions();
+        doVerifyMd5(@args);
+    } else {
+        die "Unknown verb: $verb\n";
     }
 }
 
-main();
 1;
 
 __END__
