@@ -106,7 +106,7 @@ use View;
 # Library uses
 use Const::Fast qw(const);
 ##??use File::Glob qw(:globally :nocase);
-use List::Util qw(max);
+use List::Util qw(all max);
 use Number::Bytes::Human ();
 use POSIX ();
 
@@ -593,7 +593,7 @@ sub generateFindDupeFilesAutoAction {
         $_->{fullPath} !~ /[\/\\]ToImport[\/\\]/
     });
     if (@remainingIdx > 1 &&
-        all { $_ eq MATCH_FULL } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
+        all { $_ == MATCH_FULL } @{$group->[$remainingIdx[0]]->{matches}}[@remainingIdx]) {
         # We have several things left that are all exact matches with no sidecars
         filterIndicies($group, \@remainingIdx, sub {
             # Don't auto trash things with sidecars

@@ -208,7 +208,7 @@ sub trashPathAndSidecars {
     trace(View::VERBOSITY_ALL, "trashPathAndSidecars('$fullPath');");
     # TODO: check all for existance before performing any operations to
     # make file+sidecar opererations more atomic
-    trashPath($_) for ($fullPath, getSidecarPaths($fullPath));
+    trashPath($_) for ($fullPath, OrPhDat::getSidecarPaths($fullPath));
 }
 
 # MODEL (File Operations) ------------------------------------------------------
