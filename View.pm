@@ -15,13 +15,14 @@ our @EXPORT = qw(
     printCrud
     printWithIcon
     trace
+    dumpStruct
 );
 our @EXPORT_OK = qw(
     getColorForIndex
 );
 
+# Library uses
 use if $^O eq 'MSWin32', 'Win32::Console::ANSI'; # must come before Term::ANSIColor
-# TODO: be explicit with this and move usage to view layer
 use Term::ANSIColor ();
 
 use constant VERBOSITY_NONE => 0;    # all traces off
@@ -111,6 +112,13 @@ sub trace {
         my $icon = sprintf("T%02d@%04d", $level, $line);
         printWithIcon($icon, 'bright_black', @args);
     }
+}
+
+# VIEW -------------------------------------------------------------------------
+# Stringify a perl data structure suitable for traceing
+sub dumpStruct {
+    #return Data::Dumper::Dumper(@_);
+    return JSON->new->allow_nonref->allow_blessed->convert_blessed->pretty->canonical->encode(@_);
 }
 
 1;
