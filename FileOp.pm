@@ -19,6 +19,8 @@ our @EXPORT = qw(
 );
 
 # Local uses
+use FileTypes;
+use PathOp;
 use View;
 
 # Library uses
@@ -27,15 +29,6 @@ use File::Copy ();
 use File::Find ();
 use File::Path ();
 use File::Spec ();
-
-# TODO!! Consolidate $md5Filename and $trashDirName once we know where they should live
-
-# Filename only portion of the path to Md5File which stores
-# Md5Info data for other files in the same directory
-const my $md5Filename => '.orphdat';
-
-# This subdirectory contains the trash for its parent
-const my $trashDirName => '.orphtrash';
 
 # MODEL (File Operations) ------------------------------------------------------
 # This is a wrapper over File::Find::find that offers a few benefits:
@@ -223,7 +216,7 @@ sub trashPath {
     unless (tryRemoveEmptyDir($fullPath)) {
         # Not an empty dir, so move to trash by inserting a .orphtrash
         # before the filename in the path, and moving it there
-        movePath($fullPath, getTrashPathFor($fullPath));
+        movePath($fullPath, getTrashPath($fullPath));
     }
 }
 
@@ -274,7 +267,7 @@ sub trashPathWithRoot {
     # Example 1: postRoot = ( .orphtrash, A, B, C, D )
     # Example 2: postRoot = ( .orphtrash, foo )
     # Example 3: postRoot = ( .orphtrash )
-    my @postRoot = ($trashDirName, grep { lc ne $trashDirName } @theDirs[@rootDirs .. @theDirs-1]);
+    my @postRoot = ($FileTypes::trashDirName, grep { lc ne $FileTypes::trashDirName } @theDirs[@rootDirs .. @theDirs-1]);
     # Example 1: postRoot = ( .orphtrash, A, B, C ); newFilename = D
     # Example 2: postRoot = ( .orphtrash ); newFilename = foo
     # Example 3: postRoot = (); newFilename = .orphtrash
@@ -313,7 +306,7 @@ sub movePath {
             # exists, then cat old on to new, and delete old.
             my (undef, undef, $oldFilename) = File::Spec->splitpath($oldFullPath);
             my (undef, undef, $newFilename) = File::Spec->splitpath($newFullPath);
-            if (lc $oldFilename eq $md5Filename and lc $newFilename eq $md5Filename) {
+            if (lc $oldFilename eq $FileTypes::md5Filename and lc $newFilename eq $FileTypes::md5Filename) {
                 unless ($dryRun) {
                     appendMd5Files($newFullPath, $oldFullPath);
                     unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
@@ -328,7 +321,7 @@ sub movePath {
             printCrud(View::CRUD_UPDATE, "Moved file at   '@{[prettyPath($oldFullPath)]}' ",
                       "to '@{[prettyPath($newFullPath)]}'\n");
             unless ($dryRun) {
-                moveMd5Info($oldFullPath, $newFullPath);
+                OrPhDat::moveMd5Info($oldFullPath, $newFullPath);
             }
         }
     } elsif (-d _) {
@@ -349,7 +342,7 @@ sub movePath {
             # The database file should be processed last as it is modified
             # as a side effect of moving its siblings
             @filenames = sort {
-                (lc $a eq $md5Filename) <=> (lc $b eq $md5Filename) ||
+                (lc $a eq $FileTypes::md5Filename) <=> (lc $b eq $FileTypes::md5Filename) ||
                 lc $a cmp lc $b ||
                 $a cmp $b
             } @filenames;
@@ -358,7 +351,7 @@ sub movePath {
                 my $newChildFullPath = File::Spec->canonpath(File::Spec->catfile($newFullPath, $_));
                 # If we move the last media from a folder in previous iteration
                 # of this loop, it can delete an empty Md5File via moveMd5Info.
-                next if lc $_ eq $md5Filename and !(-e $oldChildFullPath);
+                next if lc $_ eq $FileTypes::md5Filename and !(-e $oldChildFullPath);
                 movePath($oldChildFullPath, $newChildFullPath, $dryRun);
             }
             # If we've emptied out $oldFullPath my moving all its contents into

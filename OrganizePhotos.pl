@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use warnings FATAL => qw(uninitialized);
 
+# Enable local lib
 use File::Basename;
 use Cwd qw(abs_path);
 use lib dirname(abs_path(__FILE__));
@@ -29,7 +30,7 @@ sub myGetOptions {
         if ($filter eq 'all') {
             $OrganizePhotos::filenameFilter = qr//;
         } elsif ($filter eq 'media') {
-            $OrganizePhotos::filenameFilter = $OrPhDat::mediaTypeFilenameFilter;
+            $OrganizePhotos::filenameFilter = $FileTypes::mediaTypeFilenameFilter;
         } elsif ($filter =~ /^qr(.*)$/) {
             $OrganizePhotos::filenameFilter = qr/$1/;
         } elsif ($filter =~ /^\.(.*)$/) {

@@ -8,8 +8,6 @@ package OrPhDat;
 use Exporter;
 our @ISA = ('Exporter');
 our @EXPORT = qw(
-    getFileTypeInfo
-    getMimeType
     resolveMd5Info
     findMd5s
     writeMd5Info
@@ -18,7 +16,6 @@ our @EXPORT = qw(
     deleteMd5Info
     appendMd5Files
     calculateMd5Info
-    getSidecarPaths
     getDateTaken
     readMetadata
     extractInfo
@@ -26,6 +23,7 @@ our @EXPORT = qw(
 
 # Local uses
 use FileOp;
+use FileTypes;
 use Isobmff;
 use PathOp;
 use View;
@@ -33,7 +31,6 @@ use View;
 # Library uses
 use Const::Fast qw(const);
 use Data::Compare ();
-use Data::Dumper ();
 use DateTime::Format::HTTP ();
 #use DateTime::Format::ISO8601 ();
 use Digest::MD5 ();
@@ -42,188 +39,11 @@ use Image::ExifTool ();
 use JSON ();
 use List::Util qw(any all);
 
-# TODO!! Consolidate $md5Filename and $trashDirName once we know where they should live
-
-# Filename only portion of the path to Md5File which stores
-# Md5Info data for other files in the same directory
-const my $md5Filename => '.orphdat';
-
-# This subdirectory contains the trash for its parent
-const my $trashDirName => '.orphtrash';
-
 # What we expect an MD5 hash to look like
 const my $md5DigestPattern => qr/[0-9a-f]{32}/;
 
-# A map of supported file extensions to several different aspects:
-#
-# SIDECARS
-#   Map of extension to pointer to array of extensions of possible sidecars.
-#   While JPG and HEIC may have MOV alongside them, we won't consider those
-#   sidecars (at least for now) since in practice it gets a little weird if
-#   one set of files has a MOV and the other doesn't. This is a bit different
-#   from JPG sidecars of raw files or THM since those are redunant. Before
-#   adding MOV back, we should update the dupe detection to compare the
-#   sidecars as well rather than just the primary file. Sidecar associations
-#   can't form cycles such that a sidecar of a sicecar ... of a sidecar is
-#   not the original type.
-#
-#   The default if not specified (or the type is not known and is
-#   missing from the list altogether) is an empty list.
-#
-# EXTORDER
-#   Defines the sort order when displaying a group of duplicate files with
-#   the lower values coming first. Typically the "primary" files are displayed
-#   first and so have lower values. If a type is a sidecar of another, the
-#   EXTORDER of the sidecar type must be strictly greater if it exists. Thus
-#   this is also used to control processing order so that primary files are
-#   handled before their sidecars - e.g. raf files are handled before jpg
-#   sidecars. 
-#
-#   The default if not specified (or the type is not known and is
-#   missing from the list altogether) is zero.
-#
-#   TODO: verify this EXTORDER/SIDECAR claim, perhaps in tests somewhere. It 
-#   would also ensure the statement in SIDECARS that there are no cycles.
-#
-# MIMETYPE
-#   The mime type of the file type (source: filext.com). For types without 
-#   a MIME type, we fabricate a "non-standard" one based on extension.
-#
-# TODO: flesh this out
-# TODO: convert to Class::Struct
-const my %fileTypes => (
-    AVI => {
-        MIMETYPE => 'video/x-msvideo'
-    },
-    CRW => {
-        SIDECARS => [qw( JPEG JPG XMP )],
-        EXTORDER => -1,
-        MIMETYPE => 'image/crw'
-    },
-    CR2 => {
-        SIDECARS => [qw( JPEG JPG XMP )],
-        EXTORDER => -1,
-        MIMETYPE => 'image/cr2' # Non-standard
-    },
-    CR3 => {
-        SIDECARS => [qw( JPEG JPG XMP )],
-        EXTORDER => -1,
-        MIMETYPE => 'image/x-canon-cr3' # Non-standard
-    },
-    #ICNS => {
-    #    MIMETYPE => 'image/x-icns'
-    #},
-    #ICO => {
-    #    MIMETYPE => 'image/x-icon'
-    #},
-    JPEG => {
-        MIMETYPE => 'image/jpeg'
-    },
-    JPG => {
-        SIDECARS => [qw( AAE )],
-        MIMETYPE => 'image/jpeg'
-    },
-    HEIC => {
-        SIDECARS => [qw( XMP MOV )],
-        EXTORDER => -1,
-        MIMETYPE => 'image/heic'
-    },
-    M2TS => {
-        MIMETYPE => 'video/mp2t'
-    },
-    M4V => {
-        MIMETYPE => 'video/mp4v-es'
-    },
-    MOV => {
-        MIMETYPE => 'video/quicktime'
-    },
-    MP3 => {
-        MIMETYPE => 'audio/mpeg'
-    },
-    MP4 => {
-        SIDECARS => [qw( LRV THM )],
-        EXTORDER => -1,
-        MIMETYPE => 'video/mp4v-es'
-    },
-    MPG => {
-        MIMETYPE => 'video/mpeg'
-    },
-    MTS => {
-        MIMETYPE => 'video/mp2t'
-    },
-    NEF => {
-        SIDECARS => [qw( JPEG JPG XMP )],
-        EXTORDER => -1,
-        MIMETYPE => 'image/nef' # Non-standard
-    },
-    #PDF => {
-    #    MIMETYPE => 'application/pdf'
-    #},
-    PNG => {
-        MIMETYPE => 'image/png'
-    },
-    PSB => {
-        MIMETYPE => 'image/psb' # Non-standard
-    },
-    PSD => {
-        MIMETYPE => 'image/photoshop'
-    },
-    RAF => {
-        SIDECARS => [qw( JPEG JPG XMP )],
-        EXTORDER => -1,
-        MIMETYPE => 'image/raf' # Non-standard
-    },
-    TIF => {
-        MIMETYPE => 'image/tiff'
-    },
-    TIFF => {
-        MIMETYPE => 'image/tiff'
-    },
-    #ZIP => {
-    #    MIMETYPE => 'application/zip'
-    #}
-);
-
-const my $backupSuffix => qr/
-    [._] (?i) (?:bak|original|\d{8}T\d{6}Z~) \d*
-/x;
-
-# Media file extensions
-const our $mediaTypeFilenameFilter => qr/
-    # Media extension
-    (?: \. (?i) (?: @{[ join '|', keys %fileTypes ]}) )
-    # Optional backup file suffix
-    (?: $backupSuffix)?
-$/x;
-
 my $cachedMd5Path = '';
 my $cachedMd5Set = {};
-
-# MODEL ------------------------------------------------------------------------
-sub getFileTypeInfo {
-    my ($ext, $property) = @_;
-    if (defined $ext) {
-        my $key = uc $ext;
-        if (exists $fileTypes{$key}) {
-            my $fileType = $fileTypes{$key};
-            if (exists $fileType->{$property}) {
-                return $fileType->{$property};
-            }
-        }
-    }
-    return undef;
-}
-
-# MODEL (MD5) ------------------------------------------------------------------
-# Gets the mime type from a path
-sub getMimeType {
-    my ($mediaPath) = @_;
-    # If the file is a backup (has some "bak"/"original" suffix), 
-    # we want to consider the real extension
-    $mediaPath =~ s/$backupSuffix$//;
-    my ($basename, $ext) = splitExt($mediaPath);
-    return getFileTypeInfo($ext, 'MIMETYPE') || '';
-}
 
 # When dealing with MD5 related data, we have these naming conventions:
 # MediaPath..The path to the media file for which MD5 data is calculated (not
@@ -374,7 +194,7 @@ sub findMd5s {
         $isDirWanted,
         sub {  # isFileWanted
             my ($fullPath, $rootFullPath, $filename) = @_;
-            return (lc $filename eq $md5Filename); # only process Md5File files
+            return (lc $filename eq $FileTypes::md5Filename); # only process Md5File files
         },
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
@@ -398,7 +218,7 @@ sub findMd5s {
 # Gets the Md5Path, Md5Key for a MediaPath.
 sub getMd5PathAndMd5Key {
     my ($mediaPath) = @_;
-    my ($md5Path, $md5Key) = changeFilename($mediaPath, $md5Filename);
+    my ($md5Path, $md5Key) = changeFilename($mediaPath, $FileTypes::md5Filename);
     return ($md5Path, lc $md5Key);
 }
 
@@ -496,7 +316,7 @@ sub moveMd5Info {
 sub trashMd5Info {
     my ($mediaPath) = @_;
     trace(View::VERBOSITY_ALL, "trashMd5Info('$mediaPath');");
-    my $trashPath = getTrashPathFor($mediaPath);
+    my $trashPath = getTrashPath($mediaPath);
     ensureParentDirExists($trashPath);
     return moveMd5Info($mediaPath, $trashPath);
 }
@@ -563,7 +383,7 @@ sub readOrCreateNewMd5File {
 sub readMd5File {
     my ($openMode, $md5Path) = @_;
     trace(View::VERBOSITY_MEDIUM, "readMd5File('$openMode', '$md5Path');");
-    # TODO: Should we validate filename is $md5Filename or do we care?
+    # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
     my $md5File = openOrDie($openMode, $md5Path);
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple "name: md5\n" format parsing
@@ -610,7 +430,7 @@ sub readMd5File {
 # newMd5Info represent the new data. Returns the previous md5Info value. 
 sub setMd5InfoAndWriteMd5File {
     my ($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set) = @_;
-    # TODO: Should we validate filename is $md5Filename or do we care?
+    # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
     my $oldMd5Info = $md5Set->{$md5Key};
     unless ($oldMd5Info and Data::Compare::Compare($oldMd5Info, $newMd5Info)) {
         $md5Set->{$md5Key} = $newMd5Info;
@@ -635,7 +455,7 @@ sub writeMd5File {
     #       and writing out the "\x{FEFF}" BOM. Not sure how to do that in
     #       a fully cross compatable way (older file versions as well as
     #       Windows/Mac compat)
-    # TODO: Should we validate filename is $md5Filename or do we care?
+    # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
     trace(View::VERBOSITY_ALL, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5Set ]} items });');
     seek($md5File, 0, 0) or die "Couldn't reset seek on file: $!";
     truncate($md5File, 0) or die "Couldn't truncate file: $!";
@@ -932,25 +752,6 @@ sub resolveMd5Digest {
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$md5DigestPattern/ or die "Unexpected MD5: $hexdigest";
     return $hexdigest;
-}
-
-# MODEL (Metadata) -------------------------------------------------------------
-# Provided a path, returns an array of sidecar files based on extension.
-sub getSidecarPaths {
-    my ($fullPath) = @_;
-    if ($fullPath =~ /$backupSuffix$/) {
-        # Associating sidecars with backups only creates problems
-        # like multiple versions of a file sharing the same sidecar(s)
-        return ();
-    } else {
-        # Using extension as a key, look up associated sidecar types (if any)
-        # and return the paths to the other types which exist
-        my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-        my ($basename, $ext) = splitExt($filename);
-        my @sidecars = @{getFileTypeInfo($ext, 'SIDECARS') || []};
-        @sidecars = map { combinePath($vol, $dir, catExt($basename, $_)) } @sidecars;
-        return grep { -e } @sidecars;
-    }
 }
 
 # MODEL (Metadata) -------------------------------------------------------------
