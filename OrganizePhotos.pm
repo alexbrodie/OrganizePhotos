@@ -99,6 +99,7 @@ our @EXPORT = qw(
 
 # Local uses
 use FileOp;
+use FileTypes;
 use OrPhDat;
 use PathOp;
 use View;
@@ -115,19 +116,12 @@ my $autoTrashDuplicatesFrom = [
     '/Volumes/MicroSD/',
     ];
 
-# Filename only portion of the path to Md5File which stores
-# Md5Info data for other files in the same directory
-const my $md5Filename => '.orphdat';
-
-# This subdirectory contains the trash for its parent
-const my $trashDirName => '.orphtrash';
-
 use constant MATCH_UNKNOWN => 0;
 use constant MATCH_NONE => 1;
 use constant MATCH_FULL => 2;
 use constant MATCH_CONTENT => 3;
 
-our $filenameFilter = $OrPhDat::mediaTypeFilenameFilter;
+our $filenameFilter = $FileTypes::mediaTypeFilenameFilter;
 
 # API ==========================================================================
 # EXPERIMENTAL
@@ -256,7 +250,7 @@ sub doCollectTrash {
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
             my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-            if (lc $filename eq $trashDirName) {
+            if (lc $filename eq $FileTypes::trashDirName) {
                 # Convert root/bunch/of/dirs/.orphtrash to root/.orphtrash/bunch/of/dirs
                 trashPathWithRoot($fullPath, $rootFullPath);
             }
@@ -272,7 +266,7 @@ sub doFindDupeDirs {
     my %keyToPaths = ();
     File::Find::find({
         preprocess => sub {
-            return grep { !-d or lc ne $trashDirName } @_; # skip trash
+            return grep { !-d or lc ne $FileTypes::trashDirName } @_; # skip trash
         },
         wanted => sub {
             if (-d and (/^(\d\d\d\d)-(\d\d)-(\d\d)\b/
@@ -338,7 +332,7 @@ c   Continue: go to the next group
 d   Diff: perform metadata diff of this group
 o#  Open Number: open the specified item
 q   Quit: exit the application
-t#  Trash Number: move the specified item to $trashDirName
+t#  Trash Number: move the specified item to $FileTypes::trashDirName
 EOM
             # Process the command(s)
             my $itemCount = @$group;
@@ -826,7 +820,7 @@ sub doRemoveEmpties {
             # not processing) as if they didn't exist and let them get
             # cleaned up if the folder gets trashed
             my $lcfn = lc $filename;
-            return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', $md5Filename);
+            return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', $FileTypes::md5Filename);
             # TODO: exclude zero byte or hidden files as well?
             return 1; # Other files count
         },
@@ -841,7 +835,7 @@ sub doRemoveEmpties {
                 # a non-trashable dir. 
                 delete $dirSubItemsMap{$fullPath};
                 # If this dir is empty, then we'll want to trash it and have the
-                # parent dir ignore it like trashable files (e.g. $md5Filename). If
+                # parent dir ignore it like trashable files (e.g. $FileTypes::md5Filename). If
                 # it's not trashable, then fall through to add this to its parent
                 # dir's list (to prevent the parent from being trashed).
                 unless ($subItemCount) {
@@ -900,7 +894,7 @@ sub doRestoreTrash {
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
             my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-            if (lc $filename eq $trashDirName) {
+            if (lc $filename eq $FileTypes::trashDirName) {
                 movePath($fullPath, combinePath($vol, $dir));
             }
         },
@@ -968,14 +962,14 @@ sub doVerifyMd5 {
 # Default behavior if isDirWanted is undefined for traverseFiles
 sub defaultIsDirWanted {
     my ($fullPath, $rootFullPath, $filename) = @_;
-    return (lc $filename ne $trashDirName);
+    return (lc $filename ne $FileTypes::trashDirName);
 }
 
 # MODEL (File Operations) ------------------------------------------------------
 # Default behavior if isDirWanted is undefined for traverseFiles
 sub defaultIsFileWanted {
     my ($fullPath, $rootFullPath, $filename) = @_;
-    return (lc $filename ne $md5Filename and $filename =~ /$filenameFilter/);
+    return (lc $filename ne $FileTypes::md5Filename and $filename =~ /$filenameFilter/);
 }
 
 1;
