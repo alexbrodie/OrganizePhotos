@@ -225,11 +225,11 @@ sub getTrashPath {
 
 # MODEL (Path Operations) ------------------------------------------------------
 sub comparePathWithExtOrder {
-    my ($fullPathA, $fullPathB) = @_;
+    my ($fullPathA, $fullPathB, $reverseExtOrder) = @_;
     my ($volA, $dirA, $filenameA) = File::Spec->splitpath($fullPathA);
     my ($volB, $dirB, $filenameB) = File::Spec->splitpath($fullPathB);
     return compareDir($dirA, $dirB) ||
-           compareFilenameWithExtOrder($filenameA, $filenameB);
+           compareFilenameWithExtOrder($filenameA, $filenameB, $reverseExtOrder);
 }
 
 # MODEL (Path Operations) ------------------------------------------------------
@@ -260,19 +260,20 @@ sub compareDir {
 
 # MODEL (Path Operations) ------------------------------------------------------
 sub compareFilenameWithExtOrder {
-    my ($filenameA, $filenameB) = @_;
+    my ($filenameA, $filenameB, $reverseExtOrder) = @_;
     my ($basenameA, $extA) = splitExt($filenameA);
     my ($basenameB, $extB) = splitExt($filenameB);
     # Compare by basename first
     my $c = lc ($basenameA || '') cmp lc ($basenameB || '');
     return $c if $c;
     # Next by extorder
+    my $direction = $reverseExtOrder ? -1 : 1;
     my $extOrderA = OrPhDat::getFileTypeInfo($extA, 'EXTORDER') || 0;
     my $extOrderB = OrPhDat::getFileTypeInfo($extB, 'EXTORDER') || 0;
     $c = $extOrderA <=> $extOrderB;
-    return $c if $c;
+    return $direction * $c if $c;
     # And then just the extension as a string
-    return lc ($extA || '') cmp lc ($extB || '');
+    return $direction * (lc ($extA || '') cmp lc ($extB || ''));
 }
 
 1;

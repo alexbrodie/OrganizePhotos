@@ -107,7 +107,7 @@ use View;
 # Library uses
 use Const::Fast qw(const);
 ##??use File::Glob qw(:globally :nocase);
-use List::Util qw(all max);
+use List::Util qw(any all max);
 use Number::Bytes::Human ();
 use POSIX ();
 
@@ -463,7 +463,7 @@ sub buildFindDupeFilesDupeGroups {
     # themselves - this will be the order in which the groups
     # are processed, so we want it extorder based as well.
     @dupes = sort { 
-        comparePathWithExtOrder($a->[0]->{fullPath}, $b->[0]->{fullPath}) 
+        comparePathWithExtOrder($a->[0]->{fullPath}, $b->[0]->{fullPath}, 1) 
     } @dupes;
     trace(View::VERBOSITY_LOW, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
     return \@dupes;
