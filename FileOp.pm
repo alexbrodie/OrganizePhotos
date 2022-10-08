@@ -198,10 +198,10 @@ sub traverseFiles {
 # except for extension)
 sub trashPathAndSidecars {
     my ($fullPath) = @_;
-    trace(View::VERBOSITY_ALL, "trashPathAndSidecars('$fullPath');");
+    trace(View::VERBOSITY_MAX, "trashPathAndSidecars('$fullPath');");
     # TODO: check all for existance before performing any operations to
     # make file+sidecar opererations more atomic
-    trashPath($_) for ($fullPath, OrPhDat::getSidecarPaths($fullPath));
+    trashPath($_) for ($fullPath, getSidecarPaths($fullPath));
 }
 
 # MODEL (File Operations) ------------------------------------------------------
@@ -209,7 +209,7 @@ sub trashPathAndSidecars {
 # its entry from the per-directory database file
 sub trashPath {
     my ($fullPath) = @_;
-    trace(View::VERBOSITY_ALL, "trashPath('$fullPath');");
+    trace(View::VERBOSITY_MAX, "trashPath('$fullPath');");
     # If it's an empty directory, just delete it. Trying to trash
     # a dir with no items proves problematic for future move-merges
     # and we wind up with a lot of orphaned empty containers.
@@ -239,7 +239,7 @@ sub trashPath {
 #   moves file to: '.../root/.orphtrash'
 sub trashPathWithRoot {
     my ($theFullPath, $rootFullPath) = @_;
-    trace(View::VERBOSITY_ALL, "trashPathWithRoot('$theFullPath', '$rootFullPath');");
+    trace(View::VERBOSITY_MAX, "trashPathWithRoot('$theFullPath', '$rootFullPath');");
     # Split the directories into pieces assuming root is a dir
     # Note the careful use of splitdir and catdir - splitdir can return
     # empty string entries in the array, notably at beginning and end
@@ -288,7 +288,7 @@ sub trashPathWithRoot {
 # necessary and possible
 sub movePath {
     my ($oldFullPath, $newFullPath, $dryRun) = @_;
-    trace(View::VERBOSITY_ALL, "movePath('$oldFullPath', '$newFullPath');");
+    trace(View::VERBOSITY_MAX, "movePath('$oldFullPath', '$newFullPath');");
     return if $oldFullPath eq $newFullPath;
     my $moveInternal = sub {
         ensureParentDirExists($newFullPath, $dryRun);
@@ -311,14 +311,14 @@ sub movePath {
                     appendMd5Files($newFullPath, $oldFullPath);
                     unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
                 }
-                printCrud(View::CRUD_DELETE, "Deleted now-old '@{[prettyPath($oldFullPath)]}' after ",
-                          "appending its MD5 information to '@{[prettyPath($newFullPath)]}'");
+                printCrud(View::CRUD_DELETE, "  Deleted now-old cache at '@{[prettyPath($oldFullPath)]}' after ",
+                          "appending it to '@{[prettyPath($newFullPath)]}'");
             } else {
                 die "Can't overwrite '$newFullPath' with '$oldFullPath'";
             }
         } else {
             $moveInternal->();
-            printCrud(View::CRUD_UPDATE, "Moved file at   '@{[prettyPath($oldFullPath)]}' ",
+            printCrud(View::CRUD_UPDATE, "Moved file '@{[prettyPath($oldFullPath)]}' ",
                       "to '@{[prettyPath($newFullPath)]}'\n");
             unless ($dryRun) {
                 OrPhDat::moveMd5Info($oldFullPath, $newFullPath);
@@ -327,7 +327,7 @@ sub movePath {
     } elsif (-d _) {
         if (-e $newFullPath) { 
             # Dest dir path already exists, need to move-merge.
-            trace(View::VERBOSITY_ALL, "Move merge '$oldFullPath' to '$newFullPath'");
+            trace(View::VERBOSITY_MAX, "Move merge '$oldFullPath' to '$newFullPath'");
             -d _ or die
                 "Can't move a directory - file already exists " .
                 "at destination ('$oldFullPath' => '$newFullPath')";
@@ -381,7 +381,7 @@ sub ensureParentDirExists {
             File::Path::make_path($parentFullPath) or die
                 "Failed to make directory '$parentFullPath': $!";
         }
-        printCrud(View::CRUD_CREATE, "Created dir     '@{[prettyPath($parentFullPath)]}'\n");
+        printCrud(View::CRUD_CREATE, "  Created dir '@{[prettyPath($parentFullPath)]}'\n");
     }
 }
 
@@ -391,9 +391,9 @@ sub ensureParentDirExists {
 # and return falsy.
 sub tryRemoveEmptyDir {
     my ($path) = @_;
-    trace(View::VERBOSITY_ALL, "tryRemoveEmptyDir('$path');");
+    trace(View::VERBOSITY_MAX, "tryRemoveEmptyDir('$path');");
     if (-d $path and rmdir $path) {
-        printCrud(View::CRUD_DELETE, "Deleted empty   '@{[prettyPath($path)]}'\n");
+        printCrud(View::CRUD_DELETE, "  Deleted empty dir '@{[prettyPath($path)]}'\n");
         return 1;
     } else {
         return 0;
@@ -403,7 +403,7 @@ sub tryRemoveEmptyDir {
 # MODEL (File Operations) ------------------------------------------------------
 sub openOrDie {
     my ($mode, $path) = @_;
-    trace(View::VERBOSITY_ALL, "openOrDie('$path');");
+    trace(View::VERBOSITY_MAX, "openOrDie('$path');");
     open(my $fh, $mode, $path) or die "Couldn't open '$path' in $mode mode: $!";
     # TODO: Can we determine why and add a helpful error message. E.g. if in R/W
     # mode, maybe suggest they run one of the following

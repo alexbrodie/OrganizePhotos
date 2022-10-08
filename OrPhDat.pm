@@ -94,42 +94,47 @@ sub resolveMd5Info {
     # without opening or hashing the MediaFile
     my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
     my $newMd5InfoBase = makeMd5InfoBase($mediaPath);
-    if (!$forceRecalc and 
-        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Info, $newMd5InfoBase)) {
-        # Caller supplied cached Md5Info is up to date
-        return { %{Storable::dclone($cachedMd5Info)}, %$newMd5InfoBase };
+    unless ($forceRecalc) {
+        if (defined $cachedMd5Info) {
+            my $cacheResult = checkCachedMd5Info($mediaPath, $addOnly, 'Caller', $cachedMd5Info, $newMd5InfoBase);
+            # Caller supplied cached Md5Info is up to date
+            return $cacheResult if $cacheResult;
+        }
+        if ($md5Path eq $cachedMd5Path) {
+            $cachedMd5Info = $cachedMd5Set->{$md5Key};
+            my $cacheResult = checkCachedMd5Info($mediaPath, $addOnly, 'Memory', $cachedMd5Info, $newMd5InfoBase);
+            # Memory cache of Md5Info is up to date
+            return $cacheResult if $cacheResult;
+        } else {
+            trace(View::VERBOSITY_HIGH, "Memory cache miss for '$mediaPath', cache was '$cachedMd5Path'");
+        }
     }
-    if (!$forceRecalc and 
-        $md5Path eq $cachedMd5Path and
-        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $cachedMd5Set->{$md5Key}, $newMd5InfoBase)) {
-        # memory cache of Md5Info is up to date
-        return { %{Storable::dclone($cachedMd5Set->{$md5Key})}, %$newMd5InfoBase };
-    }
+    trace(View::VERBOSITY_MAX, "Opening cache '$md5Path' for '$mediaPath'");
     my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
     my $oldMd5Info = $md5Set->{$md5Key};
-    if (!$forceRecalc and 
-        canUseCachedMd5InfoForBase($mediaPath, $addOnly, $oldMd5Info, $newMd5InfoBase)) {
-        # Md5File cache of Md5Info is up to date
-        return { %$oldMd5Info, %$newMd5InfoBase };
+    unless ($forceRecalc) {
+        my $cacheResult = checkCachedMd5Info($mediaPath, $addOnly, 'File', $oldMd5Info, $newMd5InfoBase);
+        # File cache of Md5Info is up to date
+        return $cacheResult if $cacheResult;
     }
     # No suitable cache, so fill in/finalize the Md5Info that we'll return
     my $newMd5Info;
-    eval {
+    #eval {
         # TODO: consolidate opening file multiple times from stat and calculateMd5Info
         $newMd5Info = { %{calculateMd5Info($mediaPath)}, %$newMd5InfoBase };
-    };
-    if (my $error = $@) {
-        # TODO: for now, skip but we'll want something better in the future
-        warn Term::ANSIColor::colored("UNAVAILABLE MD5 for '@{[prettyPath($mediaPath)]}' with error:", 'red'), "\n\t$error\n";
-        return undef; # Can't get the MD5
-    }
+    #};
+    #if (my $error = $@) {
+    #    # TODO: for now, skip but we'll want something better in the future
+    #    warn Term::ANSIColor::colored("UNAVAILABLE MD5 for '@{[prettyPath($mediaPath)]}' with error:", 'red'), "\n\t$error\n";
+    #    return undef; # Can't get the MD5
+    #}
     # Do verification on the old persisted Md5Info and the new calculated Md5Info
     if (defined $oldMd5Info) {
         if ($oldMd5Info->{md5} eq $newMd5Info->{md5}) {
             # Matches last recorded hash, but still continue and call
             # setMd5InfoAndWriteMd5File to handle other bookkeeping
             # to ensure we get a cache hit and short-circuit next time.
-            print Term::ANSIColor::colored("Verified MD5 for '@{[prettyPath($mediaPath)]}'", 'green'), "\n";
+            printWithIcon('(V)', 'green', "Verified MD5 for '@{[prettyPath($mediaPath)]}'");
         } elsif ($oldMd5Info->{full_md5} eq $newMd5Info->{full_md5}) {
             # Full MD5 match and content mismatch. This should only be
             # expected when we change how to calculate content MD5s.
@@ -188,7 +193,7 @@ EOM
 sub findMd5s {
     my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
     $isFileWanted = \&OrganizePhotos::defaultIsFileWanted unless $isFileWanted;
-    trace(View::VERBOSITY_ALL, 'findMd5s(...); with @globPatterns of', 
+    trace(View::VERBOSITY_MAX, 'findMd5s(...); with @globPatterns of', 
           (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (current dir)'));
     traverseFiles(
         $isDirWanted,
@@ -228,7 +233,7 @@ sub getMd5PathAndMd5Key {
 # value if it existed (or undef if not).
 sub writeMd5Info {
     my ($mediaPath, $newMd5Info) = @_;
-    trace(View::VERBOSITY_ALL, "writeMd5Info('$mediaPath', {...});");
+    trace(View::VERBOSITY_MAX, "writeMd5Info('$mediaPath', {...});");
     if ($newMd5Info) {
         my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
         my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
@@ -242,16 +247,16 @@ sub writeMd5Info {
 # Moves a Md5Info for a file from one directory's storage to another. 
 sub moveMd5Info {
     my ($oldMediaPath, $newMediaPath) = @_;
-    trace(View::VERBOSITY_ALL, "moveMd5Info('$oldMediaPath', " . 
+    trace(View::VERBOSITY_MAX, "moveMd5Info('$oldMediaPath', " . 
                          (defined $newMediaPath ? "'$newMediaPath'" : 'undef') . ");");
     my ($oldMd5Path, $oldMd5Key) = getMd5PathAndMd5Key($oldMediaPath);
     unless (-e $oldMd5Path) {
-        trace(View::VERBOSITY_ALL, "Can't move/remove Md5Info for '$oldMd5Key' from missing '$oldMd5Path'"); 
+        trace(View::VERBOSITY_MAX, "Can't move/remove Md5Info for '$oldMd5Key' from missing '$oldMd5Path'"); 
         return undef;
     }
     my ($oldMd5File, $oldMd5Set) = readMd5File('+<:crlf', $oldMd5Path);
     unless (exists $oldMd5Set->{$oldMd5Key}) {
-        trace(View::VERBOSITY_ALL, "Can't move/remove missing Md5Info for '$oldMd5Key' from '$oldMd5Path'");
+        trace(View::VERBOSITY_MAX, "Can't move/remove missing Md5Info for '$oldMd5Key' from '$oldMd5Path'");
         return undef;
     }
     # For a move we do a copy then a delete, but show it as a single CRUD
@@ -275,14 +280,14 @@ sub moveMd5Info {
         if ($existingMd5Info and Data::Compare::Compare($existingMd5Info, $newMd5Info)) {
             # Existing Md5Info at target is identical, so target is up to date already
             $crudOp = View::CRUD_DELETE;
-            $crudMessage = "Removed MD5 for '@{[prettyPath($oldMediaPath)]}' (up to date " .
-                           "MD5 already exists for '@{[prettyPath($newMediaPath)]}')";
+            $crudMessage = "Removed cache data for '@{[prettyPath($oldMediaPath)]}' (up to date " .
+                           "data already exists for '@{[prettyPath($newMediaPath)]}')";
         } else {
             $newMd5Set->{$newMd5Key} = $newMd5Info;
-            trace(View::VERBOSITY_MEDIUM, "Writing '$newMd5Path' after moving MD5 for '$newMd5Key'");
+            trace(View::VERBOSITY_MEDIUM, "Writing '$newMd5Path' after moving entry for '$newMd5Key' elsewhere");
             writeMd5File($newMd5Path, $newMd5File, $newMd5Set);
             $crudOp = View::CRUD_UPDATE;
-            $crudMessage = "Moved MD5 for   '@{[prettyPath($oldMediaPath)]}' to '@{[prettyPath($newMediaPath)]}'";
+            $crudMessage = "Moved cache data for '@{[prettyPath($oldMediaPath)]}' to '@{[prettyPath($newMediaPath)]}'";
             if (defined $existingMd5Info) {
                 $crudMessage = "$crudMessage overwriting existing value";
             }
@@ -298,15 +303,14 @@ sub moveMd5Info {
     if (%$oldMd5Set) {
         trace(View::VERBOSITY_MEDIUM, "Writing '$oldMd5Path' after removing MD5 for '$oldMd5Key'");
         writeMd5File($oldMd5Path, $oldMd5File, $oldMd5Set);
-        printCrud($crudOp, $crudMessage, "\n");
     } else {
         # Empty files create trouble down the line (especially with move-merges)
         trace(View::VERBOSITY_MEDIUM, "Deleting '$oldMd5Path' after removing MD5 for '$oldMd5Key' (the last one)");
         close($oldMd5File);
         unlink($oldMd5Path) or die "Couldn't delete '$oldMd5Path': $!";
-        printCrud($crudOp, $crudMessage, "\n");
-        printCrud(View::CRUD_DELETE, "Deleted empty   '@{[prettyPath($oldMd5Path)]}'\n");
+        printCrud(View::CRUD_DELETE, "  Deleted empty file '@{[prettyPath($oldMd5Path)]}'\n");
     }
+    printCrud($crudOp, $crudMessage, "\n");
     return $oldMd5Info;
 }
 
@@ -315,7 +319,7 @@ sub moveMd5Info {
 # value if it existed (or undef if not).
 sub trashMd5Info {
     my ($mediaPath) = @_;
-    trace(View::VERBOSITY_ALL, "trashMd5Info('$mediaPath');");
+    trace(View::VERBOSITY_MAX, "trashMd5Info('$mediaPath');");
     my $trashPath = getTrashPath($mediaPath);
     ensureParentDirExists($trashPath);
     return moveMd5Info($mediaPath, $trashPath);
@@ -326,7 +330,7 @@ sub trashMd5Info {
 # value if it existed (or undef if not).
 sub deleteMd5Info {
     my ($mediaPath) = @_;
-    trace(View::VERBOSITY_ALL, "deleteMd5Info('$mediaPath');");
+    trace(View::VERBOSITY_MAX, "deleteMd5Info('$mediaPath');");
     return moveMd5Info($mediaPath);
 }
 
@@ -357,7 +361,7 @@ sub appendMd5Files {
               scalar @sourceMd5Paths, " files");
         writeMd5File($targetMd5Path, $targetMd5File, $targetMd5Set);
         my $itemsAdded = (scalar keys %$targetMd5Set) - $oldTargetMd5SetCount;
-        printCrud(View::CRUD_CREATE, "Added $itemsAdded MD5s to '${\prettyPath($targetMd5Path)}' from ",
+        printCrud(View::CRUD_CREATE, "  Added $itemsAdded MD5s to '${\prettyPath($targetMd5Path)}' from ",
                   join ', ', map { "'${\prettyPath($_)}'" } @sourceMd5Paths);
     }
 }
@@ -367,12 +371,14 @@ sub appendMd5Files {
 # it. Returns the Md5File and Md5Set.
 sub readOrCreateNewMd5File {
     my ($md5Path) = @_;
-    trace(View::VERBOSITY_ALL, "readOrCreateNewMd5File('$md5Path');");
+    trace(View::VERBOSITY_MAX, "readOrCreateNewMd5File('$md5Path');");
     if (-e $md5Path) {
         return readMd5File('+<:crlf', $md5Path);
     } else {
         # TODO: should mode here have :crlf on the end?
-        return (openOrDie('+>', $md5Path), {});
+        my $fh = openOrDie('+>', $md5Path);
+        printCrud(View::CRUD_CREATE, "  Created cache at '@{[prettyPath($md5Path)]}'\n");
+        return ($fh, {});
     }
 }
 
@@ -419,7 +425,7 @@ sub readMd5File {
         }
     }
     updateMd5FileCache($md5Path, $md5Set);
-    printCrud(View::CRUD_READ, "Read MD5s from  '@{[prettyPath($md5Path)]}'\n");
+    printCrud(View::CRUD_READ, "  Read cache from '@{[prettyPath($md5Path)]}'\n");
     return ($md5File, $md5Set);
 }
 
@@ -434,12 +440,12 @@ sub setMd5InfoAndWriteMd5File {
     my $oldMd5Info = $md5Set->{$md5Key};
     unless ($oldMd5Info and Data::Compare::Compare($oldMd5Info, $newMd5Info)) {
         $md5Set->{$md5Key} = $newMd5Info;
-        trace(View::VERBOSITY_MEDIUM, "Writing '$md5Path' after setting MD5 for '$md5Key'");
+        trace(View::VERBOSITY_MEDIUM, "Writing '$md5Path' after updating value for key '$md5Key'");
         writeMd5File($md5Path, $md5File, $md5Set);
         if (defined $oldMd5Info) {
-            printCrud(View::CRUD_UPDATE, "Updated MD5 for '@{[prettyPath($mediaPath)]}'\n");
+            printCrud(View::CRUD_UPDATE, "Updated cache entry for '@{[prettyPath($mediaPath)]}'\n");
         } else {
-            printCrud(View::CRUD_CREATE, "Added MD5 for   '@{[prettyPath($mediaPath)]}'\n");
+            printCrud(View::CRUD_CREATE, "Added cache entry for '@{[prettyPath($mediaPath)]}'\n");
         }
     }
     return $oldMd5Info;
@@ -456,7 +462,7 @@ sub writeMd5File {
     #       a fully cross compatable way (older file versions as well as
     #       Windows/Mac compat)
     # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
-    trace(View::VERBOSITY_ALL, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5Set ]} items });');
+    trace(View::VERBOSITY_MAX, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5Set ]} items });');
     seek($md5File, 0, 0) or die "Couldn't reset seek on file: $!";
     truncate($md5File, 0) or die "Couldn't truncate file: $!";
     if (%$md5Set) {
@@ -465,6 +471,7 @@ sub writeMd5File {
         warn "Writing empty data to $md5Path";
     }
     updateMd5FileCache($md5Path, $md5Set);
+    printCrud(View::CRUD_UPDATE, "  Wrote cache to '@{[prettyPath($md5Path)]}'\n");
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -489,27 +496,45 @@ sub makeMd5InfoBase {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# Returns true if the cached full Md5Info can be used for the specified
-# base-only Md5Info without bothering to calculateMd5Info. 
-sub canUseCachedMd5InfoForBase {
-    my ($mediaPath, $addOnly, $cachedMd5Info, $currentMd5InfoBase) = @_;
-    #trace(View::VERBOSITY_ALL, 'canUseCachedMd5InfoForBase(...);');
-    if (defined $cachedMd5Info) {
-        if ($addOnly) {
-            trace(View::VERBOSITY_ALL, "Skipping MD5 recalculation for '$mediaPath' (add-only mode)");
-            return 1;
-        }
-        if (defined $cachedMd5Info->{size} and 
-            defined $cachedMd5Info->{mtime} and 
-            lc $currentMd5InfoBase->{filename} eq lc $cachedMd5Info->{filename} and
-            isMd5InfoVersionUpToDate($mediaPath, $cachedMd5Info->{version}) and
-            $currentMd5InfoBase->{size} == $cachedMd5Info->{size} and
-            $currentMd5InfoBase->{mtime} == $cachedMd5Info->{mtime}) {
-            trace(View::VERBOSITY_ALL, "Skipping MD5 recalculation for '$mediaPath' (same size/date-modified)");
-            return 1;
-        }
+# Returns a full Md5Info constructed from the cache if it can be used for the
+# specified base-only Md5Info without bothering to calculateMd5Info. 
+#sub canUseCachedMd5InfoForBase {
+sub checkCachedMd5Info {
+    my ($mediaPath, $addOnly, $cacheType, $cachedMd5Info, $currentMd5InfoBase) = @_;
+    #trace(View::VERBOSITY_MAX, 'canUseCachedMd5InfoForBase(...);');
+    unless (defined $cachedMd5Info) {
+        # Note that this is assumed context from the caller, and not actually
+        # something true based on this sub
+        trace(View::VERBOSITY_HIGH, "$cacheType cache miss for '$mediaPath', lookup failed'");
+        return undef;
     }
-    return 0;
+
+    if ($addOnly) {
+        trace(View::VERBOSITY_MAX, "$cacheType cache hit for '$mediaPath' (add-only mode)");
+    } else {
+        my @delta = ();
+        unless (isMd5InfoVersionUpToDate($mediaPath, $cachedMd5Info->{version})) {
+            push @delta, 'version';
+        }
+        unless (lc $currentMd5InfoBase->{filename} eq lc $cachedMd5Info->{filename}) {
+            push @delta, 'name';
+        }
+        unless (defined $cachedMd5Info->{size} and 
+            $currentMd5InfoBase->{size} == $cachedMd5Info->{size}) {
+            push @delta, 'size';
+        }
+        unless (defined $cachedMd5Info->{mtime} and 
+            $currentMd5InfoBase->{mtime} == $cachedMd5Info->{mtime}) {
+            push @delta, 'mtime';
+        }
+        if (@delta) {
+            trace(View::VERBOSITY_HIGH, "$cacheType cache miss for '$mediaPath', different " . join('/', @delta));
+            return undef;
+        }
+        trace(View::VERBOSITY_MAX, "$cacheType cache hit for '$mediaPath' with version/name/size/mtime match");
+    }
+
+    return { %{Storable::dclone($cachedMd5Info)}, %$currentMd5InfoBase };
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -519,7 +544,7 @@ sub canUseCachedMd5InfoForBase {
 # file type.
 sub isMd5InfoVersionUpToDate {
     my ($mediaPath, $version) = @_;
-    #trace(View::VERBOSITY_ALL, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
+    #trace(View::VERBOSITY_MAX, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
     my $type = getMimeType($mediaPath);
     if ($type eq 'image/heic') {
         return ($version >= 6) ? 1 : 0; # unchanged since V5
@@ -580,7 +605,7 @@ sub calculateMd5Info {
         # Can't get the partial MD5, so we'll just use the full hash
         warn "Unavailable content MD5 for '@{[prettyPath($mediaPath)]}' with error:\n\t$error\n";
     }
-    printCrud(View::CRUD_READ, "Computed MD5 of '@{[prettyPath($mediaPath)]}'",
+    printCrud(View::CRUD_READ, "  Computed MD5 of '@{[prettyPath($mediaPath)]}'",
               ($partialMd5Hash ? ", including content only hash" : ''), "\n");
     return {
         version => $calculateMd5InfoVersion,
@@ -603,12 +628,13 @@ sub getIsobmffMdatMd5 {
         $majorBrand = $compatible[0] if @compatible == 1;
     } 
     # This works for both Apple QTFF and ISO BMFF (i.e. mov, mp4, heic)
-    unless (any { $majorBrand eq $_ } ('mp41', 'mp42', 'qt  ', 'heic')) {
+    unless (any { $majorBrand eq $_ } ('heic', 'isom', 'mp41', 'mp42', 'qt  ')) {
         my $brand = "'$ftyp->{f_major_brand}'";
         if (@{$ftyp->{f_compatible_brands}}) {
             $brand = $brand . ' (\'' . join('\', \'', @{$ftyp->{f_compatible_brands}}) . '\')';
         }
-        die "unexpected brand $brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
+        warn "unexpected brand $brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
+        return undef;
     }
     until (eof($fh)) {
         my $box = readIsobmffBoxHeader($mediaPath, $fh);
@@ -831,7 +857,7 @@ sub extractInfo {
     trace(View::VERBOSITY_MEDIUM, "Image::ExifTool::ExtractInfo('$path');");
     $et->ExtractInfo($path, @exifToolArgs) or die
         "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
-    printCrud(View::CRUD_READ, "Extract meta of '@{[prettyPath($path)]}'");
+    printCrud(View::CRUD_READ, "  Extract meta of '@{[prettyPath($path)]}'");
     return $et;
 }
 

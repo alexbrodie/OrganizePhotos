@@ -135,7 +135,7 @@ sub doAppendMetadata {
     my $etTarget = extractInfo($target);
     my $infoTarget = $etTarget->GetInfo(@properties);
 
-    trace(View::VERBOSITY_ALL, "$target: ", Data::Dumper::Dumper($infoTarget));
+    trace(View::VERBOSITY_MAX, "$target: ", Data::Dumper::Dumper($infoTarget));
 
     my $rating = $infoTarget->{Rating};
     my $oldRating = $rating;
@@ -154,7 +154,7 @@ sub doAppendMetadata {
         my $etSource = extractInfo($source);
         my $infoSource = $etSource->GetInfo(@properties);
 
-        trace(View::VERBOSITY_ALL, "$source: ", Data::Dumper::Dumper($infoSource));
+        trace(View::VERBOSITY_MAX, "$source: ", Data::Dumper::Dumper($infoSource));
 
         # Add rating if we don't already have one
         unless (defined $rating) {
@@ -442,7 +442,7 @@ sub buildFindDupeFilesDupeGroups {
             }, 
             @globPatterns);
     }
-    trace(View::VERBOSITY_ALL, "Found @{[scalar keys %keyToFullPathList]} initial groups");
+    trace(View::VERBOSITY_MAX, "Found @{[scalar keys %keyToFullPathList]} initial groups");
     # Go through each element in the %keyToFullPathList map, and we'll 
     # want the ones with multiple things in the array of paths. If
     # there  are multiple paths for an element, sort the paths array
@@ -655,9 +655,7 @@ sub filterIndicies {
     my ($dataArrayRef, $indiciesArrayRef, $predicate) = @_;
     my @idx = grep { 
         local $_ = $dataArrayRef->[$_];
-        #print "Filtering $_->{fullPath}... ";
         my $result = $predicate->();
-        #print $result ? "Yes\n" : "No\n";
         $result
      } @$indiciesArrayRef;
     @$indiciesArrayRef = @idx if @idx;

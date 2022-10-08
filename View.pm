@@ -22,6 +22,7 @@ our @EXPORT_OK = qw(
 );
 
 # Library uses
+use File::Basename;
 use if $^O eq 'MSWin32', 'Win32::Console::ANSI'; # must come before Term::ANSIColor
 use Term::ANSIColor ();
 
@@ -29,7 +30,7 @@ use constant VERBOSITY_NONE => 0;    # all traces off
 use constant VERBOSITY_LOW => 1;     # only important traces on
 use constant VERBOSITY_MEDIUM => 2;  # moderate amount of traces on
 use constant VERBOSITY_HIGH => 3;    # most traces on
-use constant VERBOSITY_ALL => 4;     # all traces on
+use constant VERBOSITY_MAX => 4;     # all traces on
 
 our $verbosity = VERBOSITY_NONE;
 
@@ -81,11 +82,12 @@ sub prettyPath {
 # This should be called when any crud operations have been performed
 sub printCrud {
     my $type = shift @_;
+    # If the message starts with a space, then it's low pri
+    return if $_[0] =~ /^\s/ and $verbosity <= VERBOSITY_NONE;
     my ($icon, $color) = ('', '');
     if ($type == CRUD_CREATE) {
         ($icon, $color) = ('(+)', 'blue');
     } elsif ($type == CRUD_READ) {
-        return if $verbosity <= VERBOSITY_NONE;
         ($icon, $color) = ('(<)', 'magenta');
     } elsif ($type == CRUD_UPDATE) {
         ($icon, $color) = ('(>)', 'cyan');
@@ -99,18 +101,20 @@ sub printCrud {
 sub printWithIcon {
     my ($icon, $color, @statements) = @_;
     my @lines = map { Term::ANSIColor::colored($_, $color) } split /\n/, join '', @statements;
-    $lines[0]  = Term::ANSIColor::colored($icon, "black on_$color") . ' ' . $lines[0];
+    $lines[0]  = Term::ANSIColor::colored($icon, "white on_$color") . ' ' . $lines[0];
     $lines[$_] = (' ' x length $icon) . ' ' . $lines[$_] for 1..$#lines;
     print map { ($_, "\n") } @lines;
 }
 
 # VIEW -------------------------------------------------------------------------
 sub trace {
-    my ($level, @args) = @_;
+    my ($level, @statements) = @_;
     if ($level <= $verbosity) {
         my ($package, $filename, $line) = caller;
-        my $icon = sprintf("T%02d@%04d", $level, $line);
-        printWithIcon($icon, 'bright_black', @args);
+        printWithIcon(sprintf("T%02d", $level),
+                      'bright_black', 
+                      basename($filename) . '@' . $line . ': ', 
+                      @statements);
     }
 }
 
