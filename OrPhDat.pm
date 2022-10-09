@@ -803,14 +803,17 @@ sub getDateTaken {
         my @tags = qw(ExifIFD:DateTimeOriginal Keys:CreationDate Quicktime:CreateDate);
         my $info = readMetadata($path, $excludeSidecars, 
                                 { DateFormat => '%FT%T%z' }, \@tags);
+        my $dateTakenRaw;
         for my $tag (@tags) {
-            $dateTaken = $info->{$tag} and last if exists $info->{$tag};
+            $dateTakenRaw = $info->{$tag} and last if exists $info->{$tag};
         }
+
+        $dateTaken = DateTime::Format::HTTP->parse_datetime($dateTakenRaw);
     };
     if (my $error = $@) {
         warn "Unavailable date taken for '@{[prettyPath($path)]}' with error:\n\t$error\n";
     }
-    return $dateTaken ? DateTime::Format::HTTP->parse_datetime($dateTaken) : undef;
+    return $dateTaken;
 }
 
 # MODEL (Metadata) -------------------------------------------------------------
