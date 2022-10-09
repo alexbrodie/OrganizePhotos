@@ -15,7 +15,7 @@ use OrganizePhotos;
 # Library uses
 use Carp;
 $SIG{__DIE__} =  \&Carp::confess;
-$SIG{__WARN__} = \&Carp::confess;
+$SIG{__WARN__} = \&Carp::cluck;
 use Getopt::Long ();
 BEGIN { $Pod::Usage::Formatter = 'Pod::Text::Termcap'; }
 use Pod::Usage ();
