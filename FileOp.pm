@@ -308,7 +308,7 @@ sub movePath {
             my (undef, undef, $newFilename) = File::Spec->splitpath($newFullPath);
             if (lc $oldFilename eq $FileTypes::md5Filename and lc $newFilename eq $FileTypes::md5Filename) {
                 unless ($dryRun) {
-                    appendMd5Files($newFullPath, $oldFullPath);
+                    OrPhDat::appendMd5Files($newFullPath, $oldFullPath);
                     unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
                 }
                 printCrud(View::CRUD_DELETE, "  Deleted now-old cache at '@{[prettyPath($oldFullPath)]}' after ",
