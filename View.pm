@@ -88,9 +88,9 @@ sub printCrud {
     if ($type == CRUD_CREATE) {
         ($icon, $color) = ('(+)', 'blue');
     } elsif ($type == CRUD_READ) {
-        ($icon, $color) = ('(<)', 'magenta');
+        ($icon, $color) = ('(<)', 'cyan');
     } elsif ($type == CRUD_UPDATE) {
-        ($icon, $color) = ('(>)', 'cyan');
+        ($icon, $color) = ('(>)', 'magenta');
     } elsif ($type == CRUD_DELETE) {
         ($icon, $color) = ('(X)', 'yellow');
     }

@@ -680,7 +680,7 @@ sub buildFindDupeFilesPrompt {
     my $lengthBeforePath = length join '', @prompt;
     my $maxPathLength = max(64 - $lengthBeforePath, map { length } @paths);
     my $pathFormat = "\%-${maxPathLength}s";
-    push @prompt, sprintf($pathFormat, 'File name' . ('_' x ($maxPathLength - 9))), $delim;
+    push @prompt, sprintf($pathFormat, 'File_name' . ('_' x ($maxPathLength - 9))), $delim;
     # Metadata
     my $metadataFormat = "|$delim%-19s$delim|$delim%-19s$delim|$delim%s";
     push @prompt, sprintf($metadataFormat, 'Taken______________', 'Modified___________', 'Size');
@@ -738,7 +738,7 @@ sub buildFindDupeFilesPrompt {
         for (@{$elt->{sidecars}}) {
             push @prompt, 
                 ' ' x $lengthBeforePath, 
-                coloredByIndex(coloredBold(prettyPath($_)), $i), 
+                coloredByIndex(prettyPath($_), $i), 
                 "\n";
         }
     }
