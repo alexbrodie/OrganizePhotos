@@ -100,6 +100,7 @@ our @EXPORT = qw(
 # Local uses
 use FileOp;
 use FileTypes;
+use MetaData;
 use OrPhDat;
 use PathOp;
 use View;
