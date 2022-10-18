@@ -223,7 +223,6 @@ sub getTrashPath {
     return combinePath($vol, $trashDir, $filename);
 }
 
-# MODEL (Path Operations) ------------------------------------------------------
 sub comparePathWithExtOrder {
     my ($fullPathA, $fullPathB, $reverseExtOrder) = @_;
     my ($volA, $dirA, $filenameA) = File::Spec->splitpath($fullPathA);
@@ -232,7 +231,6 @@ sub comparePathWithExtOrder {
            compareFilenameWithExtOrder($filenameA, $filenameB, $reverseExtOrder);
 }
 
-# MODEL (Path Operations) ------------------------------------------------------
 sub compareDir {
     my ($dirA, $dirB) = @_;
     return 0 if $dirA eq $dirB; # optimization
@@ -258,7 +256,6 @@ sub compareDir {
     }
 }
 
-# MODEL (Path Operations) ------------------------------------------------------
 sub compareFilenameWithExtOrder {
     my ($filenameA, $filenameB, $reverseExtOrder) = @_;
     my ($basenameA, $extA) = splitExt($filenameA);
