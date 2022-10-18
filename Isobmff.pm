@@ -89,7 +89,7 @@ sub readIsobmffFtyp {
     my ($mediaPath, $fh) = @_;
     my $box = readIsobmffBoxHeader($mediaPath, $fh);
     $box->{__type} eq 'ftyp' or die
-        "box type was not ftyp as expected: $box->{type}";
+        "box type was not ftyp as expected: $box->{__type}";
     my $size = $box->{__data_size};
     $size >= 8 && ($size % 4) == 0 or die
         "ftyp box data was unexpected size $size";
