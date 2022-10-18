@@ -11,6 +11,7 @@ use lib dirname(abs_path(__FILE__));
 
 # Local uses
 use OrganizePhotos;
+use View;
 
 # Library uses
 use Carp;
@@ -36,7 +37,7 @@ sub myGetOptions {
         } elsif ($filter =~ /^\.(.*)$/) {
             $OrganizePhotos::filenameFilter = qr/\.(?i)(?:@{[ join '|', split '\.', $1 ]})$/;
         } else {
-            die "Unknown filter: $filter\n";
+            die "Unknown filter '$filter', choose from all, media, .ext.ex2.etc, qrREGEXP\n";
         }
         trace(View::VERBOSITY_LOW, "Filter set to: ", $OrganizePhotos::filenameFilter);
     }
