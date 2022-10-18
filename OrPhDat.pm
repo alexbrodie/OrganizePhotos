@@ -808,7 +808,9 @@ sub getDateTaken {
             $dateTakenRaw = $info->{$tag} and last if exists $info->{$tag};
         }
 
-        $dateTaken = DateTime::Format::HTTP->parse_datetime($dateTakenRaw);
+        if ($dateTakenRaw) {
+            $dateTaken = DateTime::Format::HTTP->parse_datetime($dateTakenRaw);
+        }
     };
     if (my $error = $@) {
         warn "Unavailable date taken for '@{[prettyPath($path)]}' with error:\n\t$error\n";
