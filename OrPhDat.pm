@@ -181,7 +181,9 @@ EOM
 #      callback($fullPath, $md5)
 sub findMd5s {
     my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
-    $isFileWanted = \&OrganizePhotos::defaultIsFileWanted unless $isFileWanted;
+    $isDirWanted or die "Programmer Error: expected \$isDirWanted argument";
+    $isFileWanted or die "Programmer Error: expected \$isFileWanted argument";
+    $callback or die  "Programmer Error: expected \$callback argument";
     trace(View::VERBOSITY_MAX, 'findMd5s(...); with @globPatterns of', 
           (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (current dir)'));
     traverseFiles(
