@@ -265,8 +265,8 @@ sub compareFilenameWithExtOrder {
     return $c if $c;
     # Next by extorder
     my $direction = $reverseExtOrder ? -1 : 1;
-    my $extOrderA = OrPhDat::getFileTypeInfo($extA, 'EXTORDER') || 0;
-    my $extOrderB = OrPhDat::getFileTypeInfo($extB, 'EXTORDER') || 0;
+    my $extOrderA = getFileTypeInfo($extA, 'EXTORDER') || 0;
+    my $extOrderB = getFileTypeInfo($extB, 'EXTORDER') || 0;
     $c = $extOrderA <=> $extOrderB;
     return $direction * $c if $c;
     # And then just the extension as a string

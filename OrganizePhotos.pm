@@ -98,6 +98,7 @@ our @EXPORT = qw(
 );
 
 # Local uses
+use ContentHash;
 use FileOp;
 use FileTypes;
 use MetaData;
@@ -228,8 +229,8 @@ sub doAppendMetadata {
 sub doCheckMd5 {
     my ($addOnly, $forceRecalc, @globPatterns) = @_;
     traverseFiles(
-        undef, # isDirWanted
-        undef, # isFileWanted
+        \&defaultIsDirWanted, # isDirWanted
+        \&defaultIsFileWanted, # isFileWanted
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
             -f $fullPath and resolveMd5Info($fullPath, $addOnly, $forceRecalc);
@@ -421,8 +422,8 @@ sub buildFindDupeFilesDupeGroups {
     if ($byName) {
         # Hash key based on file/dir name
         traverseFiles(
-            undef, # isDirWanted
-            undef, # isFileWanted
+            \&defaultIsDirWanted, # isDirWanted
+            \&defaultIsFileWanted, # isFileWanted
             sub {  # callback
                 my ($fullPath, $rootFullPath) = @_;
                 if (-f $fullPath) {
@@ -434,8 +435,8 @@ sub buildFindDupeFilesDupeGroups {
     } else {
         # Hash key is MD5
         findMd5s(
-            undef, # isDirWanted
-            undef, # isFileWanted
+            \&defaultIsDirWanted, # isDirWanted
+            \&defaultIsFileWanted, # isFileWanted
             sub {  # callback
                 my ($fullPath, $md5Info) = @_;
                 push @{$keyToFullPathList{$md5Info->{md5}}}, 
@@ -618,7 +619,7 @@ sub generateFindDupeFilesAutoAction {
             # Don't auto trash things with sidecars
             return 1 if @{$_->{sidecars}};
             for ($_->{fullPath}) {
-                return 0 if /-\d+\.\w+$/;
+                return 0 if /[-\s]\d+\.\w+$/;
                 return 0 if /\s\(\d+\)\.\w+$/;
             }
             return 1;
@@ -812,7 +813,7 @@ sub doRemoveEmpties {
     # Map from directory absolute path to sub-item count
     my %dirSubItemsMap = ();
     traverseFiles(
-        undef, # isDirWanted
+        \&defaultIsDirWanted, # isDirWanted
         sub {  # isFileWanted
             my ($fullPath, $rootFullPath, $filename) = @_;
             # These files don't count - they're trashible, ignore them (by 
@@ -869,7 +870,7 @@ sub doPurgeMd5 {
     # single append of the collected Md5Info to .orphtrash/.orphdat (similar 
     # to appendMd5Files), and then write back out the pruned .orphdat.
     findMd5s(
-        undef, # isDirWanted
+        \&defaultIsDirWanted, # isDirWanted
         sub { # isFileWanted
             return 1; # skip all filters for this
         },
@@ -920,8 +921,8 @@ sub doVerifyMd5 {
     # value is that it can be better at finding orphaned Md5Info data.
     my $all = 0;
     findMd5s(
-        undef, # isDirWanted
-        undef, # isFileWanted
+        \&defaultIsDirWanted, # isDirWanted
+        \&defaultIsFileWanted, # isFileWanted
         sub {  #callback
             my ($fullPath, $md5Info) = @_;
             if (-e $fullPath) {
@@ -957,15 +958,13 @@ sub doVerifyMd5 {
         }, @globPatterns);
 }
 
-# ------------------------------------------------------------------------------
-# Default behavior if isDirWanted is undefined for traverseFiles
+# Default implementation for traverseFiles's isDirWanted param
 sub defaultIsDirWanted {
     my ($fullPath, $rootFullPath, $filename) = @_;
     return (lc $filename ne $FileTypes::trashDirName);
 }
 
-# MODEL (File Operations) ------------------------------------------------------
-# Default behavior if isDirWanted is undefined for traverseFiles
+# Default implementation for traverseFiles's isDirWanted param
 sub defaultIsFileWanted {
     my ($fullPath, $rootFullPath, $filename) = @_;
     return (lc $filename ne $FileTypes::md5Filename and $filename =~ /$filenameFilter/);

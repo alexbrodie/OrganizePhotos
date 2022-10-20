@@ -66,8 +66,9 @@ use File::Spec ();
 # would match Alex.jpg twice, and invoke isFileWanted/callback twice as well.
 sub traverseFiles {
     my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
-    $isDirWanted = \&OrganizePhotos::defaultIsDirWanted unless $isDirWanted;
-    $isFileWanted = \&OrganizePhotos::defaultIsFileWanted unless $isFileWanted;
+    $isDirWanted or die "Programmer Error: expected \$isDirWanted argument";
+    $isFileWanted or die "Programmer Error: expected \$isFileWanted argument";
+    $callback or die  "Programmer Error: expected \$callback argument";
     # Record base now so that no_chdir doesn't affect rel2abs/abs2rel below
     # (and - bonus - just resolve and canonicalize once)
     my $curDir = File::Spec->curdir();
