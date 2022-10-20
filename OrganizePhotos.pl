@@ -74,10 +74,10 @@ unless (@ARGV) {
             'by-name|n' => \$byName,
             'no-default-last-action' => \$noDefaultLastAction);
         doCheckMd5($addOnly, $forceRecalc, @args);
+        doPurgeMd5(@args);
         doFindDupeFiles($byName, $autoDiff, 
                         !$noDefaultLastAction, @args);
         doRemoveEmpties(@args);
-        doPurgeMd5(@args);
         doCollectTrash(@args);
     } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
         my @args = myGetOptions();
@@ -212,10 +212,10 @@ the specified glob pattern(s).
 This command runs the following suggested suite of commands:
 
     check-md5 [--add-only] [glob patterns]
+    prune-md5 [glob patterns]
     find-dupe-files [--auto-diff|d] [--by-name|n]
         [--no-default-last-action] [glob patterns]
     remove-empties [glob patterns]
-    prune-md5 [glob patterns]
     collect-trash [glob patterns]
 
 =head3 Options & Arguments
