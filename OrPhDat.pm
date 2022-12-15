@@ -114,7 +114,7 @@ sub resolveMd5Info {
     #};
     #if (my $error = $@) {
     #    # TODO: for now, skip but we'll want something better in the future
-    #    warn Term::ANSIColor::colored("UNAVAILABLE MD5 for '@{[prettyPath($mediaPath)]}' with error:", 'red'), "\n\t$error\n";
+    #    warn Term::ANSIColor::colored("UNAVAILABLE MD5 for '@{[pretty_path($mediaPath)]}' with error:", 'red'), "\n\t$error\n";
     #    return undef; # Can't get the MD5
     #}
     # Do verification on the old persisted Md5Info and the new calculated Md5Info
@@ -123,7 +123,7 @@ sub resolveMd5Info {
             # Matches last recorded hash, but still continue and call
             # setMd5InfoAndWriteMd5File to handle other bookkeeping
             # to ensure we get a cache hit and short-circuit next time.
-            printWithIcon('(V)', 'green', "Verified MD5 for '@{[prettyPath($mediaPath)]}'");
+            print_with_icon('(V)', 'green', "Verified MD5 for '@{[pretty_path($mediaPath)]}'");
         } elsif ($oldMd5Info->{full_md5} eq $newMd5Info->{full_md5}) {
             # Full MD5 match and content mismatch. This should only be
             # expected when we change how to calculate content MD5s.
@@ -145,7 +145,7 @@ EOM
         } else {
             # Mismatch and we can update MD5, needs resolving...
             # TODO: This doesn't belong here in the model, it should be moved
-            warn Term::ANSIColor::colored("MISMATCH OF MD5 for '@{[prettyPath($mediaPath)]}'", 'red'), 
+            warn Term::ANSIColor::colored("MISMATCH OF MD5 for '@{[pretty_path($mediaPath)]}'", 'red'), 
                  " [$oldMd5Info->{md5} vs $newMd5Info->{md5}]\n";
             while (1) {
                 print <<"EOM", "i/o/s/q? ", "\a"; 
@@ -195,12 +195,12 @@ sub findMd5s {
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
             if (-f $fullPath) {
-                my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+                my ($vol, $dir, $filename) = split_path($fullPath);
                 my (undef, $md5Set) = readMd5File('<:crlf', $fullPath);
                 for my $md5Key (sort { $md5Set->{$a}->{filename} cmp $md5Set->{$b}->{filename} } keys %$md5Set) {
                     my $md5Info = $md5Set->{$md5Key};
                     my $otherFilename = $md5Info->{filename};
-                    my $otherFullPath = changeFilename($fullPath, $otherFilename);
+                    my $otherFullPath = change_filename($fullPath, $otherFilename);
                     if ($isFileWanted->($otherFullPath, $rootFullPath, $otherFilename)) {
                         $callback->($otherFullPath, $md5Info);
                     }
@@ -214,7 +214,7 @@ sub findMd5s {
 # Gets the Md5Path, Md5Key for a MediaPath.
 sub getMd5PathAndMd5Key {
     my ($mediaPath) = @_;
-    my ($md5Path, $md5Key) = changeFilename($mediaPath, $FileTypes::md5Filename);
+    my ($md5Path, $md5Key) = change_filename($mediaPath, $FileTypes::md5Filename);
     return ($md5Path, lc $md5Key);
 }
 
@@ -256,7 +256,7 @@ sub moveMd5Info {
     my ($crudOp, $crudMessage);
     my $oldMd5Info = $oldMd5Set->{$oldMd5Key};
     if ($newMediaPath) {
-        my (undef, undef, $newFilename) = File::Spec->splitpath($newMediaPath);
+        my (undef, undef, $newFilename) = split_path($newMediaPath);
         my $newMd5Info = { %$oldMd5Info, filename => $newFilename };
         # The code for the remainder of this scope is very similar to 
         #   writeMd5Info($newMediaPath, $newMd5Info);
@@ -271,14 +271,14 @@ sub moveMd5Info {
         if ($existingMd5Info and Data::Compare::Compare($existingMd5Info, $newMd5Info)) {
             # Existing Md5Info at target is identical, so target is up to date already
             $crudOp = View::CRUD_DELETE;
-            $crudMessage = "Removed cache data for '@{[prettyPath($oldMediaPath)]}' (up to date " .
-                           "data already exists for '@{[prettyPath($newMediaPath)]}')";
+            $crudMessage = "Removed cache data for '@{[pretty_path($oldMediaPath)]}' (up to date " .
+                           "data already exists for '@{[pretty_path($newMediaPath)]}')";
         } else {
             $newMd5Set->{$newMd5Key} = $newMd5Info;
             trace(View::VERBOSITY_MEDIUM, "Writing '$newMd5Path' after moving entry for '$newMd5Key' elsewhere");
             writeMd5File($newMd5Path, $newMd5File, $newMd5Set);
             $crudOp = View::CRUD_UPDATE;
-            $crudMessage = "Moved cache data for '@{[prettyPath($oldMediaPath)]}' to '@{[prettyPath($newMediaPath)]}'";
+            $crudMessage = "Moved cache data for '@{[pretty_path($oldMediaPath)]}' to '@{[pretty_path($newMediaPath)]}'";
             if (defined $existingMd5Info) {
                 $crudMessage = "$crudMessage overwriting existing value";
             }
@@ -286,7 +286,7 @@ sub moveMd5Info {
     } else {
         # No new media path, this is a delete only
         $crudOp = View::CRUD_DELETE;
-        $crudMessage = "Removed MD5 for '@{[prettyPath($oldMediaPath)]}'";
+        $crudMessage = "Removed MD5 for '@{[pretty_path($oldMediaPath)]}'";
     }
     # TODO: Should this if/else code move to writeMd5File/setMd5InfoAndWriteMd5File such
     #       that any time someone tries to write an empty hashref, it deletes the file?
@@ -299,9 +299,9 @@ sub moveMd5Info {
         trace(View::VERBOSITY_MEDIUM, "Deleting '$oldMd5Path' after removing MD5 for '$oldMd5Key' (the last one)");
         close($oldMd5File);
         unlink($oldMd5Path) or die "Couldn't delete '$oldMd5Path': $!";
-        printCrud(View::CRUD_DELETE, "  Deleted empty file '@{[prettyPath($oldMd5Path)]}'\n");
+        print_crud(View::CRUD_DELETE, "  Deleted empty file '@{[pretty_path($oldMd5Path)]}'\n");
     }
-    printCrud($crudOp, $crudMessage, "\n");
+    print_crud($crudOp, $crudMessage, "\n");
     return $oldMd5Info;
 }
 
@@ -352,8 +352,8 @@ sub appendMd5Files {
               scalar @sourceMd5Paths, " files");
         writeMd5File($targetMd5Path, $targetMd5File, $targetMd5Set);
         my $itemsAdded = (scalar keys %$targetMd5Set) - $oldTargetMd5SetCount;
-        printCrud(View::CRUD_CREATE, "  Added $itemsAdded MD5s to '${\prettyPath($targetMd5Path)}' from ",
-                  join ', ', map { "'${\prettyPath($_)}'" } @sourceMd5Paths);
+        print_crud(View::CRUD_CREATE, "  Added $itemsAdded MD5s to '${\pretty_path($targetMd5Path)}' from ",
+                  join ', ', map { "'${\pretty_path($_)}'" } @sourceMd5Paths);
     }
 }
 
@@ -368,7 +368,7 @@ sub readOrCreateNewMd5File {
     } else {
         # TODO: should mode here have :crlf on the end?
         my $fh = openOrDie('+>', $md5Path);
-        printCrud(View::CRUD_CREATE, "  Created cache at '@{[prettyPath($md5Path)]}'\n");
+        print_crud(View::CRUD_CREATE, "  Created cache at '@{[pretty_path($md5Path)]}'\n");
         return ($fh, {});
     }
 }
@@ -416,7 +416,7 @@ sub readMd5File {
         }
     }
     updateMd5FileCache($md5Path, $md5Set);
-    printCrud(View::CRUD_READ, "  Read cache from '@{[prettyPath($md5Path)]}'\n");
+    print_crud(View::CRUD_READ, "  Read cache from '@{[pretty_path($md5Path)]}'\n");
     return ($md5File, $md5Set);
 }
 
@@ -434,9 +434,9 @@ sub setMd5InfoAndWriteMd5File {
         trace(View::VERBOSITY_MEDIUM, "Writing '$md5Path' after updating value for key '$md5Key'");
         writeMd5File($md5Path, $md5File, $md5Set);
         if (defined $oldMd5Info) {
-            printCrud(View::CRUD_UPDATE, "Updated cache entry for '@{[prettyPath($mediaPath)]}'\n");
+            print_crud(View::CRUD_UPDATE, "Updated cache entry for '@{[pretty_path($mediaPath)]}'\n");
         } else {
-            printCrud(View::CRUD_CREATE, "Added cache entry for '@{[prettyPath($mediaPath)]}'\n");
+            print_crud(View::CRUD_CREATE, "Added cache entry for '@{[pretty_path($mediaPath)]}'\n");
         }
     }
     return $oldMd5Info;
@@ -444,7 +444,7 @@ sub setMd5InfoAndWriteMd5File {
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Lowest level helper routine to serialize OM into a file handle.
-# Caller is expected to printCrud with more context if this method returns
+# Caller is expected to print_crud with more context if this method returns
 # successfully.
 sub writeMd5File {
     my ($md5Path, $md5File, $md5Set) = @_;
@@ -462,7 +462,7 @@ sub writeMd5File {
         warn "Writing empty data to $md5Path";
     }
     updateMd5FileCache($md5Path, $md5Set);
-    printCrud(View::CRUD_UPDATE, "  Wrote cache to '@{[prettyPath($md5Path)]}'\n");
+    print_crud(View::CRUD_UPDATE, "  Wrote cache to '@{[pretty_path($md5Path)]}'\n");
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -482,7 +482,7 @@ sub updateMd5FileCache {
 sub makeMd5InfoBase  {
     my ($mediaPath) = @_;
     my $stats = File::stat::stat($mediaPath) or die "Couldn't stat '$mediaPath': $!";
-    my (undef, undef, $filename) = File::Spec->splitpath($mediaPath);
+    my (undef, undef, $filename) = split_path($mediaPath);
     return { filename => $filename, size => $stats->size, mtime => $stats->mtime };
 }
 

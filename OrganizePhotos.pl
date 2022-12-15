@@ -24,7 +24,7 @@ use Pod::Usage ();
 sub myGetOptions {
     my $filter = undef;
     Getopt::Long::GetOptions(
-        'verbosity|v:+' => \$View::verbosity,
+        'Verbosity|v:+' => \$View::Verbosity,
         'filter|f=s' => \$filter, 
         @_) or die "Error in command line, aborting.";
     if ($filter) {

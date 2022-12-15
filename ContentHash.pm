@@ -90,9 +90,9 @@ sub calculateMd5Info {
     };
     if (my $error = $@) {
         # Can't get the partial MD5, so we'll just use the full hash
-        warn "Unavailable content MD5 for '@{[prettyPath($mediaPath)]}' with error:\n\t$error\n";
+        warn "Unavailable content MD5 for '@{[pretty_path($mediaPath)]}' with error:\n\t$error\n";
     }
-    printCrud(View::CRUD_READ, "  Computed MD5 of '@{[prettyPath($mediaPath)]}'",
+    print_crud(View::CRUD_READ, "  Computed MD5 of '@{[pretty_path($mediaPath)]}'",
               ($partialMd5Hash ? ", including content only hash" : ''), "\n");
     return {
         version => $calculateMd5InfoVersion,

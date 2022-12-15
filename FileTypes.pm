@@ -192,7 +192,7 @@ sub getMimeType {
     # If the file is a backup (has some "bak"/"original" suffix), 
     # we want to consider the real extension
     $mediaPath =~ s/$backupSuffix$//;
-    my ($basename, $ext) = splitExt($mediaPath);
+    my ($basename, $ext) = split_ext($mediaPath);
     return getFileTypeInfo($ext, 'MIMETYPE') || '';
 }
 
@@ -206,10 +206,10 @@ sub getSidecarPaths {
     } else {
         # Using extension as a key, look up associated sidecar types (if any)
         # and return the paths to the other types which exist
-        my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-        my ($basename, $ext) = splitExt($filename);
+        my ($vol, $dir, $filename) = split_path($fullPath);
+        my ($basename, $ext) = split_ext($filename);
         my @sidecars = @{getFileTypeInfo($ext, 'SIDECARS') || []};
-        @sidecars = map { combinePath($vol, $dir, catExt($basename, $_)) } @sidecars;
+        @sidecars = map { combine_path($vol, $dir, cat_ext($basename, $_)) } @sidecars;
         return grep { -e } @sidecars;
     }
 }
@@ -218,15 +218,15 @@ sub getSidecarPaths {
 # in the .orphtrash subdirectory.
 sub getTrashPath {
     my ($fullPath) = @_;
-    my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+    my ($vol, $dir, $filename) = split_path($fullPath);
     my $trashDir = File::Spec->catdir($dir, $trashDirName);
-    return combinePath($vol, $trashDir, $filename);
+    return combine_path($vol, $trashDir, $filename);
 }
 
 sub comparePathWithExtOrder {
     my ($fullPathA, $fullPathB, $reverseExtOrder) = @_;
-    my ($volA, $dirA, $filenameA) = File::Spec->splitpath($fullPathA);
-    my ($volB, $dirB, $filenameB) = File::Spec->splitpath($fullPathB);
+    my ($volA, $dirA, $filenameA) = split_path($fullPathA);
+    my ($volB, $dirB, $filenameB) = split_path($fullPathB);
     return compareDir($dirA, $dirB) ||
            compareFilenameWithExtOrder($filenameA, $filenameB, $reverseExtOrder);
 }
@@ -258,8 +258,8 @@ sub compareDir {
 
 sub compareFilenameWithExtOrder {
     my ($filenameA, $filenameB, $reverseExtOrder) = @_;
-    my ($basenameA, $extA) = splitExt($filenameA);
-    my ($basenameB, $extB) = splitExt($filenameB);
+    my ($basenameA, $extA) = split_ext($filenameA);
+    my ($basenameB, $extB) = split_ext($filenameB);
     # Compare by basename first
     my $c = lc ($basenameA || '') cmp lc ($basenameB || '');
     return $c if $c;
