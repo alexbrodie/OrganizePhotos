@@ -69,8 +69,11 @@ sub get_color_for_index {
 # Returns a form of the specified path prettified for display/reading
 sub pretty_path {
     my ($path) = @_;
-    $path = File::Spec->abs2rel($path);
-    return $path;
+    my $full_path = File::Spec->rel2abs($path);
+    $full_path = File::Spec->canonpath($full_path);
+    my $rel_path = File::Spec->abs2rel($full_path);
+    $rel_path = File::Spec->canonpath($rel_path);
+    return length($full_path) < length($rel_path) ? $full_path : $rel_path;
 }
 
 # This should be called when any crud operations have been performed
