@@ -251,7 +251,7 @@ sub doCollectTrash {
         },
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
-            my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+            my ($vol, $dir, $filename) = split_path($fullPath);
             if (lc $filename eq $FileTypes::trashDirName) {
                 # Convert root/bunch/of/dirs/.orphtrash to root/.orphtrash/bunch/of/dirs
                 trashPathWithRoot($fullPath, $rootFullPath);
@@ -527,8 +527,8 @@ sub populateFindDupeFilesDupeGroup {
 # doFindDupeFiles helper subroutine
 sub computeFindDupeFilesHashKeyByName {
     my ($fullPath) = @_;
-    my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
-    my ($basename, $ext) = splitExt($filename);
+    my ($vol, $dir, $filename) = split_path($fullPath);
+    my ($basename, $ext) = split_ext($filename);
     # 1. Start with extension
     my $key = lc $ext . ';';
     # 2. Add basename
@@ -547,7 +547,7 @@ sub computeFindDupeFilesHashKeyByName {
     } else {
         # Unknown file format, just use all of basename? It's not
         # nothing, but will only work with exact filename matches
-        warn "Unknown filename format for '$basename' in '@{[prettyPath($fullPath)]}'";
+        warn "Unknown filename format for '$basename' in '@{[pretty_path($fullPath)]}'";
         $key .= lc $basename . ';';
     }
     # 3. Directory info
@@ -568,7 +568,7 @@ sub computeFindDupeFilesHashKeyByName {
         if ($dirKey) {
             $key .= $dirKey;
         } else {
-            warn "Unknown directory format in '@{[prettyPath($fullPath)]}'";
+            warn "Unknown directory format in '@{[pretty_path($fullPath)]}'";
         }
     }
     return $key;
@@ -635,11 +635,11 @@ sub generateFindDupeFilesAutoAction {
     # then it's probably the live video portion from a burst shot. We
     # should just continue
     my $isShortMovieSidecar = sub {
-        my ($basename, $ext) = splitExt($_->{fullPath});
+        my ($basename, $ext) = split_ext($_->{fullPath});
         return 0 if defined $ext and lc $ext ne 'mov';
         return 0 unless exists $_->{md5Info} and exists $_->{md5Info}->{size};
-        my $altSize = -s catExt($basename, 'heic');
-        $altSize = -s catExt($basename, 'jpg') unless defined $altSize;
+        my $altSize = -s cat_ext($basename, 'heic');
+        $altSize = -s cat_ext($basename, 'jpg') unless defined $altSize;
         return 0 unless defined $altSize;
         return 2 * $altSize >= $_->{md5Info}->{size};
     };
@@ -670,7 +670,7 @@ sub buildFindDupeFilesPrompt {
     # Build base of prompt - indexed paths
     my @prompt = ();
     # The list of all files in the group
-    my @paths = map { prettyPath($_->{fullPath}) } @$group;
+    my @paths = map { pretty_path($_->{fullPath}) } @$group;
     # Start by building the header row, the formats for other rows follows this
     # Matches
     my $delim = ' ';
@@ -704,9 +704,9 @@ sub buildFindDupeFilesPrompt {
         }
         push @prompt, $delim;
         # Index
-        push @prompt, coloredByIndex(sprintf($indexFormat, $i), $i), $delim;
+        push @prompt, colored_by_index(sprintf($indexFormat, $i), $i), $delim;
         # Filename
-        push @prompt, coloredByIndex(sprintf($pathFormat, $path), $i), $delim;
+        push @prompt, colored_by_index(sprintf($pathFormat, $path), $i), $delim;
         # Metadata
         my ($mtime, $size);
         if (my $md5Info = $elt->{md5Info}) {
@@ -724,8 +724,8 @@ sub buildFindDupeFilesPrompt {
         }
         # Wrong dir warning
         if ($elt->{dateTaken}) {
-            my ($vol, $dir, $filename) = File::Spec->splitpath($elt->{fullPath});
-            my $parentDir = List::Util::first { $_ } reverse File::Spec->splitdir($dir);
+            my ($vol, $dir, $filename) = split_path($elt->{fullPath});
+            my $parentDir = List::Util::first { $_ } reverse split_dir($dir);
             if ($parentDir =~ /^(\d{4})-(\d\d)-(\d\d)/) {
                 if ($1 != $elt->{dateTaken}->year ||
                     $2 != $elt->{dateTaken}->month ||
@@ -740,7 +740,7 @@ sub buildFindDupeFilesPrompt {
         for (@{$elt->{sidecars}}) {
             push @prompt, 
                 ' ' x $lengthBeforePath, 
-                coloredByIndex(prettyPath($_), $i), 
+                colored_by_index(pretty_path($_), $i), 
                 "\n";
         }
     }
@@ -748,10 +748,10 @@ sub buildFindDupeFilesPrompt {
     my $getMultiCommandOption = sub {
         my ($prefix) = @_;
         if (@$group <= 3) {
-            return join '/', map { coloredByIndex("$prefix$_", $_) } (0..$#$group);
+            return join '/', map { colored_by_index("$prefix$_", $_) } (0..$#$group);
         } else {
-            return coloredByIndex("${prefix}0", 0) . '/.../' . 
-                   coloredByIndex("$prefix$#$group", $#$group);
+            return colored_by_index("${prefix}0", 0) . '/.../' . 
+                   colored_by_index("$prefix$#$group", $#$group);
         }
     };
     # Input options
@@ -759,7 +759,7 @@ sub buildFindDupeFilesPrompt {
                   '/q/', $getMultiCommandOption->('t'), ' ';
     if ($defaultCommand) {
         my @dcs = split(';', $defaultCommand);
-        @dcs = map { /^\w+(\d+)$/ ? coloredByIndex($_, $1) : $_ } @dcs;
+        @dcs = map { /^\w+(\d+)$/ ? colored_by_index($_, $1) : $_ } @dcs;
         push @prompt, '[', join(';', @dcs), '] ';
     }
     return join '', @prompt;
@@ -795,13 +795,13 @@ sub doMetadataDiff {
     my $indentLen = 3 + max map { length } @keys; 
     for my $key (@keys) {
         for (my $i = 0; $i < @items; $i++) {
-            my $message = $items[$i]->{$key} || coloredFaint('undef');
+            my $message = $items[$i]->{$key} || colored_faint('undef');
             if ($i == 0) {
-                print coloredBold($key), '.' x ($indentLen - length $key);
+                print colored_bold($key), '.' x ($indentLen - length $key);
             } else {
                 print ' ' x $indentLen;
             }
-            print coloredByIndex($message, $i), "\n";
+            print colored_by_index($message, $i), "\n";
         }
     }
 }
@@ -848,7 +848,7 @@ sub doRemoveEmpties {
             # (e.g. if dir Alex has a lot of non-empty stuff in it and a child dir named
             # Quinn, then we wouldn't want to consider trashing Alex if we check only Quinn)
             if ($fullPath ne $rootFullPath) {
-                my $parentFullPath = parentPath($fullPath);
+                my $parentFullPath = parent_path($fullPath);
                 $dirSubItemsMap{$parentFullPath}++;
             }
         },
@@ -893,9 +893,9 @@ sub doRestoreTrash {
         },
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
-            my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+            my ($vol, $dir, $filename) = split_path($fullPath);
             if (lc $filename eq $FileTypes::trashDirName) {
-                movePath($fullPath, combinePath($vol, $dir));
+                movePath($fullPath, combine_path($vol, $dir));
             }
         },
         @globPatterns);
@@ -931,10 +931,10 @@ sub doVerifyMd5 {
                 my $actualMd5 = calculateMd5Info($fullPath)->{md5};
                 if ($actualMd5 eq $expectedMd5) {
                     # Hash match
-                    print "Verified MD5 for '@{[prettyPath($fullPath)]}'\n";
+                    print "Verified MD5 for '@{[pretty_path($fullPath)]}'\n";
                 } else {
                     # Has MIS-match, needs input
-                    warn "ERROR: MD5 mismatch for '@{[prettyPath($fullPath)]}' ($actualMd5 != $expectedMd5)";
+                    warn "ERROR: MD5 mismatch for '@{[pretty_path($fullPath)]}' ($actualMd5 != $expectedMd5)";
                     unless ($all) {
                         while (1) {
                             print "Ignore, ignore All, Quit (i/a/q)? ", "\a";
@@ -953,7 +953,7 @@ sub doVerifyMd5 {
             } else {
                 # File doesn't exist
                 # TODO: prompt to see if we should remove this via deleteMd5Info
-                warn "Missing file: '@{[prettyPath($fullPath)]}'";
+                warn "Missing file: '@{[pretty_path($fullPath)]}'";
             }
         }, @globPatterns);
 }

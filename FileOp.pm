@@ -88,7 +88,7 @@ sub traverseFiles {
     # or falsy if not wanted
     my $isWanted = sub {
         my ($fullPath, $rootFullPath) = @_;
-        my ($vol, $dir, $filename) = File::Spec->splitpath($fullPath);
+        my ($vol, $dir, $filename) = split_path($fullPath);
         if (-d $fullPath) {
             # Never peek inside of a .git folder or any folder
             # containing .orphignore (opt out mechanism)
@@ -245,8 +245,8 @@ sub trashPathWithRoot {
     # Note the careful use of splitdir and catdir - splitdir can return
     # empty string entries in the array, notably at beginning and end
     # which can make manipulation of dir arrays tricky.
-    my ($theVol, $theDir, $theFilename) = File::Spec->splitpath($theFullPath);
-    my ($rootVol, $rootDir, $rootFilename) = File::Spec->splitpath($rootFullPath);
+    my ($theVol, $theDir, $theFilename) = split_path($theFullPath);
+    my ($rootVol, $rootDir, $rootFilename) = split_path($rootFullPath);
     # Example 1: theDirs = ( ..., root, A, B, .orphtrash, C, D )
     my @theDirs = File::Spec->splitdir(File::Spec->catdir($theDir, $theFilename));
     # Example N: rootDirs = ( ..., root )
@@ -280,7 +280,7 @@ sub trashPathWithRoot {
     # Example 1: newFullPath = '.../root/.orphtrash/A/B/C/D'
     # Example 2: newFullPath = '.../root/.Trahs/foo'
     # Example 3: newFullPath = '.../root/.orphtrash'
-    my $newFullPath = combinePath($theVol, $newDir, $newFilename);
+    my $newFullPath = combine_path($theVol, $newDir, $newFilename);
     movePath($theFullPath, $newFullPath);
 }
 
@@ -299,28 +299,28 @@ sub movePath {
             File::Copy::move($oldFullPath, $newFullPath) or die
                 "Failed to move '$oldFullPath' to '$newFullPath': $!";
         }
-        # (caller is expected to printCrud with more context)
+        # (caller is expected to print_crud with more context)
     };
     if (-f $oldFullPath) {
         if (-e $newFullPath) {
             # If both are the per-directory database files, and newFullPath
             # exists, then cat old on to new, and delete old.
-            my (undef, undef, $oldFilename) = File::Spec->splitpath($oldFullPath);
-            my (undef, undef, $newFilename) = File::Spec->splitpath($newFullPath);
+            my (undef, undef, $oldFilename) = split_path($oldFullPath);
+            my (undef, undef, $newFilename) = split_path($newFullPath);
             if (lc $oldFilename eq $FileTypes::md5Filename and lc $newFilename eq $FileTypes::md5Filename) {
                 unless ($dryRun) {
                     OrPhDat::appendMd5Files($newFullPath, $oldFullPath);
                     unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
                 }
-                printCrud(View::CRUD_DELETE, "  Deleted now-old cache at '@{[prettyPath($oldFullPath)]}' after ",
-                          "appending it to '@{[prettyPath($newFullPath)]}'");
+                print_crud(View::CRUD_DELETE, "  Deleted now-old cache at '@{[pretty_path($oldFullPath)]}' after ",
+                          "appending it to '@{[pretty_path($newFullPath)]}'");
             } else {
                 die "Can't overwrite '$newFullPath' with '$oldFullPath'";
             }
         } else {
             $moveInternal->();
-            printCrud(View::CRUD_UPDATE, "Moved file '@{[prettyPath($oldFullPath)]}' ",
-                      "to '@{[prettyPath($newFullPath)]}'\n");
+            print_crud(View::CRUD_UPDATE, "Moved file '@{[pretty_path($oldFullPath)]}' ",
+                      "to '@{[pretty_path($newFullPath)]}'\n");
             unless ($dryRun) {
                 OrPhDat::moveMd5Info($oldFullPath, $newFullPath);
             }
@@ -364,8 +364,8 @@ sub movePath {
         } else {
             # Dest dir doesn't exist, so we can just move the whole directory
             $moveInternal->();
-            printCrud(View::CRUD_UPDATE, "Moved directory '@{[prettyPath($oldFullPath)]}'",
-                      " to '@{[prettyPath($newFullPath)]}'\n");
+            print_crud(View::CRUD_UPDATE, "Moved directory '@{[pretty_path($oldFullPath)]}'",
+                      " to '@{[pretty_path($newFullPath)]}'\n");
         }
     } else {
         die "Programmer Error: unexpected type for object '$oldFullPath'";
@@ -375,14 +375,14 @@ sub movePath {
 # MODEL (File Operations) ------------------------------------------------------
 sub ensureParentDirExists {
     my ($fullPath, $dryRun) = @_;
-    my $parentFullPath = parentPath($fullPath);
+    my $parentFullPath = parent_path($fullPath);
     unless (-d $parentFullPath) {
         trace(View::VERBOSITY_MEDIUM, "File::Copy::make_path('$parentFullPath');");
         unless ($dryRun) {
             File::Path::make_path($parentFullPath) or die
                 "Failed to make directory '$parentFullPath': $!";
         }
-        printCrud(View::CRUD_CREATE, "  Created dir '@{[prettyPath($parentFullPath)]}'\n");
+        print_crud(View::CRUD_CREATE, "  Created dir '@{[pretty_path($parentFullPath)]}'\n");
     }
 }
 
@@ -394,7 +394,7 @@ sub tryRemoveEmptyDir {
     my ($path) = @_;
     trace(View::VERBOSITY_MAX, "tryRemoveEmptyDir('$path');");
     if (-d $path and rmdir $path) {
-        printCrud(View::CRUD_DELETE, "  Deleted empty dir '@{[prettyPath($path)]}'\n");
+        print_crud(View::CRUD_DELETE, "  Deleted empty dir '@{[pretty_path($path)]}'\n");
         return 1;
     } else {
         return 0;

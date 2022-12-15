@@ -8,17 +8,17 @@ package View;
 use Exporter;
 our @ISA = ('Exporter');
 our @EXPORT = qw(
-    coloredBold
-    coloredFaint
-    coloredByIndex
-    prettyPath
-    printCrud
-    printWithIcon
+    colored_bold
+    colored_faint
+    colored_by_index
+    pretty_path
+    print_crud
+    print_with_icon
     trace
-    dumpStruct
+    dump_struct
 );
 our @EXPORT_OK = qw(
-    getColorForIndex
+    get_color_for_index
 );
 
 # Library uses
@@ -32,7 +32,7 @@ use constant VERBOSITY_MEDIUM => 2;  # moderate amount of traces on
 use constant VERBOSITY_HIGH => 3;    # most traces on
 use constant VERBOSITY_MAX => 4;     # all traces on
 
-our $verbosity = VERBOSITY_NONE;
+our $Verbosity = VERBOSITY_NONE;
 
 use constant CRUD_UNKNOWN => 0;
 use constant CRUD_CREATE => 1;
@@ -40,50 +40,44 @@ use constant CRUD_READ => 2;
 use constant CRUD_UPDATE => 3;
 use constant CRUD_DELETE => 4;
 
-# VIEW -------------------------------------------------------------------------
-sub coloredFaint {
+sub colored_faint {
     my ($message) = @_;
     return Term::ANSIColor::colored($message, 'faint');
 }
 
-# VIEW -------------------------------------------------------------------------
-sub coloredBold {
+sub colored_bold {
     my ($message) = @_;
     return Term::ANSIColor::colored($message, 'bold');
 }
 
-# VIEW -------------------------------------------------------------------------
 # Colorizes text for diffing purposes
 # [message] - Text to color
-# [colorIndex] - Index for a color class
-sub coloredByIndex {
-    my ($message, $colorIndex) = @_;
-    return Term::ANSIColor::colored($message, getColorForIndex($colorIndex));
+# [color_index] - Index for a color class
+sub colored_by_index {
+    my ($message, $color_index) = @_;
+    return Term::ANSIColor::colored($message, get_color_for_index($color_index));
 }
 
-# VIEW -------------------------------------------------------------------------
 # Returns a color name (usable with colored()) based on an index
-# [colorIndex] - Index for a color class
-sub getColorForIndex {
-    my ($colorIndex) = @_;
+# [color_index] - Index for a color class
+sub get_color_for_index {
+    my ($color_index) = @_;
     my @colors = ('green', 'red', 'blue', 'yellow', 'magenta', 'cyan');
-    return 'bright_' . $colors[$colorIndex % scalar @colors];
+    return 'bright_' . $colors[$color_index % scalar @colors];
 }
 
-# VIEW -------------------------------------------------------------------------
 # Returns a form of the specified path prettified for display/reading
-sub prettyPath {
+sub pretty_path {
     my ($path) = @_;
     $path = File::Spec->abs2rel($path);
     return $path;
 }
 
-# VIEW -------------------------------------------------------------------------
 # This should be called when any crud operations have been performed
-sub printCrud {
+sub print_crud {
     my $type = shift @_;
     # If the message starts with a space, then it's low pri
-    return if $_[0] =~ /^\s/ and $verbosity <= VERBOSITY_NONE;
+    return if $_[0] =~ /^\s/ and $Verbosity <= VERBOSITY_NONE;
     my ($icon, $color) = ('', '');
     if ($type == CRUD_CREATE) {
         ($icon, $color) = ('(+)', 'blue');
@@ -94,11 +88,10 @@ sub printCrud {
     } elsif ($type == CRUD_DELETE) {
         ($icon, $color) = ('(X)', 'yellow');
     }
-    printWithIcon($icon, $color, @_);
+    print_with_icon($icon, $color, @_);
 }
 
-# VIEW -------------------------------------------------------------------------
-sub printWithIcon {
+sub print_with_icon {
     my ($icon, $color, @statements) = @_;
     my @lines = map { Term::ANSIColor::colored($_, $color) } split /\n/, join '', @statements;
     $lines[0]  = Term::ANSIColor::colored($icon, "white on_$color") . ' ' . $lines[0];
@@ -106,21 +99,19 @@ sub printWithIcon {
     print map { ($_, "\n") } @lines;
 }
 
-# VIEW -------------------------------------------------------------------------
 sub trace {
     my ($level, @statements) = @_;
-    if ($level <= $verbosity) {
+    if ($level <= $Verbosity) {
         my ($package, $filename, $line) = caller;
-        printWithIcon(sprintf("T%02d", $level),
+        print_with_icon(sprintf("T%02d", $level),
                       'bright_black', 
                       basename($filename) . '@' . $line . ': ', 
                       @statements);
     }
 }
 
-# VIEW -------------------------------------------------------------------------
 # Stringify a perl data structure suitable for traceing
-sub dumpStruct {
+sub dump_struct {
     #return Data::Dumper::Dumper(@_);
     return JSON->new->allow_nonref->allow_blessed->convert_blessed->pretty->canonical->encode(@_);
 }

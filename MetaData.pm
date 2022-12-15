@@ -53,7 +53,7 @@ sub getDateTaken {
         }
     };
     if (my $error = $@) {
-        warn "Unavailable date taken for '@{[prettyPath($path)]}' with error:\n\t$error\n";
+        warn "Unavailable date taken for '@{[pretty_path($path)]}' with error:\n\t$error\n";
     }
     return $dateTaken;
 }
@@ -100,7 +100,7 @@ sub extractInfo {
     trace(View::VERBOSITY_MEDIUM, "Image::ExifTool::ExtractInfo('$path');");
     $et->ExtractInfo($path, @exifToolArgs) or die
         "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
-    printCrud(View::CRUD_READ, "  Extract meta of '@{[prettyPath($path)]}'");
+    print_crud(View::CRUD_READ, "  Extract meta of '@{[pretty_path($path)]}'");
     return $et;
 }
 
