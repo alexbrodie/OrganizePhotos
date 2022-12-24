@@ -34,16 +34,18 @@ sub isMd5InfoVersionUpToDate {
     my ($mediaPath, $version) = @_;
     #trace(View::VERBOSITY_MAX, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
     my $type = getMimeType($mediaPath);
+    # Return truthy iff $version >= N where N is the last version that
+    # affected the output for this file type
     if ($type eq 'image/heic') {
-        return ($version >= 6) ? 1 : 0; # unchanged since V5
+        return ($version >= 6) ? 1 : 0;
     } elsif ($type eq 'image/jpeg') {
-        return ($version >= 1) ? 1 : 0; # unchanged since V1
+        return ($version >= 1) ? 1 : 0;
     } elsif ($type eq 'video/mp4v-es') {
-        return ($version >= 2) ? 1 : 0; # unchanged since V2
+        return ($version >= 2) ? 1 : 0;
     } elsif ($type eq 'image/png') {
-        return ($version >= 3) ? 1 : 0; # unchanged since V3
+        return ($version >= 3) ? 1 : 0;
     } elsif ($type eq 'video/quicktime') {
-        return ($version >= 4) ? 1 : 0; # unchanged since V4
+        return ($version >= 7) ? 1 : 0;
     } elsif ($type eq 'image/tiff') {
         # TODO
     }
@@ -65,7 +67,7 @@ sub calculateMd5Info {
     #!!!   of this method changes in such a way that old values need to be 
     #!!!   recalculated, and isMd5InfoVersionUpToDate should be updated accordingly.
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
-    const my $calculateMd5InfoVersion => 6;
+    const my $calculateMd5InfoVersion => 7;
     my $fh = openOrDie('<:raw', $mediaPath);
     my $fullMd5Hash = getMd5Digest($mediaPath, $fh);
     seek($fh, 0, 0) or die "Failed to reset seek for '$mediaPath': $!";
@@ -105,23 +107,6 @@ sub calculateMd5Info {
 # and returns the MD5 digest of the data in the mdat box.
 sub getIsobmffMdatMd5 {
     my ($mediaPath, $fh) = @_;
-    my $ftyp = readIsobmffFtyp($mediaPath, $fh);
-    my $majorBrand = $ftyp->{f_major_brand};
-    # 'isom' means the first version of ISO Base Media, and is not supposed to
-    # ever be a major brand, but it happens. Try to handle a little bit.
-    if ($majorBrand eq 'isom') {
-        my @compatible = grep { $_ ne 'isom' } @{$ftyp->{f_compatible_brands}};
-        $majorBrand = $compatible[0] if @compatible == 1;
-    } 
-    # This works for both Apple QTFF and ISO BMFF (i.e. mov, mp4, heic)
-    unless (any { $majorBrand eq $_ } ('heic', 'isom', 'mp41', 'mp42', 'qt  ')) {
-        my $brand = "'$ftyp->{f_major_brand}'";
-        if (@{$ftyp->{f_compatible_brands}}) {
-            $brand = $brand . ' (\'' . join('\', \'', @{$ftyp->{f_compatible_brands}}) . '\')';
-        }
-        warn "unexpected brand $brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
-        return undef;
-    }
     until (eof($fh)) {
         my $box = readIsobmffBoxHeader($mediaPath, $fh);
         if ($box->{__type} eq 'mdat') {
@@ -183,6 +168,24 @@ sub getMovContentMd5 {
 }
 
 sub getMp4ContentMd5 {
+    my ($mediaPath, $fh) = @_;
+    my $ftyp = readIsobmffFtyp($mediaPath, $fh);
+    my $majorBrand = $ftyp->{f_major_brand};
+    # 'isom' means the first version of ISO Base Media, and is not supposed to
+    # ever be a major brand, but it happens. Try to handle a little bit.
+    if ($majorBrand eq 'isom') {
+        my @compatible = grep { $_ ne 'isom' } @{$ftyp->{f_compatible_brands}};
+        $majorBrand = $compatible[0] if @compatible == 1;
+    } 
+    # This works for both Apple QTFF and ISO BMFF (i.e. mov, mp4, heic)
+    unless (any { $majorBrand eq $_ } ('heic', 'isom', 'mp41', 'mp42', 'qt  ')) {
+        my $brand = "'$ftyp->{f_major_brand}'";
+        if (@{$ftyp->{f_compatible_brands}}) {
+            $brand = $brand . ' (\'' . join('\', \'', @{$ftyp->{f_compatible_brands}}) . '\')';
+        }
+        warn "unexpected brand $brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
+        return undef;
+    }
     return getIsobmffMdatMd5(@_);
 }
 

@@ -83,8 +83,6 @@ sub readIsobmffBoxHeader {
 # minor_version : the integer version of major_brand
 # compatible_brands : array of strings specifying other brands that the
 #       file is compliant with
-#
-# NB: in addition to ISOBMFF, this also works for QTFF (i.e. .mov)
 sub readIsobmffFtyp {
     my ($mediaPath, $fh) = @_;
     my $box = readIsobmffBoxHeader($mediaPath, $fh);
