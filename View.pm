@@ -87,9 +87,9 @@ sub print_crud {
     } elsif ($type == CRUD_READ) {
         ($icon, $color) = ('(<)', 'cyan');
     } elsif ($type == CRUD_UPDATE) {
-        ($icon, $color) = ('(>)', 'magenta');
+        ($icon, $color) = ('(>)', 'yellow');
     } elsif ($type == CRUD_DELETE) {
-        ($icon, $color) = ('(X)', 'yellow');
+        ($icon, $color) = ('(X)', 'magenta');
     }
     print_with_icon($icon, $color, @_);
 }
