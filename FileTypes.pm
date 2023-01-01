@@ -209,7 +209,7 @@ sub getSidecarPaths {
         my ($vol, $dir, $filename) = split_path($fullPath);
         my ($basename, $ext) = split_ext($filename);
         my @sidecars = @{getFileTypeInfo($ext, 'SIDECARS') || []};
-        @sidecars = map { combine_path($vol, $dir, cat_ext($basename, $_)) } @sidecars;
+        @sidecars = map { combine_path($vol, $dir, combine_ext($basename, $_)) } @sidecars;
         return grep { -e } @sidecars;
     }
 }

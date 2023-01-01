@@ -8,13 +8,14 @@ package PathOp;
 use Exporter;
 our @ISA = ('Exporter');
 our @EXPORT = qw(
-    parent_path
     change_filename
-    split_path
-    split_dir
+    combine_dir
+    combine_ext
     combine_path
-    cat_ext
+    parent_path
+    split_dir
     split_ext
+    split_path
 );
 
 # Library uses
@@ -32,23 +33,34 @@ sub change_filename {
     return wantarray ? ($newPath, $old_filename) : $newPath;
 }
 
+# Splits a path into three components:
+#   my ($volume, $dirs, $filename) = split_path($path);
+# The inverse of combine_path.
 sub split_path {
     return File::Spec->splitpath(@_);
 }
 
+# Merges the three components:
+#   my $path = combine_path($volume, $dirs, $filename);
+# The inverse of split_path.
+sub combine_path {
+    # Experience shows that canonpath should follow catpath.
+    return File::Spec->canonpath(File::Spec->catpath(@_));
+}
+
+# The inverse of combine_dir
 sub split_dir {
     return File::Spec->splitdir(@_);
 }
 
-# Experience shows that canonpath should follow catpath. This wrapper
-# combines the two.
-sub combine_path {
-    return File::Spec->canonpath(File::Spec->catpath(@_));
+# The inverse of split_dir
+sub combine_dir {
+    return File::Spec->catdir(@_);
 }
 
 # The inverse of split_ext, this combines a basename and extension into a
 # filename.
-sub cat_ext {
+sub combine_ext {
     my ($basename, $ext) = @_;
     if ($ext) {
         return $basename ? "$basename.$ext" : ".$ext";

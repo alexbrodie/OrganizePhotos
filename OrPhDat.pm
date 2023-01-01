@@ -262,8 +262,12 @@ sub moveMd5Info {
         #   writeMd5Info($newMediaPath, $newMd5Info);
         # but with additional cases considered and improved context in traces
         my ($newMd5Path, $newMd5Key) = getMd5PathAndMd5Key($newMediaPath);
-        ($oldMd5Path ne $newMd5Path) or die "Not yet supported";
-        my ($newMd5File, $newMd5Set) = readOrCreateNewMd5File($newMd5Path);
+        my ($newMd5File, $newMd5Set);
+        if ($oldMd5Path eq $newMd5Path) {
+            $newMd5Set = $oldMd5Set;
+        } else {
+            ($newMd5File, $newMd5Set) = readOrCreateNewMd5File($newMd5Path);
+        }
         # The code for the remainder of this scope is very similar to 
         #   setMd5InfoAndWriteMd5File($newMediaPath, $newMd5Info, $newMd5Path, $newMd5Key, $newMd5File, $newMd5Set);
         # but with additional cases considered and improved context in traces
@@ -272,11 +276,13 @@ sub moveMd5Info {
             # Existing Md5Info at target is identical, so target is up to date already
             $crudOp = View::CRUD_DELETE;
             $crudMessage = "Removed cache data for '@{[pretty_path($oldMediaPath)]}' (up to date " .
-                           "data already exists for '@{[pretty_path($newMediaPath)]}')";
+                        "data already exists for '@{[pretty_path($newMediaPath)]}')";
         } else {
             $newMd5Set->{$newMd5Key} = $newMd5Info;
-            trace(View::VERBOSITY_MEDIUM, "Writing '$newMd5Path' after moving entry for '$newMd5Key' elsewhere");
-            writeMd5File($newMd5Path, $newMd5File, $newMd5Set);
+            if ($newMd5File) {
+                trace(View::VERBOSITY_MEDIUM, "Writing '$newMd5Path' after moving entry for '$newMd5Key' elsewhere");
+                writeMd5File($newMd5Path, $newMd5File, $newMd5Set);
+            }
             $crudOp = View::CRUD_UPDATE;
             $crudMessage = "Moved cache data for '@{[pretty_path($oldMediaPath)]}' to '@{[pretty_path($newMediaPath)]}'";
             if (defined $existingMd5Info) {
