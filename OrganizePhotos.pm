@@ -638,8 +638,8 @@ sub generateFindDupeFilesAutoAction {
         my ($basename, $ext) = split_ext($_->{fullPath});
         return 0 if defined $ext and lc $ext ne 'mov';
         return 0 unless exists $_->{md5Info} and exists $_->{md5Info}->{size};
-        my $altSize = -s cat_ext($basename, 'heic');
-        $altSize = -s cat_ext($basename, 'jpg') unless defined $altSize;
+        my $altSize = -s combine_ext($basename, 'heic');
+        $altSize = -s combine_ext($basename, 'jpg') unless defined $altSize;
         return 0 unless defined $altSize;
         return 2 * $altSize >= $_->{md5Info}->{size};
     };
@@ -905,6 +905,59 @@ sub doRestoreTrash {
 # EXPERIMENTAL
 # Execute test verb - usually just a playground for testing and new ideas
 sub doTest {
+    my (@globPatterns) = @_;
+    #$View::Verbosity = View::VERBOSITY_HIGH;
+    my $all = 0;
+    traverseFiles(
+        \&defaultIsDirWanted, # isDirWanted
+        \&defaultIsFileWanted, # isFileWanted
+        sub {  # callback
+            my ($path, $root_path) = @_;
+            
+            my $date = getDateTaken($path);
+            $fixed_path = check_path_dates($path, $date);
+            if ($path ne $fixed_path) {
+                for (getSidecarPaths($path)) {
+                    my $sidecar_fixed_path = check_path_dates($_, $date);
+                    warn "sidecars not yet supported, path to fix has sidecars: '". pretty_path($path) ."'";
+                    return;
+                }
+
+                if (-e $fixed_path) {
+                    print_with_icon('(!)', 'yellow', 
+                                    "Wrong date in path '". pretty_path($path) ."'\n".
+                                    "         should be '". pretty_path($fixed_path) ."'\n".
+                                    "which already exists.");                    
+                } else {
+                    print_with_icon('[?]', 'yellow', 
+                                    " from '". pretty_path($path) ."'\n".
+                                    "   to '". pretty_path($fixed_path) ."'");
+                    my $move = $all;
+                    unless ($move) {
+                        while (1) {
+                            print "Move file (y/n/a/q)? ";
+                            chomp(my $in = <STDIN>);
+                            if ($in eq 'y') {
+                                $move = 1;
+                                last;
+                            } elsif ($in eq 'n') {
+                                last;
+                            } elsif ($in eq 'a') {
+                                $move = 1;
+                                $all = 1;
+                                last;
+                            } elsif ($in eq 'q') {
+                                exit 0;
+                            }
+                        }
+                    }
+                    if ($move) {
+                        movePath($path, $fixed_path);
+                    }
+                }                
+            }
+        },
+        @globPatterns);
 }
 
 # API ==========================================================================

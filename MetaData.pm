@@ -8,13 +8,15 @@ package MetaData;
 use Exporter;
 our @ISA = ('Exporter');
 our @EXPORT = qw(
+    check_path_dates
+    extractInfo
     getDateTaken
     readMetadata
-    extractInfo
 );
 
 # Local uses
 use View;
+use PathOp;
 
 # Library uses
 use DateTime::Format::HTTP ();
@@ -102,6 +104,38 @@ sub extractInfo {
         "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
     print_crud(View::CRUD_READ, "  Extract meta of '@{[pretty_path($path)]}'");
     return $et;
+}
+
+sub check_path_dates {
+    my ($path, $date) = @_;
+
+    my ($year, $month, $day);
+    my ($volume, $dir, $filename) = split_path($path);
+
+    if ($date) {
+        ($year, $month, $day) = ($date->year, $date->month, $date->day);
+    } else {
+        # If date isn't provided, try using one embedded at start of filename
+        ($year, $month, $day) = $filename =~ /^(\d{4})[-_](\d\d)[-_](\d\d)\b/;
+    }
+
+    defined $year and $month > 0 and $day > 0 or return;
+
+    my $yyyy = sprintf('%04d', $year);
+    my $mm = sprintf('%02d', $month);
+    my $dd = sprintf('%02d', $day);
+
+    my @dir_parts = (split_dir($dir), $filename);
+    for (@dir_parts) {
+        s/^\d{4}$/$yyyy/;
+        s/^\d{4}-\d\d$/$yyyy-$mm/;
+        s/^\d{4}([-_])\d\d([-_])\d\d\b/$yyyy-$mm-$dd/;
+    }
+
+    my $new_filename = pop @dir_parts;
+    my $new_dir = combine_dir(@dir_parts);
+    my $new_path = combine_path($volume, $new_dir, $new_filename);
+    return $new_path;
 }
 
 1;
