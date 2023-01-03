@@ -286,7 +286,7 @@ sub trashPathWithRoot {
 
 # MODEL (File Operations) ------------------------------------------------------
 # Move oldFullPath to newFullPath doing a move-merge where
-# necessary and possible
+# necessary and possible. Does not overwrite existing files.
 sub movePath {
     my ($oldFullPath, $newFullPath, $dryRun) = @_;
     trace(View::VERBOSITY_MAX, "movePath('$oldFullPath', '$newFullPath');");
