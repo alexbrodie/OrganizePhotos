@@ -915,7 +915,11 @@ sub doTest {
             my ($path, $root_path) = @_;
             
             my $date = getDateTaken($path);
-            $fixed_path = check_path_dates($path, $date);
+            my $fixed_path = $path;
+            $fixed_path = check_path_dates($fixed_path, $date);
+            $fixed_path =~ s/\/(\d{4}-\d\d-\d\d-)(\d{4}-\d\d-\d\d-)/\/$1/;
+            #$fixed_path =~ s/(\w{4}\d{4})[- ]\d(\.\w{2,4})$/$1$2/;
+
             if ($path ne $fixed_path) {
                 for (getSidecarPaths($path)) {
                     my $sidecar_fixed_path = check_path_dates($_, $date);

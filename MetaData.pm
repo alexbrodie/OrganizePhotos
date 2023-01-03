@@ -119,7 +119,7 @@ sub check_path_dates {
         ($year, $month, $day) = $filename =~ /^(\d{4})[-_](\d\d)[-_](\d\d)\b/;
     }
 
-    defined $year and $month > 0 and $day > 0 or return;
+    defined $year and $month > 0 and $day > 0 or return $path;
 
     my $yyyy = sprintf('%04d', $year);
     my $mm = sprintf('%02d', $month);
