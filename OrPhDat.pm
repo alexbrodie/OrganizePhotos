@@ -145,15 +145,26 @@ EOM
         } else {
             # Mismatch and we can update MD5, needs resolving...
             # TODO: This doesn't belong here in the model, it should be moved
-            warn Term::ANSIColor::colored("MISMATCH OF MD5 for '@{[pretty_path($mediaPath)]}'", 'red'), 
-                 " [$oldMd5Info->{md5} vs $newMd5Info->{md5}]\n";
-            while (1) {
-                print <<"EOM", "i/o/s/q? ", "\a"; 
+            my @prompt = ( 
+                Term::ANSIColor::colored("MISMATCH OF MD5 for '@{[pretty_path($mediaPath)]}'", 'red'), 
+                "\n",
+                "Ver  Full MD5                          Content MD5                       Date Modified        Size\n");
+            for ($oldMd5Info, $newMd5Info)
+            {
+                push @prompt, sprintf("%3d  %-16s  %-16s  %-19s  %s\n",
+                    $_->{version}, $_->{full_md5}, $_->{md5}, 
+                    POSIX::strftime('%F %T', localtime $_->{mtime}), 
+                    Number::Bytes::Human::format_bytes($_->{size}));
+            }
+            push @prompt, <<EOM;
 [I]gnore changes and used cached value
 [O]verwrite cached value with new data
 [S]kip using either conflicting value
 [Q]uit
 EOM
+            print @prompt;
+            while (1) {
+                print "i/o/s/q? ", "\a"; 
                 chomp(my $in = <STDIN>);
                 if ($in eq 'i') {
                     # Ignore newMd5Info, so we don't want to return that. Return
