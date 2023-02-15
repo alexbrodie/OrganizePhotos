@@ -23,10 +23,20 @@ use Pod::Usage ();
 
 sub myGetOptions {
     my $filter = undef;
-    Getopt::Long::GetOptions(
-        'Verbosity|v:+' => \$View::Verbosity,
-        'filter|f=s' => \$filter, 
-        @_) or die "Error in command line, aborting.";
+    my %flags = (   'verbosity|v:+' => \$View::Verbosity,
+                    'filter|f=s' => \$filter, 
+                    @_ );
+    Getopt::Long::GetOptions(%flags) or die "Error in command line, aborting.";
+
+    for (sort keys %flags) {
+        use Data::Dumper;
+        local $Data::Dumper::Terse = 1;
+        trace(View::VERBOSITY_LOW, "Flag: $_ => ", Data::Dumper::Dumper(${$flags{$_}}));
+    }
+    for (@ARGV) {
+        trace(View::VERBOSITY_LOW, "Argv: '$_'");
+    }
+
     if ($filter) {
         if ($filter eq 'all') {
             $OrganizePhotos::filenameFilter = qr//;
@@ -111,7 +121,8 @@ unless (@ARGV) {
         my @args = myGetOptions();
         doRestoreTrash(@args);
     } elsif ($verb eq 'test') {
-        doTest(@ARGV);
+        my @args = myGetOptions();
+        doTest(@args);
     } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
         my @args = myGetOptions();
         doVerifyMd5(@args);
