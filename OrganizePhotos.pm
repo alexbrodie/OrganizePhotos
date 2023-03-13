@@ -869,6 +869,8 @@ sub doPurgeMd5 {
     # over all the keys just move the apprpriate Md5Info to a temp hash, do a
     # single append of the collected Md5Info to .orphtrash/.orphdat (similar 
     # to appendMd5Files), and then write back out the pruned .orphdat.
+    # TODO: If there's another file with the same size/date/full-md5, then
+    # rather than trashMd5Info, do deleteMd5Info
     findMd5s(
         \&defaultIsDirWanted, # isDirWanted
         sub { # isFileWanted

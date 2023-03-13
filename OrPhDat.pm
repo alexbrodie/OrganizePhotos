@@ -190,6 +190,7 @@ EOM
 # For each item in each per-directory database file in [globPatterns], 
 # invoke [callback] passing it full path and MD5 hash as arguments like
 #      callback($fullPath, $md5)
+# TODO: add support for files (not just dirs) in the glob pattern
 sub findMd5s {
     my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
     $isDirWanted or die "Programmer Error: expected \$isDirWanted argument";
