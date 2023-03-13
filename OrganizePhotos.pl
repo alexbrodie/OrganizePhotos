@@ -146,7 +146,7 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 =head1 SYNOPSIS
 
     OrganizePhotos -h
-    OrganizePhotos check-md5|c5 [--add-only] [glob patterns...]
+    OrganizePhotos check-md5|c5 [--add-only] [--force-recalc] [glob patterns...]
     OrganizePhotos checkup|c [--add-only] [--auto-diff|-d] [--by-name|-n]
         [--no-default-last-action] [glob patterns...]
     OrganizePhotos collect-trash|ct [glob patterns...]
@@ -204,6 +204,11 @@ the per-directory database files.
 
 Only operate on files that haven't had their MD5 computed and stored
 yet. This option means that no existing MD5s will be verified.
+
+=item B<C<--force-recalc>>
+
+Forces a recalc of file even if cached data is up to date. Updates
+the cache with the new data.
 
 =item B<glob patterns>
 
