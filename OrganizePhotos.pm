@@ -297,7 +297,7 @@ sub doFindDupeFiles {
     my $dupeGroups = buildFindDupeFilesDupeGroups($byName, @globPatterns);
     my $lastCommand = '';
     DUPEGROUP: for (my $dupeGroupsIdx = 0; $dupeGroupsIdx < @$dupeGroups; $dupeGroupsIdx++) {
-        print "\n";
+        print "\033[K\n";
         while (1) {
             my $group = $dupeGroups->[$dupeGroupsIdx];
             populateFindDupeFilesDupeGroup($group);

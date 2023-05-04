@@ -97,7 +97,10 @@ sub traverseFiles {
                 return '';
             }
             local $_ = undef; # prevent use in the isDirWanted
-            return 'd' if $isDirWanted->($fullPath, $rootFullPath, $filename);
+            if ($isDirWanted->($fullPath, $rootFullPath, $filename)) {
+                print "Traversing '@{[pretty_path($fullPath)]}'...\033[K\n\033[1A";
+                return 'd';
+            }
         } elsif (-f _) {
             # When MacOS copies files with alternate streams (e.g. from APFS)
             # to a volume that doesn't support it, they put the alternate
@@ -109,7 +112,9 @@ sub traverseFiles {
                 return '';
             }
             local $_ = undef; # prevent use in the isFileWanted
-            return 'f' if $isFileWanted->($fullPath, $rootFullPath, $filename);
+            if ($isFileWanted->($fullPath, $rootFullPath, $filename)) {
+                return 'f';
+            }
         } else {
             die "Programmer Error: unknown object type for '$fullPath'";
         }
