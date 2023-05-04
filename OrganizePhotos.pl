@@ -41,7 +41,7 @@ sub myGetOptions {
         if ($filter eq 'all') {
             $OrganizePhotos::filenameFilter = qr//;
         } elsif ($filter eq 'media') {
-            $OrganizePhotos::filenameFilter = $FileTypes::mediaTypeFilenameFilter;
+            $OrganizePhotos::filenameFilter = $FileTypes::MEDIA_TYPE_FILENAME_FILTER;
         } elsif ($filter =~ /^qr(.*)$/) {
             $OrganizePhotos::filenameFilter = qr/$1/;
         } elsif ($filter =~ /^\.(.*)$/) {

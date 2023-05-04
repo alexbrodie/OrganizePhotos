@@ -75,7 +75,7 @@ sub readMetadata {
         #       by the XMP sidecar? read it first? exclude fields somehow (eg
         #       by "file" group)?
         #       (FileSize, FileModifyDate, FileAccessDate, FilePermissions)
-        # TODO: move this logic to the $fileTypes structure (add a 
+        # TODO: move this logic to the $FILE_TYPES structure (add a 
         # useXmpSidecarForMetadata property or something)
         # TODO: for all these complaints, about hard coding let's just check if XMP is a sidecar
         if ($path !~ /\.(jpeg|jpg|tif|tiff|xmp)$/i) {

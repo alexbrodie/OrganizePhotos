@@ -8,11 +8,11 @@ package FileTypes;
 use Exporter;
 our @ISA = ('Exporter');
 our @EXPORT = qw(
-    getFileTypeInfo
-    getMimeType
-    getSidecarPaths
-    getTrashPath
-    comparePathWithExtOrder
+    get_file_type_info
+    get_mime_type
+    get_sidecar_paths
+    get_trash_path
+    compare_path_with_ext_order
 );
 
 # Local uses
@@ -28,7 +28,7 @@ use File::Spec;
 const our $md5Filename => '.orphdat';
 
 # This subdirectory contains the trash for its parent
-const our $trashDirName => '.orphtrash';
+const our $TRASH_DIR_NAME => '.orphtrash';
 
 # A map of supported file extensions to several different aspects:
 #
@@ -67,7 +67,7 @@ const our $trashDirName => '.orphtrash';
 #
 # TODO: flesh this out
 # TODO: convert to Class::Struct
-const my %fileTypes => (
+const my %FILE_TYPES => (
     AVI => {
         MIMETYPE => 'video/x-msvideo'
     },
@@ -160,26 +160,26 @@ const my %fileTypes => (
     #}
 );
 
-const my $backupSuffix => qr/
+const my $BACKUP_SUFFIX => qr/
     [._] (?i) (?:bak|original|\d{8}T\d{6}Z~) \d*
 /x;
 
 # Media file extensions
-const our $mediaTypeFilenameFilter => qr/
+const our $MEDIA_TYPE_FILENAME_FILTER => qr/
     # Media extension
-    (?: \. (?i) (?: @{[ join '|', keys %fileTypes ]}) )
+    (?: \. (?i) (?: @{[ join '|', keys %FILE_TYPES ]}) )
     # Optional backup file suffix
-    (?: $backupSuffix)?
+    (?: $BACKUP_SUFFIX)?
 $/x;
 
-sub getFileTypeInfo {
+sub get_file_type_info {
     my ($ext, $property) = @_;
     if (defined $ext) {
         my $key = uc $ext;
-        if (exists $fileTypes{$key}) {
-            my $fileType = $fileTypes{$key};
-            if (exists $fileType->{$property}) {
-                return $fileType->{$property};
+        if (exists $FILE_TYPES{$key}) {
+            my $file_type = $FILE_TYPES{$key};
+            if (exists $file_type->{$property}) {
+                return $file_type->{$property};
             }
         }
     }
@@ -187,28 +187,28 @@ sub getFileTypeInfo {
 }
 
 # Gets the mime type from a path
-sub getMimeType {
-    my ($mediaPath) = @_;
+sub get_mime_type {
+    my ($path) = @_;
     # If the file is a backup (has some "bak"/"original" suffix), 
     # we want to consider the real extension
-    $mediaPath =~ s/$backupSuffix$//;
-    my ($basename, $ext) = split_ext($mediaPath);
-    return getFileTypeInfo($ext, 'MIMETYPE') || '';
+    $path =~ s/$BACKUP_SUFFIX$//;
+    my ($basename, $ext) = split_ext($path);
+    return get_file_type_info($ext, 'MIMETYPE') || '';
 }
 
 # Provided a path, returns an array of sidecar files based on extension.
-sub getSidecarPaths {
-    my ($fullPath) = @_;
-    if ($fullPath =~ /$backupSuffix$/) {
+sub get_sidecar_paths {
+    my ($path) = @_;
+    if ($path =~ /$BACKUP_SUFFIX$/) {
         # Associating sidecars with backups only creates problems
         # like multiple versions of a file sharing the same sidecar(s)
         return ();
     } else {
         # Using extension as a key, look up associated sidecar types (if any)
         # and return the paths to the other types which exist
-        my ($vol, $dir, $filename) = split_path($fullPath);
+        my ($vol, $dir, $filename) = split_path($path);
         my ($basename, $ext) = split_ext($filename);
-        my @sidecars = @{getFileTypeInfo($ext, 'SIDECARS') || []};
+        my @sidecars = @{get_file_type_info($ext, 'SIDECARS') || []};
         @sidecars = map { combine_path($vol, $dir, combine_ext($basename, $_)) } @sidecars;
         return grep { -e } @sidecars;
     }
@@ -216,26 +216,26 @@ sub getSidecarPaths {
 
 # Gets the local trash location for the specified path: the same filename
 # in the .orphtrash subdirectory.
-sub getTrashPath {
-    my ($fullPath) = @_;
-    my ($vol, $dir, $filename) = split_path($fullPath);
-    my $trashDir = File::Spec->catdir($dir, $trashDirName);
-    return combine_path($vol, $trashDir, $filename);
+sub get_trash_path {
+    my ($path) = @_;
+    my ($vol, $dir, $filename) = split_path($path);
+    my $trash_dir = File::Spec->catdir($dir, $TRASH_DIR_NAME);
+    return combine_path($vol, $trash_dir, $filename);
 }
 
-sub comparePathWithExtOrder {
-    my ($fullPathA, $fullPathB, $reverseExtOrder) = @_;
-    my ($volA, $dirA, $filenameA) = split_path($fullPathA);
-    my ($volB, $dirB, $filenameB) = split_path($fullPathB);
-    return compareDir($dirA, $dirB) ||
-           compareFilenameWithExtOrder($filenameA, $filenameB, $reverseExtOrder);
+sub compare_path_with_ext_order {
+    my ($path_a, $path_b, $reverse_ext_order) = @_;
+    my ($vol_a, $dir_a, $filename_a) = split_path($path_a);
+    my ($vol_b, $dir_b, $filename_b) = split_path($path_b);
+    return compare_dir($dir_a, $dir_b) ||
+           compare_filename_with_ext_order($filename_a, $filename_b, $reverse_ext_order);
 }
 
-sub compareDir {
-    my ($dirA, $dirB) = @_;
-    return 0 if $dirA eq $dirB; # optimization
-    my @as = File::Spec->splitdir($dirA);
-    my @bs = File::Spec->splitdir($dirB);
+sub compare_dir {
+    my ($dir_a, $dir_b) = @_;
+    return 0 if $dir_a eq $dir_b; # optimization
+    my @as = File::Spec->splitdir($dir_a);
+    my @bs = File::Spec->splitdir($dir_b);
     for (my $i = 0;; $i++) {
         if ($i >= @as) {
             if ($i >= @bs) {
@@ -256,21 +256,21 @@ sub compareDir {
     }
 }
 
-sub compareFilenameWithExtOrder {
-    my ($filenameA, $filenameB, $reverseExtOrder) = @_;
-    my ($basenameA, $extA) = split_ext($filenameA);
-    my ($basenameB, $extB) = split_ext($filenameB);
+sub compare_filename_with_ext_order {
+    my ($filename_a, $filename_b, $reverse_ext_order) = @_;
+    my ($basename_a, $ext_a) = split_ext($filename_a);
+    my ($basename_b, $ext_b) = split_ext($filename_b);
     # Compare by basename first
-    my $c = lc ($basenameA || '') cmp lc ($basenameB || '');
+    my $c = lc ($basename_a || '') cmp lc ($basename_b || '');
     return $c if $c;
     # Next by extorder
-    my $direction = $reverseExtOrder ? -1 : 1;
-    my $extOrderA = getFileTypeInfo($extA, 'EXTORDER') || 0;
-    my $extOrderB = getFileTypeInfo($extB, 'EXTORDER') || 0;
-    $c = $extOrderA <=> $extOrderB;
+    my $direction = $reverse_ext_order ? -1 : 1;
+    my $ext_order_a = get_file_type_info($ext_a, 'EXTORDER');
+    my $ext_order_b = get_file_type_info($ext_b, 'EXTORDER');
+    $c = ($ext_order_a || 0) <=> ($ext_order_b || 0);
     return $direction * $c if $c;
     # And then just the extension as a string
-    return $direction * (lc ($extA || '') cmp lc ($extB || ''));
+    return $direction * (lc ($ext_a || '') cmp lc ($ext_b || ''));
 }
 
 1;

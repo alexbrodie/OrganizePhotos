@@ -123,7 +123,7 @@ use constant MATCH_NONE => 1;
 use constant MATCH_FULL => 2;
 use constant MATCH_CONTENT => 3;
 
-our $filenameFilter = $FileTypes::mediaTypeFilenameFilter;
+our $filenameFilter = $FileTypes::MEDIA_TYPE_FILENAME_FILTER;
 
 # API ==========================================================================
 # EXPERIMENTAL
@@ -252,7 +252,7 @@ sub doCollectTrash {
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
             my ($vol, $dir, $filename) = split_path($fullPath);
-            if (lc $filename eq $FileTypes::trashDirName) {
+            if (lc $filename eq $FileTypes::TRASH_DIR_NAME) {
                 # Convert root/bunch/of/dirs/.orphtrash to root/.orphtrash/bunch/of/dirs
                 trashPathWithRoot($fullPath, $rootFullPath);
             }
@@ -268,7 +268,7 @@ sub doFindDupeDirs {
     my %keyToPaths = ();
     File::Find::find({
         preprocess => sub {
-            return grep { !-d or lc ne $FileTypes::trashDirName } @_; # skip trash
+            return grep { !-d or lc ne $FileTypes::TRASH_DIR_NAME } @_; # skip trash
         },
         wanted => sub {
             if (-d and (/^(\d\d\d\d)-(\d\d)-(\d\d)\b/
@@ -334,7 +334,7 @@ c   Continue: go to the next group
 d   Diff: perform metadata diff of this group
 o#  Open Number: open the specified item
 q   Quit: exit the application
-t#  Trash Number: move the specified item to $FileTypes::trashDirName
+t#  Trash Number: move the specified item to $FileTypes::TRASH_DIR_NAME
 EOM
             # Process the command(s)
             my $itemCount = @$group;
@@ -456,7 +456,7 @@ sub buildFindDupeFilesDupeGroups {
         $fileCount += @$fullPathList;
         if (@$fullPathList > 1) {
             my @group = sort { 
-                comparePathWithExtOrder($a->{fullPath}, $b->{fullPath}) 
+                compare_path_with_ext_order($a->{fullPath}, $b->{fullPath}) 
             } @$fullPathList;
             push @dupes, \@group;
         }
@@ -465,7 +465,7 @@ sub buildFindDupeFilesDupeGroups {
     # themselves - this will be the order in which the groups
     # are processed, so we want it extorder based as well.
     @dupes = sort { 
-        comparePathWithExtOrder($a->[0]->{fullPath}, $b->[0]->{fullPath}, 1) 
+        compare_path_with_ext_order($a->[0]->{fullPath}, $b->[0]->{fullPath}, 1) 
     } @dupes;
     trace(View::VERBOSITY_LOW, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
     return \@dupes;
@@ -493,7 +493,7 @@ sub populateFindDupeFilesDupeGroup {
                 exists $elt->{md5Info} ? $elt->{md5Info} : $elt->{cachedMd5Info});
             $elt->{dateTaken} = getDateTaken($elt->{fullPath});
         }
-        $elt->{sidecars} = $elt->{exists} ? [getSidecarPaths($elt->{fullPath})] : [];
+        $elt->{sidecars} = $elt->{exists} ? [get_sidecar_paths($elt->{fullPath})] : [];
     }
     for (my $i = 0; $i < @$group; $i++) {
         $group->[$i]->{matches}->[$i] = MATCH_FULL;
@@ -896,7 +896,7 @@ sub doRestoreTrash {
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
             my ($vol, $dir, $filename) = split_path($fullPath);
-            if (lc $filename eq $FileTypes::trashDirName) {
+            if (lc $filename eq $FileTypes::TRASH_DIR_NAME) {
                 movePath($fullPath, combine_path($vol, $dir));
             }
         },
@@ -923,7 +923,7 @@ sub doTest {
             #$fixed_path =~ s/(\w{4}\d{4})[- ]\d(\.\w{2,4})$/$1$2/;
 
             if ($path ne $fixed_path) {
-                for (getSidecarPaths($path)) {
+                for (get_sidecar_paths($path)) {
                     my $sidecar_fixed_path = check_path_dates($_, $date);
                     warn "sidecars not yet supported, path to fix has sidecars: '". pretty_path($path) ."'";
                     return;
@@ -1020,7 +1020,7 @@ sub doVerifyMd5 {
 # Default implementation for traverseFiles's isDirWanted param
 sub defaultIsDirWanted {
     my ($fullPath, $rootFullPath, $filename) = @_;
-    return (lc $filename ne $FileTypes::trashDirName);
+    return (lc $filename ne $FileTypes::TRASH_DIR_NAME);
 }
 
 # Default implementation for traverseFiles's isDirWanted param

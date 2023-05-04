@@ -207,7 +207,7 @@ sub trashPathAndSidecars {
     trace(View::VERBOSITY_MAX, "trashPathAndSidecars('$fullPath');");
     # TODO: check all for existance before performing any operations to
     # make file+sidecar opererations more atomic
-    trashPath($_) for ($fullPath, getSidecarPaths($fullPath));
+    trashPath($_) for ($fullPath, get_sidecar_paths($fullPath));
 }
 
 # MODEL (File Operations) ------------------------------------------------------
@@ -222,7 +222,7 @@ sub trashPath {
     unless (tryRemoveEmptyDir($fullPath)) {
         # Not an empty dir, so move to trash by inserting a .orphtrash
         # before the filename in the path, and moving it there
-        movePath($fullPath, getTrashPath($fullPath));
+        movePath($fullPath, get_trash_path($fullPath));
     }
 }
 
@@ -273,7 +273,7 @@ sub trashPathWithRoot {
     # Example 1: postRoot = ( .orphtrash, A, B, C, D )
     # Example 2: postRoot = ( .orphtrash, foo )
     # Example 3: postRoot = ( .orphtrash )
-    my @postRoot = ($FileTypes::trashDirName, grep { lc ne $FileTypes::trashDirName } @theDirs[@rootDirs .. @theDirs-1]);
+    my @postRoot = ($FileTypes::TRASH_DIR_NAME, grep { lc ne $FileTypes::TRASH_DIR_NAME } @theDirs[@rootDirs .. @theDirs-1]);
     # Example 1: postRoot = ( .orphtrash, A, B, C ); newFilename = D
     # Example 2: postRoot = ( .orphtrash ); newFilename = foo
     # Example 3: postRoot = (); newFilename = .orphtrash

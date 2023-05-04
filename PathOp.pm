@@ -29,8 +29,8 @@ sub parent_path {
 sub change_filename {
     my ($path, $new_filename) = @_;
     my ($vol, $dir, $old_filename) = split_path($path);
-    my $newPath = combine_path($vol, $dir, $new_filename);
-    return wantarray ? ($newPath, $old_filename) : $newPath;
+    my $new_path = combine_path($vol, $dir, $new_filename);
+    return wantarray ? ($new_path, $old_filename) : $new_path;
 }
 
 # Splits a path into three components:
