@@ -9,9 +9,9 @@ use Exporter;
 our @ISA = ('Exporter');
 our @EXPORT = qw(
     check_path_dates
-    extractInfo
-    getDateTaken
-    readMetadata
+    extract_info
+    get_date_taken
+    read_metadata
 );
 
 # Local uses
@@ -28,9 +28,9 @@ use Image::ExifTool ();
 #
 # Note on caching this value: this can change if this or any sidecars change,
 # so make sure it is invalidated when sidecars are as well.
-sub getDateTaken {
-    my ($path, $excludeSidecars) = @_;
-    my $dateTaken;
+sub get_date_taken {
+    my ($path, $exclude_sidecars) = @_;
+    my $date_taken;
     eval {        
         # For image types, ExifIFD:DateTimeOriginal does the trick, but that isn't
         # available for some types (video especially), so fall back to others.
@@ -43,31 +43,31 @@ sub getDateTaken {
         # for mov, mp4: 1) Keys:CreationDate, 2) UserData:DateTimeOriginal (mp4 only),
         # 3) Quicktime:CreateDate, 4) MacOS:FileCreateDate
         my @tags = qw(ExifIFD:DateTimeOriginal Keys:CreationDate Quicktime:CreateDate);
-        my $info = readMetadata($path, $excludeSidecars, 
+        my $info = read_metadata($path, $exclude_sidecars, 
                                 { DateFormat => '%FT%T%z' }, \@tags);
-        my $dateTakenRaw;
+        my $date_taken_raw;
         for my $tag (@tags) {
-            $dateTakenRaw = $info->{$tag} and last if exists $info->{$tag};
+            $date_taken_raw = $info->{$tag} and last if exists $info->{$tag};
         }
 
-        if ($dateTakenRaw) {
-            $dateTaken = DateTime::Format::HTTP->parse_datetime($dateTakenRaw);
+        if ($date_taken_raw) {
+            $date_taken = DateTime::Format::HTTP->parse_datetime($date_taken_raw);
         }
     };
     if (my $error = $@) {
         warn "Unavailable date taken for '@{[pretty_path($path)]}' with error:\n\t$error\n";
     }
-    return $dateTaken;
+    return $date_taken;
 }
 
 # Read metadata as an ExifTool hash for the specified path (and any
 # XMP sidecar when appropriate). Similar in use to Image::ExifTool::ImageInfo
-# except for the new $excludeSidecars param and stricter argument order.
-sub readMetadata {
-    my ($path, $excludeSidecars, @exifToolArgs) = @_;
-    my $et = extractInfo($path, undef, @exifToolArgs);
-    my $info = $et->GetInfo(@exifToolArgs);
-    unless ($excludeSidecars) {
+# except for the new $exclude_sidecars param and stricter argument order.
+sub read_metadata {
+    my ($path, $exclude_sidecars, @exiftool_args) = @_;
+    my $et = extract_info($path, undef, @exiftool_args);
+    my $info = $et->GetInfo(@exiftool_args);
+    unless ($exclude_sidecars) {
         # If this file can't hold XMP (i.e. not JPEG or TIFF), look for
         # XMP sidecar
         # TODO: Should we exclude DNG here too?
@@ -80,10 +80,10 @@ sub readMetadata {
         # TODO: for all these complaints, about hard coding let's just check if XMP is a sidecar
         if ($path !~ /\.(jpeg|jpg|tif|tiff|xmp)$/i) {
             # TODO: use path functions
-            (my $xmpPath = $path) =~ s/[^.]*$/xmp/;
-            if (-s $xmpPath) {
-                $et = extractInfo($xmpPath, $et, @exifToolArgs);
-                $info = { %{$et->GetInfo(@exifToolArgs)}, %$info };
+            (my $xmp_path = $path) =~ s/[^.]*$/xmp/;
+            if (-s $xmp_path) {
+                $et = extract_info($xmp_path, $et, @exiftool_args);
+                $info = { %{$et->GetInfo(@exiftool_args)}, %$info };
             }
         }
     }
@@ -92,15 +92,15 @@ sub readMetadata {
 }
 
 # Wrapper for Image::ExifTool::ExtractInfo with error handling
-sub extractInfo {
-    my ($path, $et, @exifToolArgs) = @_;
+sub extract_info {
+    my ($path, $et, @exiftool_args) = @_;
     unless ($et) {
         $et = new Image::ExifTool;
         # We do ISO 8601 dates by default
         $et->Options(DateFormat => '%FT%T%z');
     }
     trace(View::VERBOSITY_MEDIUM, "Image::ExifTool::ExtractInfo('$path');");
-    $et->ExtractInfo($path, @exifToolArgs) or die
+    $et->ExtractInfo($path, @exiftool_args) or die
         "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
     print_crud(View::CRUD_READ, "  Extract meta of '@{[pretty_path($path)]}'");
     return $et;
