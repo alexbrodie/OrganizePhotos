@@ -134,7 +134,7 @@ sub doAppendMetadata {
     my @properties = qw(XPKeywords Rating Subject HierarchicalSubject LastKeywordXMP Keywords);
 
     # Extract current metadata in target
-    my $etTarget = extractInfo($target);
+    my $etTarget = extract_info($target);
     my $infoTarget = $etTarget->GetInfo(@properties);
 
     trace(View::VERBOSITY_MAX, "$target: ", Data::Dumper::Dumper($infoTarget));
@@ -153,7 +153,7 @@ sub doAppendMetadata {
 
     for my $source (@sources) {
         # Extract metadata in source to merge in
-        my $etSource = extractInfo($source);
+        my $etSource = extract_info($source);
         my $infoSource = $etSource->GetInfo(@properties);
 
         trace(View::VERBOSITY_MAX, "$source: ", Data::Dumper::Dumper($infoSource));
@@ -477,7 +477,7 @@ sub buildFindDupeFilesDupeGroups {
 # buildFindDupeFilesDupeGroups:
 #   exists: cached result of -e check
 #   md5Info: Md5Info data
-#   dateTaken: a DateTime value obtained via getDateTaken
+#   dateTaken: a DateTime value obtained via get_date_taken
 #   matches: array of MATCH_* values of comparison with other group elements
 sub populateFindDupeFilesDupeGroup {
     my ($group) = @_;
@@ -491,7 +491,7 @@ sub populateFindDupeFilesDupeGroup {
         } else {
             $elt->{md5Info} = resolveMd5Info($elt->{fullPath}, 0, 0,
                 exists $elt->{md5Info} ? $elt->{md5Info} : $elt->{cachedMd5Info});
-            $elt->{dateTaken} = getDateTaken($elt->{fullPath});
+            $elt->{dateTaken} = get_date_taken($elt->{fullPath});
         }
         $elt->{sidecars} = $elt->{exists} ? [get_sidecar_paths($elt->{fullPath})] : [];
     }
@@ -770,7 +770,7 @@ sub buildFindDupeFilesPrompt {
 sub doMetadataDiff {
     my ($excludeSidecars, @paths) = @_;
     # Get metadata for all files
-    my @items = map { (-e) ? readMetadata($_, $excludeSidecars) : {} } @paths;
+    my @items = map { (-e) ? read_metadata($_, $excludeSidecars) : {} } @paths;
     my @tagsToSkip = qw(CurrentIPTCDigest DocumentID DustRemovalData 
         FileInodeChangeDate FileName HistoryInstanceID IPTCDigest InstanceID
         OriginalDocumentID PreviewImage RawFileName ThumbnailImage);
@@ -916,7 +916,7 @@ sub doTest {
         sub {  # callback
             my ($path, $root_path) = @_;
             
-            my $date = getDateTaken($path);
+            my $date = get_date_taken($path);
             my $fixed_path = $path;
             $fixed_path = check_path_dates($fixed_path, $date);
             $fixed_path =~ s/\/(\d{4}-\d\d-\d\d-)(\d{4}-\d\d-\d\d-)/\/$1/;
