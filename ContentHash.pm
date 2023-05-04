@@ -33,7 +33,7 @@ const our $md5DigestPattern => qr/[0-9a-f]{32}/;
 sub isMd5InfoVersionUpToDate {
     my ($mediaPath, $version) = @_;
     #trace(View::VERBOSITY_MAX, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
-    my $type = getMimeType($mediaPath);
+    my $type = get_mime_type($mediaPath);
     # Return truthy iff $version >= N where N is the last version that
     # affected the output for this file type
     if ($type eq 'image/heic') {
@@ -75,7 +75,7 @@ sub calculateMd5Info {
     # MD5 rather than letting the exception loose and just skipping the file.
     my $partialMd5Hash = undef;
     eval {
-        my $type = getMimeType($mediaPath);
+        my $type = get_mime_type($mediaPath);
         if ($type eq 'image/heic') {
             $partialMd5Hash = getHeicContentMd5($mediaPath, $fh);
         } elsif ($type eq 'image/jpeg') {

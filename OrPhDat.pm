@@ -329,7 +329,7 @@ sub moveMd5Info {
 sub trashMd5Info {
     my ($mediaPath) = @_;
     trace(View::VERBOSITY_MAX, "trashMd5Info('$mediaPath');");
-    my $trashPath = getTrashPath($mediaPath);
+    my $trashPath = get_trash_path($mediaPath);
     ensureParentDirExists($trashPath);
     return moveMd5Info($mediaPath, $trashPath);
 }
