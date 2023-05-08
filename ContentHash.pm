@@ -8,8 +8,8 @@ package ContentHash;
 use Exporter;
 our @ISA = ('Exporter');
 our @EXPORT = qw(
-    isMd5InfoVersionUpToDate
-    calculateMd5Info
+    is_hash_version_current
+    calculate_hash
 );
 
 # Local uses
@@ -24,16 +24,16 @@ use Digest::MD5 ();
 use List::Util qw(any all);
 
 # What we expect an MD5 hash to look like
-const our $md5DigestPattern => qr/[0-9a-f]{32}/;
+const our $MD5_DIGEST_PATTERN => qr/[0-9a-f]{32}/;
 
-# The data returned by calculateMd5Info is versioned, but not all version 
+# The data returned by calculate_hash is versioned, but not all version 
 # changes are meaningful for every type of file. This method determines if
 # the provided version is equivalent to the current version for the specified
 # file type.
-sub isMd5InfoVersionUpToDate {
-    my ($mediaPath, $version) = @_;
-    #trace(View::VERBOSITY_MAX, "isMd5InfoVersionUpToDate('$mediaPath', $version);");
-    my $type = get_mime_type($mediaPath);
+sub is_hash_version_current {
+    my ($path, $version) = @_;
+    #trace(View::VERBOSITY_MAX, "is_hash_version_current('$path', $version);");
+    my $type = get_mime_type($path);
     # Return truthy iff $version >= N where N is the last version that
     # affected the output for this file type
     if ($type eq 'image/heic') {
@@ -56,120 +56,122 @@ sub isMd5InfoVersionUpToDate {
 # Calculates and returns the MD5 digest(s) of a file.
 # Returns these properties as a hashref which when combined with 
 # makeMd5InfoBase comprise a full Md5Info):
-#   version:  $calculateMd5InfoVersion
+#   version:  $CURRENT_HASH_VERSION
 #   md5:      primary MD5 comparison (excludes volitile data from calculation)
 #   full_md5: full MD5 calculation for exact match
-sub calculateMd5Info {
-    my ($mediaPath) = @_;
-    trace(View::VERBOSITY_MEDIUM, "getMd5('$mediaPath');");
+sub calculate_hash {
+    my ($path) = @_;
+    trace(View::VERBOSITY_MEDIUM, "calculate_hash('$path');");
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
-    #!!!   $calculateMd5InfoVersion should be incremented whenever the output
+    #!!!   $CURRENT_HASH_VERSION should be incremented whenever the output
     #!!!   of this method changes in such a way that old values need to be 
-    #!!!   recalculated, and isMd5InfoVersionUpToDate should be updated accordingly.
+    #!!!   recalculated, and is_hash_version_current should be updated accordingly.
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
-    const my $calculateMd5InfoVersion => 7;
-    my $fh = openOrDie('<:raw', $mediaPath);
-    my $fullMd5Hash = getMd5Digest($mediaPath, $fh);
-    seek($fh, 0, 0) or die "Failed to reset seek for '$mediaPath': $!";
+    const my $CURRENT_HASH_VERSION => 7;
+    my $fh = openOrDie('<:raw', $path);
+    my $full_hash = calc_md5($path, $fh);
+    seek($fh, 0, 0) or die "Failed to reset seek for '$path': $!";
     # If we fail to generate a partial match, just warn and use the full file
     # MD5 rather than letting the exception loose and just skipping the file.
-    my $partialMd5Hash = undef;
+    my $content_hash = undef;
     eval {
-        my $type = get_mime_type($mediaPath);
+        my $type = get_mime_type($path);
         if ($type eq 'image/heic') {
-            $partialMd5Hash = getHeicContentMd5($mediaPath, $fh);
+            $content_hash = content_hash_heic($path, $fh);
         } elsif ($type eq 'image/jpeg') {
-            $partialMd5Hash = getJpgContentMd5($mediaPath, $fh);
+            $content_hash = content_hash_jpeg($path, $fh);
         } elsif ($type eq 'video/mp4v-es') {
-            $partialMd5Hash = getMp4ContentMd5($mediaPath, $fh);
+            $content_hash = content_hash_mp4($path, $fh);
         } elsif ($type eq 'image/png') {
-            $partialMd5Hash = getPngContentMd5($mediaPath, $fh);
+            $content_hash = content_hash_png($path, $fh);
         } elsif ($type eq 'video/quicktime') {
-            $partialMd5Hash = getMovContentMd5($mediaPath, $fh);
+            $content_hash = content_hash_mov($path, $fh);
         } elsif ($type eq 'image/tiff') {
             # TODO
         }
     };
     if (my $error = $@) {
         # Can't get the partial MD5, so we'll just use the full hash
-        warn "Unavailable content MD5 for '@{[pretty_path($mediaPath)]}' with error:\n\t$error\n";
+        warn "Unavailable content MD5 for '@{[pretty_path($path)]}' with error:\n\t$error\n";
     }
-    print_crud(View::CRUD_READ, "  Computed MD5 of '@{[pretty_path($mediaPath)]}'",
-              ($partialMd5Hash ? ", including content only hash" : ''), "\n");
+    print_crud(View::CRUD_READ, "  Computed MD5 of '@{[pretty_path($path)]}'",
+              ($content_hash ? ", including content only hash" : ''), "\n");
     return {
-        version => $calculateMd5InfoVersion,
-        md5 => $partialMd5Hash || $fullMd5Hash,
-        full_md5 => $fullMd5Hash,
+        version => $CURRENT_HASH_VERSION,
+        md5 => $content_hash || $full_hash,
+        full_md5 => $full_hash,
     };
 }
 
-# Reads a file as if it were an ISOBMFF file of the specified brand,
+# Reads a file as if it were an ISOBMFF file,
 # and returns the MD5 digest of the data in the mdat box.
-sub getIsobmffMdatMd5 {
-    my ($mediaPath, $fh) = @_;
+sub hash_isobmff_mdat {
+    my ($path, $fh) = @_;
     until (eof($fh)) {
-        my $box = readIsobmffBoxHeader($mediaPath, $fh);
+        my $box = readIsobmffBoxHeader($path, $fh);
         if ($box->{__type} eq 'mdat') {
-            return getMd5Digest($mediaPath, $fh, $box->{__data_size});
+            return calc_md5($path, $fh, $box->{__data_size});
         }
         last unless exists $box->{__end_pos};
         seek($fh, $box->{__end_pos}, 0) or die 
-            "failed to seek '$mediaPath' to $box->{__end_pos}: $!";
+            "failed to seek '$path' to $box->{__end_pos}: $!";
     }
     return undef;
 }
 
-sub getIsobmffPrimaryItemDataMd5 {
-    my ($mediaPath, $fh) = @_;
-    my $ftyp = readIsobmffFtyp($mediaPath, $fh);
+# Reads a file as if it were an ISOBMFF file,
+# and returns the MD5 digest of the data 
+sub hash_isobmff_primary_item {
+    my ($path, $fh) = @_;
+    my $ftyp = readIsobmffFtyp($path, $fh);
     # This only works for ISO BMFF, not Apple QTFF (i.e. mp3, heic)
     any { $ftyp->{f_major_brand} eq $_ } ('mp41', 'mp42', 'heic') or die
-        "unexpected brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
+        "unexpected brand for " . getIsobmffBoxDiagName($path, $ftyp);
     my $bmff = { b_ftyp => $ftyp };
-    parseIsobmffBox($mediaPath, $fh, $bmff);
+    parseIsobmffBox($path, $fh, $bmff);
     my $md5 = new Digest::MD5;
-    for (getIsobmffPrimaryDataExtents($mediaPath, $bmff)) {
+    for (getIsobmffPrimaryDataExtents($path, $bmff)) {
         seek($fh, $_->{pos}, 0) or die 
-            "Failed to seek '$mediaPath' to $_->{pos}: $!";
-        addToMd5Digest($md5, $mediaPath, $fh, $_->{size});
+            "Failed to seek '$path' to $_->{pos}: $!";
+        add_to_md5_digest($md5, $path, $fh, $_->{size});
     }
-    return resolveMd5Digest($md5);
+    return resolve_md5_digest($md5);
 }
 
-sub getHeicContentMd5 {
-    return getIsobmffPrimaryItemDataMd5(@_);
+sub content_hash_heic {
+    return hash_isobmff_primary_item(@_);
 }
 
 # If JPEG, skip metadata which may change and only hash pixel data
 # and hash from Start of Scan [SOS] to end of file
-sub getJpgContentMd5 {
-    my ($mediaPath, $fh) = @_;
+sub content_hash_jpeg {
+    my ($path, $fh) = @_;
     # Read Start of Image [SOI]
-    read($fh, my $fileData, 2) or die "Failed to read JPEG SOI from '$mediaPath': $!";
-    my ($soi) = unpack('n', $fileData);
-    $soi == 0xffd8 or die "File didn't start with JPEG SOI marker: '$mediaPath'";
+    read($fh, my $file_data, 2) or die "Failed to read JPEG SOI from '$path': $!";
+    my ($soi) = unpack('n', $file_data);
+    $soi == 0xffd8 or die "File didn't start with JPEG SOI marker: '$path'";
     # Read blobs until SOS
     my $tags = '';
     while (1) {
-        read($fh, my $fileData, 4) or die
-            "Failed to read JPEG tag header from '$mediaPath' at @{[tell $fh]} after $tags: $!";
-        my ($tag, $size) = unpack('nn', $fileData);
+        read($fh, my $file_data, 4) or die
+            "Failed to read JPEG tag header from '$path' at @{[tell $fh]} after $tags: $!";
+        my ($tag, $size) = unpack('nn', $file_data);
         # Take all the file after the SOS
-        return getMd5Digest($mediaPath, $fh) if $tag == 0xffda;
+        return calc_md5($path, $fh) if $tag == 0xffda;
         # Else, skip past this tag
         $tags .= sprintf("%04x,%04x;", $tag, $size);
         my $address = tell($fh) + $size - 2;
-        seek($fh, $address, 0) or die "Failed to seek '$mediaPath' to $address: $!";
+        seek($fh, $address, 0) or die "Failed to seek '$path' to $address: $!";
     }
 }
 
-sub getMovContentMd5 {
-    return getIsobmffMdatMd5(@_);
+sub content_hash_mov {
+    return hash_isobmff_mdat(@_);
 }
 
-sub getMp4ContentMd5 {
-    my ($mediaPath, $fh) = @_;
-    my $ftyp = readIsobmffFtyp($mediaPath, $fh);
+sub content_hash_mp4 {
+    my ($path, $fh) = @_;
+    my $ftyp = readIsobmffFtyp($path, $fh);
     my $majorBrand = $ftyp->{f_major_brand};
     # 'isom' means the first version of ISO Base Media, and is not supposed to
     # ever be a major brand, but it happens. Try to handle a little bit.
@@ -183,25 +185,25 @@ sub getMp4ContentMd5 {
         if (@{$ftyp->{f_compatible_brands}}) {
             $brand = $brand . ' (\'' . join('\', \'', @{$ftyp->{f_compatible_brands}}) . '\')';
         }
-        warn "unexpected brand $brand for " . getIsobmffBoxDiagName($mediaPath, $ftyp);
+        warn "unexpected brand $brand for " . getIsobmffBoxDiagName($path, $ftyp);
         return undef;
     }
-    return getIsobmffMdatMd5(@_);
+    return hash_isobmff_mdat(@_);
 }
 
-sub getPngContentMd5 {
-    my ($mediaPath, $fh) = @_;
-    read($fh, my $fileData, 8) or die "Failed to read PNG header from '$mediaPath': $!";
-    my @actualHeader = unpack('C8', $fileData);
+sub content_hash_png {
+    my ($path, $fh) = @_;
+    read($fh, my $file_data, 8) or die "Failed to read PNG header from '$path': $!";
+    my @actualHeader = unpack('C8', $file_data);
     my @pngHeader = ( 137, 80, 78, 71, 13, 10, 26, 10 );
     Data::Compare::Compare(\@actualHeader, \@pngHeader) or die
-        "File didn't start with PNG header: '$mediaPath'";
+        "File didn't start with PNG header: '$path'";
     my $md5 = new Digest::MD5;
     while (!eof($fh)) {
         # Read chunk header
-        read($fh, $fileData, 8) or die
-            "Failed to read PNG chunk header from '$mediaPath' at @{[tell $fh]}: $!";
-        my ($size, $type) = unpack('Na4', $fileData);
+        read($fh, $file_data, 8) or die
+            "Failed to read PNG chunk header from '$path' at @{[tell $fh]}: $!";
+        my ($size, $type) = unpack('Na4', $file_data);
         my $seekStartOfData = tell($fh);
         # TODO: Check that 'IHDR' chunk comes first and 'IEND' last?
         if ($type eq 'tEXt' or $type eq 'zTXt' or $type eq 'iTXt') {
@@ -216,37 +218,37 @@ sub getPngContentMd5 {
             # falsely reporting that there have been non-metadata changes
             # (i.e. pixel data) changes to the file.
             $md5->add($type);
-            addToMd5Digest($md5, $mediaPath, $fh, $size);
+            add_to_md5_digest($md5, $path, $fh, $size);
         }
         # Seek to start of next chunk (past header, data, and CRC)
         my $address = $seekStartOfData + $size + 4;
-        seek($fh, $address, 0) or die "Failed to seek '$mediaPath' to $address: $!";
+        seek($fh, $address, 0) or die "Failed to seek '$path' to $address: $!";
     }
-    return resolveMd5Digest($md5);
+    return resolve_md5_digest($md5);
 }
 
 # Get/verify/canonicalize hash from a FILEHANDLE object
-sub getMd5Digest {
-    my ($mediaPath, $fh, $size) = @_;
+sub calc_md5 {
+    my ($path, $fh, $size) = @_;
     my $md5 = new Digest::MD5;
-    addToMd5Digest($md5, $mediaPath, $fh, $size);
-    return resolveMd5Digest($md5);
+    add_to_md5_digest($md5, $path, $fh, $size);
+    return resolve_md5_digest($md5);
 }
 
-sub addToMd5Digest {
-    my ($md5, $mediaPath, $fh, $size) = @_;
+sub add_to_md5_digest {
+    my ($md5, $path, $fh, $size) = @_;
     unless (defined $size) {
         $md5->addfile($fh);
     } else {
         # There's no addfile with a size limit, so we roll our own
         # by reading in chunks and adding one at a time (since $size
         # might be huge and we don't want to read it all into memory)
-        my $chunkSize = 1024;
-        for (my $remaining = $size; $remaining > 0; $remaining -= $chunkSize) {
-            my $readSize = $chunkSize < $remaining ? $chunkSize : $remaining;
-            read($fh, my $fileData, $readSize)
-                or die "Failed to read $readSize bytes from '$mediaPath' at @{[tell $fh]}: $!";
-            $md5->add($fileData);
+        my $chunk_size = 1024;
+        for (my $remaining = $size; $remaining > 0; $remaining -= $chunk_size) {
+            my $read_size = $chunk_size < $remaining ? $chunk_size : $remaining;
+            read($fh, my $file_data, $read_size)
+                or die "Failed to read $read_size bytes from '$path' at @{[tell $fh]}: $!";
+            $md5->add($file_data);
         }
     }
 }
@@ -254,10 +256,10 @@ sub addToMd5Digest {
 # MODEL (MD5) ------------------------------------------------------------------
 # Extracts, verifies, and canonicalizes resulting MD5 digest
 # final result from a Digest::MD5.
-sub resolveMd5Digest {
+sub resolve_md5_digest {
     my ($md5) = @_;
     my $hexdigest = lc $md5->hexdigest;
-    $hexdigest =~ /$md5DigestPattern/ or die "Unexpected MD5: $hexdigest";
+    $hexdigest =~ /$MD5_DIGEST_PATTERN/ or die "Unexpected MD5: $hexdigest";
     return $hexdigest;
 }
 
