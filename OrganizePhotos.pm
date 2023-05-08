@@ -45,7 +45,7 @@
 # * Add a new restore-trash verb that searches for .orphtrash dirs and for each
 #   one calls consolidateTrash(self, self) and movePath(self, parent)
 # * Find mis-homed media (date taken/captured != folder name)
-# * calculateMd5Info: content only match for tiff
+# * calculate_hash: content only match for tiff
 # * find-dupe-files undo support (z)
 # * something much better than the (i/o/q) prompt for MD5 conflicts
 # * ignore "resource fork" segments (files starting with "._" which can show
@@ -987,7 +987,7 @@ sub doVerifyMd5 {
             if (-e $fullPath) {
                 # File exists
                 my $expectedMd5 = $md5Info->{md5};
-                my $actualMd5 = calculateMd5Info($fullPath)->{md5};
+                my $actualMd5 = calculate_hash($fullPath)->{md5};
                 if ($actualMd5 eq $expectedMd5) {
                     # Hash match
                     print "Verified MD5 for '@{[pretty_path($fullPath)]}'\n";

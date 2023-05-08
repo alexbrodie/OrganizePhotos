@@ -47,7 +47,7 @@ my $cachedMd5Set = {};
 # Md5Info....A collection of metadata pertaining to a MediaPath (and possibly
 #            its sidecar files)
 # Md5Digest..The result when computing the MD5 for chunk(s) of data of
-#            the form $md5DigestPattern.
+#            the form $MD5_DIGEST_PATTERN.
 
 # MODEL (MD5) ------------------------------------------------------------------
 # This high level MD5 method is used to retrieve, calculate, verify, and cache
@@ -109,8 +109,8 @@ sub resolveMd5Info {
     # No suitable cache, so fill in/finalize the Md5Info that we'll return
     my $newMd5Info;
     #eval {
-        # TODO: consolidate opening file multiple times from stat and calculateMd5Info
-        $newMd5Info = { %{calculateMd5Info($mediaPath)}, %$newMd5InfoBase };
+        # TODO: consolidate opening file multiple times from stat and calculate_hash
+        $newMd5Info = { %{calculate_hash($mediaPath)}, %$newMd5InfoBase };
     #};
     #if (my $error = $@) {
     #    # TODO: for now, skip but we'll want something better in the future
@@ -130,7 +130,7 @@ sub resolveMd5Info {
             # If that's the case (i.e. the expected version is not up to
             # date), then we should just update the MD5s. If it's not the
             # case, then it's unexpected and some kind of programer error.
-            if (isMd5InfoVersionUpToDate($mediaPath, $oldMd5Info->{version})) {
+            if (is_hash_version_current($mediaPath, $oldMd5Info->{version})) {
                 die <<"EOM";
 Unexpected state: full MD5 match and content MD5 mismatch for
 $mediaPath
@@ -414,7 +414,7 @@ sub readMd5File {
     if ($useJson) {
         $md5Set = JSON::decode_json(join '', <$md5File>);
         # TODO: Consider validating parsed content - do a lc on
-        #       filename/md5s/whatever, and verify vs $md5DigestPattern???
+        #       filename/md5s/whatever, and verify vs $MD5_DIGEST_PATTERN???
         # If there's no version data, then it is version 1. We didn't
         # start storing version information until version 2.
         while (my ($key, $values) = each %$md5Set) {
@@ -492,7 +492,7 @@ sub updateMd5FileCache {
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Makes the base of a md5Info hash that can be used with
-# or added to the results of calculateMd5Info to produce
+# or added to the results of calculate_hash to produce
 # a full md5Info.
 #   filename:   the filename (only) of the path
 #   size:       size of the file in bytes
@@ -506,7 +506,7 @@ sub makeMd5InfoBase  {
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Returns a full Md5Info constructed from the cache if it can be used for the
-# specified base-only Md5Info without bothering to calculateMd5Info. 
+# specified base-only Md5Info without bothering to calculate_hash. 
 #sub canUseCachedMd5InfoForBase {
 sub checkCachedMd5Info {
     my ($mediaPath, $addOnly, $cacheType, $cachedMd5Info, $currentMd5InfoBase) = @_;
@@ -522,7 +522,7 @@ sub checkCachedMd5Info {
         trace(View::VERBOSITY_MAX, "$cacheType cache hit for '$mediaPath' (add-only mode)");
     } else {
         my @delta = ();
-        unless (isMd5InfoVersionUpToDate($mediaPath, $cachedMd5Info->{version})) {
+        unless (is_hash_version_current($mediaPath, $cachedMd5Info->{version})) {
             push @delta, 'version';
         }
         unless (lc $currentMd5InfoBase->{filename} eq lc $cachedMd5Info->{filename}) {
