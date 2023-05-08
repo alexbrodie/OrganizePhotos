@@ -412,7 +412,7 @@ sub getIsobmffPrimaryDataExtents {
                     push @extents, { pos => $pos, size => $size };
                 }
             } else {
-                die "only iloc construction_method of file_offset (0) or idat_offset (0) " .
+                die "only iloc construction_method of file_offset (0) or idat_offset (1) " .
                     "currently supported for " . getIsobmffBoxDiagName($mediaPath, $iloc);
             }
         }
