@@ -915,11 +915,10 @@ sub doTest {
         \&defaultIsFileWanted, # isFileWanted
         sub {  # callback
             my ($path, $root_path) = @_;
-            
+
             my $date = get_date_taken($path);
-            my $fixed_path = $path;
-            $fixed_path = check_path_dates($fixed_path, $date);
-            $fixed_path =~ s/\/(\d{4}-\d\d-\d\d-)(\d{4}-\d\d-\d\d-)/\/$1/;
+            my $fixed_path = check_path_dates($path, $date);
+            #$fixed_path =~ s/\/(\d{4}-\d\d-\d\d-)(\d{4}-\d\d-\d\d-)/\/$1/;
             #$fixed_path =~ s/(\w{4}\d{4})[- ]\d(\.\w{2,4})$/$1$2/;
 
             if ($path ne $fixed_path) {
@@ -933,7 +932,7 @@ sub doTest {
                     print_with_icon('(!)', 'yellow', 
                                     "Wrong date in path '". pretty_path($path) ."'\n".
                                     "         should be '". pretty_path($fixed_path) ."'\n".
-                                    "which already exists.");                    
+                                    "which already exists.");
                 } else {
                     print_with_icon('[?]', 'yellow', 
                                     " from '". pretty_path($path) ."'\n".
@@ -960,7 +959,7 @@ sub doTest {
                     if ($move) {
                         movePath($path, $fixed_path);
                     }
-                }                
+                }
             }
         },
         @globPatterns);
