@@ -14,6 +14,11 @@ our @EXPORT = qw(
     read_metadata
 );
 
+# Enable local lib
+use File::Basename;
+use Cwd qw(abs_path);
+use lib dirname(abs_path(__FILE__));
+
 # Local uses
 use View;
 use PathOp;
@@ -31,7 +36,7 @@ use Image::ExifTool ();
 sub get_date_taken {
     my ($path, $exclude_sidecars) = @_;
     my $date_taken;
-    eval {        
+    eval {
         # For image types, ExifIFD:DateTimeOriginal does the trick, but that isn't
         # available for some types (video especially), so fall back to others.
         # A notable relevant distinction of similar named properties:
@@ -43,11 +48,14 @@ sub get_date_taken {
         # for mov, mp4: 1) Keys:CreationDate, 2) UserData:DateTimeOriginal (mp4 only),
         # 3) Quicktime:CreateDate, 4) MacOS:FileCreateDate
         my @tags = qw(ExifIFD:DateTimeOriginal Keys:CreationDate Quicktime:CreateDate);
-        my $info = read_metadata($path, $exclude_sidecars, 
+        my $info = read_metadata($path, $exclude_sidecars,
                                 { DateFormat => '%FT%T%z' }, \@tags);
         my $date_taken_raw;
         for my $tag (@tags) {
-            $date_taken_raw = $info->{$tag} and last if exists $info->{$tag};
+            if (exists $info->{$tag}) {
+                $date_taken_raw = $info->{$tag};
+                last;
+            }
         }
 
         if ($date_taken_raw) {
@@ -121,9 +129,9 @@ sub check_path_dates {
 
     defined $year and $month > 0 and $day > 0 or return $path;
 
-    my $yyyy = sprintf('%04d', $year);
-    my $mm = sprintf('%02d', $month);
-    my $dd = sprintf('%02d', $day);
+    my $yyyy = sprintf '%04d', $year;
+    my $mm = sprintf '%02d', $month;
+    my $dd = sprintf '%02d', $day;
 
     my @dir_parts = (split_dir($dir), $filename);
     for (@dir_parts) {

@@ -160,17 +160,17 @@ const my %FILE_TYPES => (
     #}
 );
 
-const my $BACKUP_SUFFIX => qr/
+const my $BACKUP_SUFFIX => qr{
     [._] (?i) (?:bak|original|\d{8}T\d{6}Z~) \d*
-/x;
+}sx;
 
 # Media file extensions
-const our $MEDIA_TYPE_FILENAME_FILTER => qr/
+const our $MEDIA_TYPE_FILENAME_FILTER => qr{
     # Media extension
     (?: \. (?i) (?: @{[ join '|', keys %FILE_TYPES ]}) )
     # Optional backup file suffix
     (?: $BACKUP_SUFFIX)?
-$/x;
+$}sx;
 
 sub get_file_type_info {
     my ($ext, $property) = @_;

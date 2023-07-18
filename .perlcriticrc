@@ -1,0 +1,6 @@
+severity = 3
+verbose = %f: [%p] %m at line %l, column %c.\n
+[-ErrorHandling::RequireCarping]
+[-RegularExpressions::RequireDotMatchAnything]
+[-RegularExpressions::RequireLineBoundaryMatching]
+[-Subroutines::ProhibitExplicitReturnUndef]
