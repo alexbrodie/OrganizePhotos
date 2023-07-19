@@ -15,7 +15,13 @@ our @EXPORT = qw(
     trashMd5Info
     deleteMd5Info
     appendMd5Files
+    makeMd5InfoBase
 );
+
+# Enable local lib
+use File::Basename;
+use Cwd qw(abs_path);
+use lib dirname(abs_path(__FILE__));
 
 # Local uses
 use ContentHash;
