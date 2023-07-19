@@ -125,7 +125,7 @@ unless (@ARGV) {
         doTest(@args);
     } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
         my @args = myGetOptions();
-        doVerifyMd5(@args);
+        do_verify_md5(@args);
     } else {
         die "Unknown verb: $verb\n";
     }

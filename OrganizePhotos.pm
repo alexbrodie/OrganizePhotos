@@ -94,8 +94,13 @@ our @EXPORT = qw(
     doPurgeMd5
     doRestoreTrash
     doTest
-    doVerifyMd5
+    do_verify_md5
 );
+
+# Enable local lib
+use File::Basename;
+use Cwd qw(abs_path);
+use lib dirname(abs_path(__FILE__));
 
 # Local uses
 use ContentHash;
@@ -967,8 +972,8 @@ sub doTest {
 
 # API ==========================================================================
 # Execute verify-md5 verb
-sub doVerifyMd5 {
-    my (@globPatterns) = @_;
+sub do_verify_md5 {
+    my (@glob_patterns) = @_;
     # TODO: this verification code is really old, based on V0 Md5File (back when
     # it was actually a plain text file), before the check-md5 verb (when it was
     # add/verify twostep), and predates any source history (back when we were all
@@ -982,38 +987,42 @@ sub doVerifyMd5 {
         \&defaultIsDirWanted, # isDirWanted
         \&defaultIsFileWanted, # isFileWanted
         sub {  #callback
-            my ($fullPath, $md5Info) = @_;
-            if (-e $fullPath) {
+            my ($path, $expected_md5_info) = @_;
+            if (-e $path) {
                 # File exists
-                my $expectedMd5 = $md5Info->{md5};
-                my $actualMd5 = calculate_hash($fullPath)->{md5};
-                if ($actualMd5 eq $expectedMd5) {
-                    # Hash match
-                    print "Verified MD5 for '@{[pretty_path($fullPath)]}'\n";
+                my $actual_md5_hash = calculate_hash($path);
+                my $actual_md5_base = makeMd5InfoBase($path);
+                my $same_mtime = $expected_md5_info->{mtime} eq $actual_md5_base->{mtime};
+                my $same_size = $expected_md5_info->{size} eq $actual_md5_base->{size};
+                my $same_md5 = $expected_md5_info->{full_md5} eq $actual_md5_hash->{full_md5};
+                if ($same_mtime && $same_size && $same_md5) {
+                    # Everything checks out
+                    print "Verified MD5 for '@{[pretty_path($path)]}'\n";
+                    return;
                 } else {
-                    # Has MIS-match, needs input
-                    warn "ERROR: MD5 mismatch for '@{[pretty_path($fullPath)]}' ($actualMd5 != $expectedMd5)";
-                    unless ($all) {
-                        while (1) {
-                            print "Ignore, ignore All, Quit (i/a/q)? ", "\a";
-                            chomp(my $in = <STDIN>);
-                            if ($in eq 'i') {
-                                last;
-                            } elsif ($in eq 'a') {
-                                $all = 1;
-                                last;
-                            } elsif ($in eq 'q') {
-                                exit 0;
-                            }
-                        }
-                    }
+                    # Hash mismatch, needs input
+                    warn "ERROR: MD5 mismatch for '@{[pretty_path($path)]}'";
                 }
             } else {
                 # File doesn't exist
-                # TODO: prompt to see if we should remove this via deleteMd5Info
-                warn "Missing file: '@{[pretty_path($fullPath)]}'";
+                warn "ERROR: Missing file: '@{[pretty_path($path)]}'";
             }
-        }, @globPatterns);
+
+            unless ($all) {
+                while (1) {
+                    print "Ignore, ignore All, Quit (i/a/q)? ", "\a";
+                    chomp(my $in = <STDIN>);
+                    if ($in eq 'i') {
+                        last;
+                    } elsif ($in eq 'a') {
+                        $all = 1;
+                        last;
+                    } elsif ($in eq 'q') {
+                        exit 0;
+                    }
+                }
+            }
+        }, @glob_patterns);
 }
 
 # Default implementation for traverseFiles's isDirWanted param
