@@ -12,6 +12,11 @@ our @EXPORT = qw(
     calculate_hash
 );
 
+# Enable local lib
+use File::Basename;
+use Cwd qw(abs_path);
+use lib dirname(abs_path(__FILE__));
+
 # Local uses
 use FileOp;
 use FileTypes;
@@ -69,23 +74,23 @@ sub calculate_hash {
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
     const my $CURRENT_HASH_VERSION => 7;
     my $fh = openOrDie('<:raw', $path);
-    my $full_hash = calc_md5($path, $fh);
+    my $full_md5 = calc_md5($path, $fh);
     seek($fh, 0, 0) or die "Failed to reset seek for '$path': $!";
     # If we fail to generate a partial match, just warn and use the full file
     # MD5 rather than letting the exception loose and just skipping the file.
-    my $content_hash = undef;
+    my $content_md5 = undef;
     eval {
         my $type = get_mime_type($path);
         if ($type eq 'image/heic') {
-            $content_hash = content_hash_heic($path, $fh);
+            $content_md5 = content_hash_heic($path, $fh);
         } elsif ($type eq 'image/jpeg') {
-            $content_hash = content_hash_jpeg($path, $fh);
+            $content_md5 = content_hash_jpeg($path, $fh);
         } elsif ($type eq 'video/mp4v-es') {
-            $content_hash = content_hash_mp4($path, $fh);
+            $content_md5 = content_hash_mp4($path, $fh);
         } elsif ($type eq 'image/png') {
-            $content_hash = content_hash_png($path, $fh);
+            $content_md5 = content_hash_png($path, $fh);
         } elsif ($type eq 'video/quicktime') {
-            $content_hash = content_hash_mov($path, $fh);
+            $content_md5 = content_hash_mov($path, $fh);
         } elsif ($type eq 'image/tiff') {
             # TODO
         }
@@ -95,11 +100,11 @@ sub calculate_hash {
         warn "Unavailable content MD5 for '@{[pretty_path($path)]}' with error:\n\t$error\n";
     }
     print_crud(View::CRUD_READ, "  Computed MD5 of '@{[pretty_path($path)]}'",
-              ($content_hash ? ", including content only hash" : ''), "\n");
+              ($content_md5 ? ", including content only hash" : ''), "\n");
     return {
         version => $CURRENT_HASH_VERSION,
-        md5 => $content_hash || $full_hash,
-        full_md5 => $full_hash,
+        md5 => $content_md5 || $full_md5,
+        full_md5 => $full_md5,
     };
 }
 
