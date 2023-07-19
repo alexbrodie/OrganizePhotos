@@ -110,7 +110,7 @@ unless (@ARGV) {
         my $excludeSidecars = 0;
         my @args = myGetOptions(
             'exclude-sidecars|x' => \$excludeSidecars);
-        doMetadataDiff($excludeSidecars, @args);
+        do_metadata_diff(0, $excludeSidecars, @args);
     } elsif ($verb eq 'purge-md5' or $verb eq 'p5') {
         my @args = myGetOptions();
         doPurgeMd5(@args);

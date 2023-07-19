@@ -89,7 +89,7 @@ our @EXPORT = qw(
     doCollectTrash
     doFindDupeDirs
     doFindDupeFiles
-    doMetadataDiff
+    do_metadata_diff
     doRemoveEmpties
     doPurgeMd5
     doRestoreTrash
@@ -316,7 +316,7 @@ sub doFindDupeFiles {
             my $prompt = "Resolving duplicate group @{[$dupeGroupsIdx + 1]} " .
                          "of @{[scalar @$dupeGroups]}\n";
             $prompt .= buildFindDupeFilesPrompt($group, $defaultCommand);
-            doMetadataDiff(0, map { $_->{fullPath} } @$group) if $autoDiff;
+            do_metadata_diff(1, 0, map { $_->{fullPath} } @$group) if $autoDiff;
             # Prompt for command(s)
             if ($command) {
                 print $prompt, $command, "\n";
@@ -349,7 +349,7 @@ EOM
                 } elsif ($_ eq 'c') {
                     next DUPEGROUP;
                 } elsif ($_ eq 'd') {
-                    doMetadataDiff(0, map { $_->{fullPath} } @$group);
+                    do_metadata_diff(1, 0, map { $_->{fullPath} } @$group);
                 } elsif (/^f(\d+)$/) {
                     if ($1 > $#$group) {
                         warn "$1 is out of range [0, $#$group]";
@@ -772,23 +772,25 @@ sub buildFindDupeFilesPrompt {
 
 # API ==========================================================================
 # Execute metadata-diff verb
-sub doMetadataDiff {
-    my ($excludeSidecars, @paths) = @_;
+# skip_missing: if truthy, treat missing files as having no metadata rather than failing
+# exclude_sidecars: do not include sidecar metadata
+sub do_metadata_diff {
+    my ($skip_missing, $exclude_sidecars, @paths) = @_;
     # Get metadata for all files
-    my @items = map { (-e) ? read_metadata($_, $excludeSidecars) : {} } @paths;
-    my @tagsToSkip = qw(CurrentIPTCDigest DocumentID DustRemovalData 
+    my @items = map { (!$skip_missing || -e) ? read_metadata($_, $exclude_sidecars) : {} } @paths;
+    my @tags_to_skip = qw(CurrentIPTCDigest DocumentID DustRemovalData 
         FileInodeChangeDate FileName HistoryInstanceID IPTCDigest InstanceID
         OriginalDocumentID PreviewImage RawFileName ThumbnailImage);
-    # Collect all the keys which whose values aren't all equal
-    my %keysHash = ();
+    # Collect all the tags which whose values aren't all equal
+    my %tag_set = ();
     for (my $i = 0; $i < @items; $i++) {
-        while (my ($key, $value) = each %{$items[$i]}) {
-            unless (any { $_ eq $key } @tagsToSkip) {
+        while (my ($tag, $value) = each %{$items[$i]}) {
+            unless (any { $_ eq $tag } @tags_to_skip) {
                 for (my $j = 0; $j < @items; $j++) {
                     if ($i != $j and
-                        (!exists $items[$j]->{$key} or
-                         $items[$j]->{$key} ne $value)) {
-                        $keysHash{$key} = 1;
+                        (!exists $items[$j]->{$tag} or
+                         $items[$j]->{$tag} ne $value)) {
+                        $tag_set{$tag} = 1;
                         last;
                     }
                 }
@@ -796,15 +798,15 @@ sub doMetadataDiff {
         }
     }
     # Pretty print all the keys and associated values which differ
-    my @keys = sort keys %keysHash;
-    my $indentLen = 3 + max map { length } @keys; 
-    for my $key (@keys) {
+    my @tags_list = sort keys %tag_set;
+    my $indent_length = 3 + max(0, map { length } @tags_list); 
+    for my $tag (@tags_list) {
         for (my $i = 0; $i < @items; $i++) {
-            my $message = $items[$i]->{$key} || colored_faint('undef');
+            my $message = $items[$i]->{$tag} || colored_faint('undef');
             if ($i == 0) {
-                print colored_bold($key), '.' x ($indentLen - length $key);
+                print colored_bold($tag), '.' x ($indent_length - length $tag);
             } else {
-                print ' ' x $indentLen;
+                print ' ' x $indent_length;
             }
             print colored_by_index($message, $i), "\n";
         }
