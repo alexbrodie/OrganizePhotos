@@ -976,15 +976,8 @@ sub doTest {
 # Execute verify-md5 verb
 sub do_verify_md5 {
     my (@glob_patterns) = @_;
-    # TODO: this verification code is really old, based on V0 Md5File (back when
-    # it was actually a plain text file), before the check-md5 verb (when it was
-    # add/verify twostep), and predates any source history (back when we were all
-    # using Source Depot and couldn't easily set up a repo for a new codebase).
-    # Before the git and json wave took over MS and well before Mac compat, c2007?
-    # Can we delete it, rewrite it, or combine-with/reuse resolveMd5Info? I haven't
-    # used add-md5 or verify-md5 for many years at this point - the only marginal
-    # value is that it can be better at finding orphaned Md5Info data.
     my $all = 0;
+    my $skip_md5 = 0;
     findMd5s(
         \&defaultIsDirWanted, # isDirWanted
         \&defaultIsFileWanted, # isFileWanted
@@ -992,11 +985,14 @@ sub do_verify_md5 {
             my ($path, $expected_md5_info) = @_;
             if (-e $path) {
                 # File exists
-                my $actual_md5_hash = calculate_hash($path);
                 my $actual_md5_base = makeMd5InfoBase($path);
                 my $same_mtime = $expected_md5_info->{mtime} eq $actual_md5_base->{mtime};
                 my $same_size = $expected_md5_info->{size} eq $actual_md5_base->{size};
-                my $same_md5 = $expected_md5_info->{full_md5} eq $actual_md5_hash->{full_md5};
+                my $same_md5 = 1;
+                unless ($skip_md5) {
+                    my $actual_md5_hash = calculate_hash($path);
+                    $same_md5 = $expected_md5_info->{full_md5} eq $actual_md5_hash->{full_md5};
+                }
                 if ($same_mtime && $same_size && $same_md5) {
                     # Everything checks out
                     print "Verified MD5 for '@{[pretty_path($path)]}'\n";
