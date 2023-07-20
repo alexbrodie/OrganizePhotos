@@ -8,14 +8,14 @@ package OrPhDat;
 use Exporter;
 our @ISA = ('Exporter');
 our @EXPORT = qw(
-    resolveMd5Info
-    findMd5s
-    writeMd5Info
-    moveMd5Info
-    trashMd5Info
-    deleteMd5Info
-    appendMd5Files
-    makeMd5InfoBase
+    resolve_orphdat
+    find_orphdat
+    write_orphdat
+    move_orphdat
+    trash_orphdat
+    delete_orphdat
+    append_orphdat_files
+    make_orphdat_base
 );
 
 # Enable local lib
@@ -37,8 +37,8 @@ use File::stat ();
 use JSON ();
 use List::Util qw(any all);
 
-my $cachedMd5Path = '';
-my $cachedMd5Set = {};
+my $CACHED_ORPHDAT_PATH = '';
+my $CACHED_ORPHDAT_SET = {};
 
 # When dealing with MD5 related data, we have these naming conventions:
 # MediaPath..The path to the media file for which MD5 data is calculated (not
@@ -70,92 +70,96 @@ my $cachedMd5Set = {};
 #
 # The default behavior explained above is altered by parameters:
 #
-# addOnly:
+# add_only:
 #   When this mode is true it causes the method to exit early if *any* cached
 #   info is available whether it is up to date or not. If that cached Md5Info
 #   is available, the MediaFile is not accessed, the MD5 is not computed, and 
 #   the cached value is returned without any verification. Note that if a 
-#   cachedMd5Info parameter is provided, this method will always simply return
+#   cached_orphdat parameter is provided, this method will always simply return
 #   that value.
 #
-# cachedMd5Info:
+# force_recalc:
+#   If truthy, this prevents the use of cached information (including the
+#   caller supplied cached_orphdat). The hash is always calculated,
+#   resolved, and caches updated.
+#
+# cached_orphdat:
 #   Caller supplied cached Md5Info value that this method will check to see
 #   if it is up to date and return that value if so (in the same way and
 #   together with the other caches). This is useful for ensuring Md5Info is up
 #   to date even if operations have taken place since originally retrieved.
-sub resolveMd5Info {
-    my ($mediaPath, $addOnly, $forceRecalc, $cachedMd5Info) = @_;
+sub resolve_orphdat {
+    my ($path, $add_only, $force_recalc, $cached_orphdat) = @_;
     # First try to get suitable Md5Info from various cache locations
     # without opening or hashing the MediaFile
-    my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
-    my $newMd5InfoBase = makeMd5InfoBase($mediaPath);
-    unless ($forceRecalc) {
-        if (defined $cachedMd5Info) {
-            my $cacheResult = checkCachedMd5Info($mediaPath, $addOnly, 'Caller', $cachedMd5Info, $newMd5InfoBase);
+    my ($orphdat_path, $orphdat_key) = get_orphdat_path_and_key($path);
+    my $new_orphdat_base = make_orphdat_base($path);
+    unless ($force_recalc) {
+        if (defined $cached_orphdat) {
+            my $cache_result = check_cached_orphdat(
+                $path, $add_only, 'Caller', 
+                $cached_orphdat, $new_orphdat_base);
             # Caller supplied cached Md5Info is up to date
-            return $cacheResult if $cacheResult;
+            return $cache_result if $cache_result;
         }
-        if ($md5Path eq $cachedMd5Path) {
-            $cachedMd5Info = $cachedMd5Set->{$md5Key};
-            my $cacheResult = checkCachedMd5Info($mediaPath, $addOnly, 'Memory', $cachedMd5Info, $newMd5InfoBase);
+        if ($orphdat_path eq $CACHED_ORPHDAT_PATH) {
+            $cached_orphdat = $CACHED_ORPHDAT_SET->{$orphdat_key};
+            my $cache_result = check_cached_orphdat(
+                $path, $add_only, 'Memory', 
+                $cached_orphdat, $new_orphdat_base);
             # Memory cache of Md5Info is up to date
-            return $cacheResult if $cacheResult;
+            return $cache_result if $cache_result;
         } else {
-            trace(View::VERBOSITY_HIGH, "Memory cache miss for '$mediaPath', cache was '$cachedMd5Path'");
+            trace(View::VERBOSITY_HIGH, "Memory cache miss for '$path', cache was '$CACHED_ORPHDAT_PATH'");
         }
     }
-    trace(View::VERBOSITY_MAX, "Opening cache '$md5Path' for '$mediaPath'");
-    my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
-    my $oldMd5Info = $md5Set->{$md5Key};
-    unless ($forceRecalc) {
-        my $cacheResult = checkCachedMd5Info($mediaPath, $addOnly, 'File', $oldMd5Info, $newMd5InfoBase);
+    trace(View::VERBOSITY_MAX, "Opening cache '$orphdat_path' for '$path'");
+    my ($orphdat_file, $orphdat_set) = read_or_create_orphdat_file($orphdat_path);
+    my $old_orphdat = $orphdat_set->{$orphdat_key};
+    unless ($force_recalc) {
+        my $cache_result = check_cached_orphdat(
+            $path, $add_only, 'File', 
+            $old_orphdat, $new_orphdat_base);
         # File cache of Md5Info is up to date
-        return $cacheResult if $cacheResult;
+        return $cache_result if $cache_result;
     }
     # No suitable cache, so fill in/finalize the Md5Info that we'll return
-    my $newMd5Info;
-    #eval {
-        # TODO: consolidate opening file multiple times from stat and calculate_hash
-        $newMd5Info = { %{calculate_hash($mediaPath)}, %$newMd5InfoBase };
-    #};
-    #if (my $error = $@) {
-    #    # TODO: for now, skip but we'll want something better in the future
-    #    warn Term::ANSIColor::colored("UNAVAILABLE MD5 for '@{[pretty_path($mediaPath)]}' with error:", 'red'), "\n\t$error\n";
-    #    return undef; # Can't get the MD5
-    #}
+    # TODO: consolidate opening file multiple times from stat and calculate_hash
+    my $hash_result = calculate_hash($path);
+    my $new_orphdat = { %$hash_result, %$new_orphdat_base };
     # Do verification on the old persisted Md5Info and the new calculated Md5Info
-    if (defined $oldMd5Info) {
-        if ($oldMd5Info->{md5} eq $newMd5Info->{md5}) {
+    if (defined $old_orphdat) {
+        if ($old_orphdat->{md5} eq $new_orphdat->{md5}) {
             # Matches last recorded hash, but still continue and call
-            # setMd5InfoAndWriteMd5File to handle other bookkeeping
+            # set_orphdat_and_write_file to handle other bookkeeping
             # to ensure we get a cache hit and short-circuit next time.
-            print_with_icon('(V)', 'green', "Verified MD5 for '@{[pretty_path($mediaPath)]}'");
-        } elsif ($oldMd5Info->{full_md5} eq $newMd5Info->{full_md5}) {
+            print_with_icon('(V)', 'green', "Verified MD5 for '@{[pretty_path($path)]}'");
+        } elsif ($old_orphdat->{full_md5} eq $new_orphdat->{full_md5}) {
             # Full MD5 match and content mismatch. This should only be
             # expected when we change how to calculate content MD5s.
             # If that's the case (i.e. the expected version is not up to
             # date), then we should just update the MD5s. If it's not the
             # case, then it's unexpected and some kind of programer error.
-            if (is_hash_version_current($mediaPath, $oldMd5Info->{version})) {
+            if (is_hash_version_current($path, $old_orphdat->{version})) {
                 die <<"EOM";
 Unexpected state: full MD5 match and content MD5 mismatch for
-$mediaPath
+$path
              version  full_md5                          md5
-  Expected:  $oldMd5Info->{version}        $oldMd5Info->{full_md5}  $oldMd5Info->{md5}
-    Actual:  $newMd5Info->{version}        $newMd5Info->{full_md5}  $newMd5Info->{md5}
+  Expected:  $old_orphdat->{version}        $old_orphdat->{full_md5}  $old_orphdat->{md5}
+    Actual:  $new_orphdat->{version}        $new_orphdat->{full_md5}  $new_orphdat->{md5}
 EOM
             } else {
                 trace(View::VERBOSITY_MEDIUM, "Content MD5 calculation has changed, upgrading from version ",
-                      "$oldMd5Info->{version} to $newMd5Info->{version} for '$mediaPath'");
+                      "$old_orphdat->{version} to $new_orphdat->{version} for '$path'");
             }
         } else {
             # Mismatch and we can update MD5, needs resolving...
             # TODO: This doesn't belong here in the model, it should be moved
             my @prompt = ( 
-                Term::ANSIColor::colored("MISMATCH OF MD5 for '@{[pretty_path($mediaPath)]}'", 'red'), 
+                Term::ANSIColor::colored("MISMATCH OF MD5 for '@{[pretty_path($path)]}'", 'red'), 
                 "\n",
                 "Ver  Full MD5                          Content MD5                       Date Modified        Size\n");
-            for ($oldMd5Info, $newMd5Info)
+            for ($old_orphdat, $new_orphdat)
             {
                 push @prompt, sprintf("%3d  %-16s  %-16s  %-19s  %s\n",
                     $_->{version}, $_->{full_md5}, $_->{md5}, 
@@ -163,7 +167,7 @@ EOM
                     Number::Bytes::Human::format_bytes($_->{size}));
             }
             push @prompt, <<EOM;
-[I]gnore changes and used cached value
+[I]gnore new calculated hash and use cached value
 [O]verwrite cached value with new data
 [S]kip using either conflicting value
 [Q]uit
@@ -173,9 +177,9 @@ EOM
                 print "i/o/s/q? ", "\a"; 
                 chomp(my $in = <STDIN>);
                 if ($in eq 'i') {
-                    # Ignore newMd5Info, so we don't want to return that. Return
+                    # Ignore new_orphdat, so we don't want to return that. Return
                     # what is/was in the cache.
-                    return { %$oldMd5Info, %$newMd5InfoBase };
+                    return { %$old_orphdat, %$new_orphdat_base };
                 } elsif ($in eq 'o') {
                     last;
                 } elsif ($in eq 's') {
@@ -188,82 +192,83 @@ EOM
             }
         }
     }
-    setMd5InfoAndWriteMd5File($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set);
-    return $newMd5Info;
+    set_orphdat_and_write_file($path, $new_orphdat, $orphdat_path, $orphdat_key, $orphdat_file, $orphdat_set);
+    return $new_orphdat;
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# For each item in each per-directory database file in [globPatterns], 
+# For each item in each per-directory database file in [glob_patterns], 
 # invoke [callback] passing it full path and MD5 hash as arguments like
-#      callback($fullPath, $md5)
+#      callback($path, $orphdat)
 # TODO: add support for files (not just dirs) in the glob pattern
-sub findMd5s {
-    my ($isDirWanted, $isFileWanted, $callback, @globPatterns) = @_;
-    $isDirWanted or die "Programmer Error: expected \$isDirWanted argument";
-    $isFileWanted or die "Programmer Error: expected \$isFileWanted argument";
+sub find_orphdat {
+    my ($is_dir_wanted, $is_file_wanted, $callback, @glob_patterns) = @_;
+    $is_dir_wanted or die "Programmer Error: expected \$is_dir_wanted argument";
+    $is_file_wanted or die "Programmer Error: expected \$is_file_wanted argument";
     $callback or die  "Programmer Error: expected \$callback argument";
-    trace(View::VERBOSITY_MAX, 'findMd5s(...); with @globPatterns of', 
-          (@globPatterns ? map { "\n\t'$_'" } @globPatterns : ' (current dir)'));
+    trace(View::VERBOSITY_MAX, 'find_orphdat(...); with 
+    @glob_patterns of', 
+          (@glob_patterns ? map { "\n\t'$_'" } @glob_patterns : ' (current dir)'));
     traverseFiles(
-        $isDirWanted,
-        sub {  # isFileWanted
-            my ($fullPath, $rootFullPath, $filename) = @_;
+        $is_dir_wanted,
+        sub {  # is_file_wanted
+            my ($path, $root, $filename) = @_;
             return (lc $filename eq $FileTypes::md5Filename); # only process Md5File files
         },
         sub {  # callback
-            my ($fullPath, $rootFullPath) = @_;
-            if (-f $fullPath) {
-                my ($vol, $dir, $filename) = split_path($fullPath);
-                my (undef, $md5Set) = readMd5File('<:crlf', $fullPath);
-                for my $md5Key (sort { $md5Set->{$a}->{filename} cmp $md5Set->{$b}->{filename} } keys %$md5Set) {
-                    my $md5Info = $md5Set->{$md5Key};
-                    my $otherFilename = $md5Info->{filename};
-                    my $otherFullPath = change_filename($fullPath, $otherFilename);
-                    if ($isFileWanted->($otherFullPath, $rootFullPath, $otherFilename)) {
-                        $callback->($otherFullPath, $md5Info);
+            my ($path, $root) = @_;
+            if (-f $path) {
+                my ($vol, $dir, $filename) = split_path($path);
+                my (undef, $orphdat_set) = read_orphdat_file('<:crlf', $path);
+                for my $orphdat_key (sort { $orphdat_set->{$a}->{filename} cmp $orphdat_set->{$b}->{filename} } keys %$orphdat_set) {
+                    my $orphdat = $orphdat_set->{$orphdat_key};
+                    my $other_filename = $orphdat->{filename};
+                    my $other_path = change_filename($path, $other_filename);
+                    if ($is_file_wanted->($other_path, $root, $other_filename)) {
+                        $callback->($other_path, $orphdat);
                     }
                 }
             }
         },
-        @globPatterns);
+        @glob_patterns);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Gets the Md5Path, Md5Key for a MediaPath.
-sub getMd5PathAndMd5Key {
-    my ($mediaPath) = @_;
-    my ($md5Path, $md5Key) = change_filename($mediaPath, $FileTypes::md5Filename);
-    return ($md5Path, lc $md5Key);
+sub get_orphdat_path_and_key {
+    my ($path) = @_;
+    my ($orphdat_path, $orphdat_key) = change_filename($path, $FileTypes::md5Filename);
+    return ($orphdat_path, lc $orphdat_key);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Stores Md5Info for a MediaPath. If the the provided data is undef, removes
-# existing information via deleteMd5Info. Returns the previous Md5Info
+# existing information via delete_orphdat. Returns the previous Md5Info
 # value if it existed (or undef if not).
-sub writeMd5Info {
-    my ($mediaPath, $newMd5Info) = @_;
-    trace(View::VERBOSITY_MAX, "writeMd5Info('$mediaPath', {...});");
-    if ($newMd5Info) {
-        my ($md5Path, $md5Key) = getMd5PathAndMd5Key($mediaPath);
-        my ($md5File, $md5Set) = readOrCreateNewMd5File($md5Path);
-        return setMd5InfoAndWriteMd5File($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set);
+sub write_orphdat {
+    my ($path, $new_orphdat) = @_;
+    trace(View::VERBOSITY_MAX, "write_orphdat('$path', {...});");
+    if ($new_orphdat) {
+        my ($orphdat_path, $orphdat_key) = get_orphdat_path_and_key($path);
+        my ($orphdat_file, $orphdat_set) = read_or_create_orphdat_file($orphdat_path);
+        return set_orphdat_and_write_file($path, $new_orphdat, $orphdat_path, $orphdat_key, $orphdat_file, $orphdat_set);
     } else {
-        return deleteMd5Info($mediaPath);
+        return delete_orphdat($path);
     }
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Moves a Md5Info for a file from one directory's storage to another. 
-sub moveMd5Info {
+sub move_orphdat {
     my ($oldMediaPath, $newMediaPath) = @_;
-    trace(View::VERBOSITY_MAX, "moveMd5Info('$oldMediaPath', " . 
+    trace(View::VERBOSITY_MAX, "move_orphdat('$oldMediaPath', " . 
                          (defined $newMediaPath ? "'$newMediaPath'" : 'undef') . ");");
-    my ($oldMd5Path, $oldMd5Key) = getMd5PathAndMd5Key($oldMediaPath);
+    my ($oldMd5Path, $oldMd5Key) = get_orphdat_path_and_key($oldMediaPath);
     unless (-e $oldMd5Path) {
         trace(View::VERBOSITY_MAX, "Can't move/remove Md5Info for '$oldMd5Key' from missing '$oldMd5Path'"); 
         return undef;
     }
-    my ($oldMd5File, $oldMd5Set) = readMd5File('+<:crlf', $oldMd5Path);
+    my ($oldMd5File, $oldMd5Set) = read_orphdat_file('+<:crlf', $oldMd5Path);
     unless (exists $oldMd5Set->{$oldMd5Key}) {
         trace(View::VERBOSITY_MAX, "Can't move/remove missing Md5Info for '$oldMd5Key' from '$oldMd5Path'");
         return undef;
@@ -272,34 +277,34 @@ sub moveMd5Info {
     # operation. The logging info will be built up during the copy phase
     # and then logged after deleting.
     my ($crudOp, $crudMessage);
-    my $oldMd5Info = $oldMd5Set->{$oldMd5Key};
+    my $old_orphdat = $oldMd5Set->{$oldMd5Key};
     if ($newMediaPath) {
         my (undef, undef, $newFilename) = split_path($newMediaPath);
-        my $newMd5Info = { %$oldMd5Info, filename => $newFilename };
+        my $new_orphdat = { %$old_orphdat, filename => $newFilename };
         # The code for the remainder of this scope is very similar to 
-        #   writeMd5Info($newMediaPath, $newMd5Info);
+        #   write_orphdat($newMediaPath, $new_orphdat);
         # but with additional cases considered and improved context in traces
-        my ($newMd5Path, $newMd5Key) = getMd5PathAndMd5Key($newMediaPath);
+        my ($newMd5Path, $newMd5Key) = get_orphdat_path_and_key($newMediaPath);
         my ($newMd5File, $newMd5Set);
         if ($oldMd5Path eq $newMd5Path) {
             $newMd5Set = $oldMd5Set;
         } else {
-            ($newMd5File, $newMd5Set) = readOrCreateNewMd5File($newMd5Path);
+            ($newMd5File, $newMd5Set) = read_or_create_orphdat_file($newMd5Path);
         }
         # The code for the remainder of this scope is very similar to 
-        #   setMd5InfoAndWriteMd5File($newMediaPath, $newMd5Info, $newMd5Path, $newMd5Key, $newMd5File, $newMd5Set);
+        #   set_orphdat_and_write_file($newMediaPath, $new_orphdat, $newMd5Path, $newMd5Key, $newMd5File, $newMd5Set);
         # but with additional cases considered and improved context in traces
         my $existingMd5Info = $newMd5Set->{$newMd5Key};
-        if ($existingMd5Info and Data::Compare::Compare($existingMd5Info, $newMd5Info)) {
+        if ($existingMd5Info and Data::Compare::Compare($existingMd5Info, $new_orphdat)) {
             # Existing Md5Info at target is identical, so target is up to date already
             $crudOp = View::CRUD_DELETE;
             $crudMessage = "Removed cache data for '@{[pretty_path($oldMediaPath)]}' (up to date " .
                         "data already exists for '@{[pretty_path($newMediaPath)]}')";
         } else {
-            $newMd5Set->{$newMd5Key} = $newMd5Info;
+            $newMd5Set->{$newMd5Key} = $new_orphdat;
             if ($newMd5File) {
                 trace(View::VERBOSITY_MEDIUM, "Writing '$newMd5Path' after moving entry for '$newMd5Key' elsewhere");
-                writeMd5File($newMd5Path, $newMd5File, $newMd5Set);
+                write_orphdat_file($newMd5Path, $newMd5File, $newMd5Set);
             }
             $crudOp = View::CRUD_UPDATE;
             $crudMessage = "Moved cache data for '@{[pretty_path($oldMediaPath)]}' to '@{[pretty_path($newMediaPath)]}'";
@@ -312,12 +317,12 @@ sub moveMd5Info {
         $crudOp = View::CRUD_DELETE;
         $crudMessage = "Removed MD5 for '@{[pretty_path($oldMediaPath)]}'";
     }
-    # TODO: Should this if/else code move to writeMd5File/setMd5InfoAndWriteMd5File such
+    # TODO: Should this if/else code move to write_orphdat_file/set_orphdat_and_write_file such
     #       that any time someone tries to write an empty hashref, it deletes the file?
     delete $oldMd5Set->{$oldMd5Key};
     if (%$oldMd5Set) {
         trace(View::VERBOSITY_MEDIUM, "Writing '$oldMd5Path' after removing MD5 for '$oldMd5Key'");
-        writeMd5File($oldMd5Path, $oldMd5File, $oldMd5Set);
+        write_orphdat_file($oldMd5Path, $oldMd5File, $oldMd5Set);
     } else {
         # Empty files create trouble down the line (especially with move-merges)
         trace(View::VERBOSITY_MEDIUM, "Deleting '$oldMd5Path' after removing MD5 for '$oldMd5Key' (the last one)");
@@ -326,174 +331,174 @@ sub moveMd5Info {
         print_crud(View::CRUD_DELETE, "  Deleted empty file '@{[pretty_path($oldMd5Path)]}'\n");
     }
     print_crud($crudOp, $crudMessage, "\n");
-    return $oldMd5Info;
+    return $old_orphdat;
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Moves Md5Info for a MediaPath to local trash. Returns the previous Md5Info
 # value if it existed (or undef if not).
-sub trashMd5Info {
-    my ($mediaPath) = @_;
-    trace(View::VERBOSITY_MAX, "trashMd5Info('$mediaPath');");
-    my $trashPath = get_trash_path($mediaPath);
-    ensureParentDirExists($trashPath);
-    return moveMd5Info($mediaPath, $trashPath);
+sub trash_orphdat {
+    my ($path) = @_;
+    trace(View::VERBOSITY_MAX, "trash_orphdat('$path');");
+    my $trash_path = get_trash_path($path);
+    ensureParentDirExists($trash_path);
+    return move_orphdat($path, $trash_path);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Removes Md5Info for a MediaPath from storage. Returns the previous Md5Info
 # value if it existed (or undef if not).
-sub deleteMd5Info {
-    my ($mediaPath) = @_;
-    trace(View::VERBOSITY_MAX, "deleteMd5Info('$mediaPath');");
-    return moveMd5Info($mediaPath);
+sub delete_orphdat {
+    my ($path) = @_;
+    trace(View::VERBOSITY_MAX, "delete_orphdat('$path');");
+    return move_orphdat($path);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Takes a list of Md5Paths, and stores the concatinated Md5Info to the first
 # specified file. Dies without writing anything on key collisions.
-sub appendMd5Files {
-    my ($targetMd5Path, @sourceMd5Paths) = @_;
-    my ($targetMd5File, $targetMd5Set) = readOrCreateNewMd5File($targetMd5Path);
-    my $oldTargetMd5SetCount = scalar keys %$targetMd5Set;
+sub append_orphdat_files {
+    my ($target_orphdat_path, @source_orphdat_paths) = @_;
+    my ($target_orphdat_file, $target_orphdat_set) = read_or_create_orphdat_file($target_orphdat_path);
+    my $old_target_orphdat_set_count = scalar keys %$target_orphdat_set;
     my $dirty = 0;
-    for my $sourceMd5Path (@sourceMd5Paths) {
-        my (undef, $sourceMd5Set) = readMd5File('<:crlf', $sourceMd5Path);
-        while (my ($md5Key, $sourceMd5Info) = each %$sourceMd5Set) {
-            if (exists $targetMd5Set->{$md5Key}) {
-                my $targetMd5Info = $targetMd5Set->{$md5Key};
-                Data::Compare::Compare($sourceMd5Info, $targetMd5Info) or die
-                    "Can't append MD5 info from '$sourceMd5Path' to '$targetMd5Path'" .
-                    " due to key collision for '$md5Key'";
+    for my $source_orphdat_path (@source_orphdat_paths) {
+        my (undef, $source_orphdat_set) = read_orphdat_file('<:crlf', $source_orphdat_path);
+        while (my ($orphdat_key, $source_orphdat) = each %$source_orphdat_set) {
+            if (exists $target_orphdat_set->{$orphdat_key}) {
+                my $targetMd5Info = $target_orphdat_set->{$orphdat_key};
+                Data::Compare::Compare($source_orphdat, $targetMd5Info) or die
+                    "Can't append MD5 info from '$source_orphdat_path' to '$target_orphdat_path'" .
+                    " due to key collision for '$orphdat_key'";
             } else {
-                $targetMd5Set->{$md5Key} = $sourceMd5Info;
+                $target_orphdat_set->{$orphdat_key} = $source_orphdat;
                 $dirty = 1;
             }
         }
     }
     if ($dirty) {
-        trace(View::VERBOSITY_MEDIUM, "Writing '$targetMd5Path' after appending data from ",
-              scalar @sourceMd5Paths, " files");
-        writeMd5File($targetMd5Path, $targetMd5File, $targetMd5Set);
-        my $itemsAdded = (scalar keys %$targetMd5Set) - $oldTargetMd5SetCount;
-        print_crud(View::CRUD_CREATE, "  Added $itemsAdded MD5s to '${\pretty_path($targetMd5Path)}' from ",
-                  join ', ', map { "'${\pretty_path($_)}'" } @sourceMd5Paths);
+        trace(View::VERBOSITY_MEDIUM, "Writing '$target_orphdat_path' after appending data from ",
+              scalar @source_orphdat_paths, " files");
+        write_orphdat_file($target_orphdat_path, $target_orphdat_file, $target_orphdat_set);
+        my $items_added = (scalar keys %$target_orphdat_set) - $old_target_orphdat_set_count;
+        print_crud(View::CRUD_CREATE, "  Added $items_added MD5s to '${\pretty_path($target_orphdat_path)}' from ",
+                  join ', ', map { "'${\pretty_path($_)}'" } @source_orphdat_paths);
     }
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # This is a utility for updating Md5Info. It opens the Md5Path R/W and parses
 # it. Returns the Md5File and Md5Set.
-sub readOrCreateNewMd5File {
-    my ($md5Path) = @_;
-    trace(View::VERBOSITY_MAX, "readOrCreateNewMd5File('$md5Path');");
-    if (-e $md5Path) {
-        return readMd5File('+<:crlf', $md5Path);
+sub read_or_create_orphdat_file {
+    my ($orphdat_path) = @_;
+    trace(View::VERBOSITY_MAX, "read_or_create_orphdat_file('$orphdat_path');");
+    if (-e $orphdat_path) {
+        return read_orphdat_file('+<:crlf', $orphdat_path);
     } else {
         # TODO: should mode here have :crlf on the end?
-        my $fh = openOrDie('+>', $md5Path);
-        print_crud(View::CRUD_CREATE, "  Created cache at '@{[pretty_path($md5Path)]}'\n");
+        my $fh = openOrDie('+>', $orphdat_path);
+        print_crud(View::CRUD_CREATE, "  Created cache at '@{[pretty_path($orphdat_path)]}'\n");
         return ($fh, {});
     }
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Low level helper routine to open a Md5Path and deserialize into a OM (Md5Set)
-# which can be read, modified, and/or passed to writeMd5File or methods built 
+# which can be read, modified, and/or passed to write_orphdat_file or methods built 
 # on that. Returns the Md5File and Md5Set.
-sub readMd5File {
-    my ($openMode, $md5Path) = @_;
-    trace(View::VERBOSITY_MEDIUM, "readMd5File('$openMode', '$md5Path');");
+sub read_orphdat_file {
+    my ($open_mode, $orphdat_path) = @_;
+    trace(View::VERBOSITY_MEDIUM, "read_orphdat_file('$open_mode', '$orphdat_path');");
     # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
-    my $md5File = openOrDie($openMode, $md5Path);
+    my $orphdat_file = openOrDie($open_mode, $orphdat_path);
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple "name: md5\n" format parsing
     my $useJson = 0;
-    while (<$md5File>) {
+    while (<$orphdat_file>) {
         if (/^\s*([^\s])/) {
             $useJson = 1 if $1 eq '{';
             last;
         }
     }
-    seek($md5File, 0, 0) or die "Couldn't reset seek on file: $!";
-    my $md5Set = {};
+    seek($orphdat_file, 0, 0) or die "Couldn't reset seek on file: $!";
+    my $orphdat_set = {};
     if ($useJson) {
-        $md5Set = JSON::decode_json(join '', <$md5File>);
+        $orphdat_set = JSON::decode_json(join '', <$orphdat_file>);
         # TODO: Consider validating parsed content - do a lc on
         #       filename/md5s/whatever, and verify vs $MD5_DIGEST_PATTERN???
         # If there's no version data, then it is version 1. We didn't
         # start storing version information until version 2.
-        while (my ($key, $values) = each %$md5Set) {
+        while (my ($key, $values) = each %$orphdat_set) {
             # Populate missing values so we don't have to handle sparse data everywhere
             $values->{version} = 1 unless exists $values->{version};
             $values->{filename} = $key unless exists $values->{filename};
         }
     } else {
         # Parse as simple "name: md5" text
-        for (<$md5File>) {
-            /^([^:]+):\s*($ContentHash::md5DigestPattern)$/ or die "Unexpected line in '$md5Path': $_";
+        for (<$orphdat_file>) {
+            /^([^:]+):\s*($ContentHash::md5DigestPattern)$/ or die "Unexpected line in '$orphdat_path': $_";
             # We use version 0 here for the very old way before we went to
             # JSON when we added more info than just the full file MD5
             my $fullMd5 = lc $2;
-            $md5Set->{lc $1} = { version => 0, filename => $1, 
+            $orphdat_set->{lc $1} = { version => 0, filename => $1, 
                                  md5 => $fullMd5, full_md5 => $fullMd5 };
         }
     }
-    updateMd5FileCache($md5Path, $md5Set);
-    print_crud(View::CRUD_READ, "  Read cache from '@{[pretty_path($md5Path)]}'\n");
-    return ($md5File, $md5Set);
+    update_orphdat_cache($orphdat_path, $orphdat_set);
+    print_crud(View::CRUD_READ, "  Read cache from '@{[pretty_path($orphdat_path)]}'\n");
+    return ($orphdat_file, $orphdat_set);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Lower level helper routine that updates a MD5 info, and writes it to the file
-# if necessary. The $md5File and $md5Set params should be the existing data
-# (like is returned from readOrCreateNewMd5File or readMd5File). The md5Key and
-# newMd5Info represent the new data. Returns the previous md5Info value. 
-sub setMd5InfoAndWriteMd5File {
-    my ($mediaPath, $newMd5Info, $md5Path, $md5Key, $md5File, $md5Set) = @_;
+# if necessary. The $orphdat_file and $orphdat_set params should be the existing data
+# (like is returned from read_or_create_orphdat_file or read_orphdat_file). The orphdat_key and
+# new_orphdat represent the new data. Returns the previous md5Info value. 
+sub set_orphdat_and_write_file {
+    my ($path, $new_orphdat, $orphdat_path, $orphdat_key, $orphdat_file, $orphdat_set) = @_;
     # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
-    my $oldMd5Info = $md5Set->{$md5Key};
-    unless ($oldMd5Info and Data::Compare::Compare($oldMd5Info, $newMd5Info)) {
-        $md5Set->{$md5Key} = $newMd5Info;
-        trace(View::VERBOSITY_MEDIUM, "Writing '$md5Path' after updating value for key '$md5Key'");
-        writeMd5File($md5Path, $md5File, $md5Set);
-        if (defined $oldMd5Info) {
-            print_crud(View::CRUD_UPDATE, "Updated cache entry for '@{[pretty_path($mediaPath)]}'\n");
+    my $old_orphdat = $orphdat_set->{$orphdat_key};
+    unless ($old_orphdat and Data::Compare::Compare($old_orphdat, $new_orphdat)) {
+        $orphdat_set->{$orphdat_key} = $new_orphdat;
+        trace(View::VERBOSITY_MEDIUM, "Writing '$orphdat_path' after updating value for key '$orphdat_key'");
+        write_orphdat_file($orphdat_path, $orphdat_file, $orphdat_set);
+        if (defined $old_orphdat) {
+            print_crud(View::CRUD_UPDATE, "Updated cache entry for '@{[pretty_path($path)]}'\n");
         } else {
-            print_crud(View::CRUD_CREATE, "Added cache entry for '@{[pretty_path($mediaPath)]}'\n");
+            print_crud(View::CRUD_CREATE, "Added cache entry for '@{[pretty_path($path)]}'\n");
         }
     }
-    return $oldMd5Info;
+    return $old_orphdat;
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Lowest level helper routine to serialize OM into a file handle.
 # Caller is expected to print_crud with more context if this method returns
 # successfully.
-sub writeMd5File {
-    my ($md5Path, $md5File, $md5Set) = @_;
+sub write_orphdat_file {
+    my ($orphdat_path, $orphdat_file, $orphdat_set) = @_;
     # TODO: write this out as UTF8 using :encoding(UTF-8):crlf (or :utf8:crlf?)
     #       and writing out the "\x{FEFF}" BOM. Not sure how to do that in
     #       a fully cross compatable way (older file versions as well as
     #       Windows/Mac compat)
     # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
-    trace(View::VERBOSITY_MAX, 'writeMd5File(<..>, { hash of @{[ scalar keys %$md5Set ]} items });');
-    seek($md5File, 0, 0) or die "Couldn't reset seek on file: $!";
-    truncate($md5File, 0) or die "Couldn't truncate file: $!";
-    if (%$md5Set) {
-        print $md5File JSON->new->allow_nonref->pretty->canonical->encode($md5Set);
+    trace(View::VERBOSITY_MAX, 'write_orphdat_file(<..>, { hash of @{[ scalar keys %$orphdat_set ]} items });');
+    seek($orphdat_file, 0, 0) or die "Couldn't reset seek on file: $!";
+    truncate($orphdat_file, 0) or die "Couldn't truncate file: $!";
+    if (%$orphdat_set) {
+        print $orphdat_file JSON->new->allow_nonref->pretty->canonical->encode($orphdat_set);
     } else {
-        warn "Writing empty data to $md5Path";
+        warn "Writing empty data to $orphdat_path";
     }
-    updateMd5FileCache($md5Path, $md5Set);
-    print_crud(View::CRUD_UPDATE, "  Wrote cache to '@{[pretty_path($md5Path)]}'\n");
+    update_orphdat_cache($orphdat_path, $orphdat_set);
+    print_crud(View::CRUD_UPDATE, "  Wrote cache to '@{[pretty_path($orphdat_path)]}'\n");
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-sub updateMd5FileCache {
-    my ($md5Path, $md5Set) = @_;
-    $cachedMd5Path = $md5Path;
-    $cachedMd5Set = Storable::dclone($md5Set);
+sub update_orphdat_cache {
+    my ($orphdat_path, $orphdat_set) = @_;
+    $CACHED_ORPHDAT_PATH = $orphdat_path;
+    $CACHED_ORPHDAT_SET = Storable::dclone($orphdat_set);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -503,53 +508,52 @@ sub updateMd5FileCache {
 #   filename:   the filename (only) of the path
 #   size:       size of the file in bytes
 #   mtime:      the mtime of the file
-sub makeMd5InfoBase  {
-    my ($mediaPath) = @_;
-    my $stats = File::stat::stat($mediaPath) or die "Couldn't stat '$mediaPath': $!";
-    my (undef, undef, $filename) = split_path($mediaPath);
+sub make_orphdat_base  {
+    my ($path) = @_;
+    my $stats = File::stat::stat($path) or die "Couldn't stat '$path': $!";
+    my (undef, undef, $filename) = split_path($path);
     return { filename => $filename, size => $stats->size, mtime => $stats->mtime };
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Returns a full Md5Info constructed from the cache if it can be used for the
 # specified base-only Md5Info without bothering to calculate_hash. 
-#sub canUseCachedMd5InfoForBase {
-sub checkCachedMd5Info {
-    my ($mediaPath, $addOnly, $cacheType, $cachedMd5Info, $currentMd5InfoBase) = @_;
-    #trace(View::VERBOSITY_MAX, 'canUseCachedMd5InfoForBase(...);');
-    unless (defined $cachedMd5Info) {
+sub check_cached_orphdat {
+    my ($path, $add_only, $cache_type, $cached_orphdat, $current_orphdat_base) = @_;
+    #trace(View::VERBOSITY_MAX, 'check_cached_orphdat(...);');
+    unless (defined $cached_orphdat) {
         # Note that this is assumed context from the caller, and not actually
         # something true based on this sub
-        trace(View::VERBOSITY_HIGH, "$cacheType cache miss for '$mediaPath', lookup failed'");
+        trace(View::VERBOSITY_HIGH, "$cache_type cache miss for '$path', lookup failed'");
         return undef;
     }
 
-    if ($addOnly) {
-        trace(View::VERBOSITY_MAX, "$cacheType cache hit for '$mediaPath' (add-only mode)");
+    if ($add_only) {
+        trace(View::VERBOSITY_MAX, "$cache_type cache hit for '$path' (add-only mode)");
     } else {
         my @delta = ();
-        unless (is_hash_version_current($mediaPath, $cachedMd5Info->{version})) {
+        unless (is_hash_version_current($path, $cached_orphdat->{version})) {
             push @delta, 'version';
         }
-        unless (lc $currentMd5InfoBase->{filename} eq lc $cachedMd5Info->{filename}) {
+        unless (lc $current_orphdat_base->{filename} eq lc $cached_orphdat->{filename}) {
             push @delta, 'name';
         }
-        unless (defined $cachedMd5Info->{size} and 
-            $currentMd5InfoBase->{size} == $cachedMd5Info->{size}) {
+        unless (defined $cached_orphdat->{size} and 
+            $current_orphdat_base->{size} == $cached_orphdat->{size}) {
             push @delta, 'size';
         }
-        unless (defined $cachedMd5Info->{mtime} and 
-            $currentMd5InfoBase->{mtime} == $cachedMd5Info->{mtime}) {
+        unless (defined $cached_orphdat->{mtime} and 
+            $current_orphdat_base->{mtime} == $cached_orphdat->{mtime}) {
             push @delta, 'mtime';
         }
         if (@delta) {
-            trace(View::VERBOSITY_HIGH, "$cacheType cache miss for '$mediaPath', different " . join('/', @delta));
+            trace(View::VERBOSITY_HIGH, "$cache_type cache miss for '$path', different " . join('/', @delta));
             return undef;
         }
-        trace(View::VERBOSITY_MAX, "$cacheType cache hit for '$mediaPath' with version/name/size/mtime match");
+        trace(View::VERBOSITY_MAX, "$cache_type cache hit for '$path' with version/name/size/mtime match");
     }
 
-    return { %{Storable::dclone($cachedMd5Info)}, %$currentMd5InfoBase };
+    return { %{Storable::dclone($cached_orphdat)}, %$current_orphdat_base };
 }
 
 1;

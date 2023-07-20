@@ -18,6 +18,11 @@ our @EXPORT = qw(
     openOrDie
 );
 
+# Enable local lib
+use File::Basename;
+use Cwd qw(abs_path);
+use lib dirname(abs_path(__FILE__));
+
 # Local uses
 use FileTypes;
 use PathOp;
@@ -314,7 +319,7 @@ sub movePath {
             my (undef, undef, $newFilename) = split_path($newFullPath);
             if (lc $oldFilename eq $FileTypes::md5Filename and lc $newFilename eq $FileTypes::md5Filename) {
                 unless ($dryRun) {
-                    OrPhDat::appendMd5Files($newFullPath, $oldFullPath);
+                    OrPhDat::append_orphdat_files($newFullPath, $oldFullPath);
                     unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
                 }
                 print_crud(View::CRUD_DELETE, "  Deleted now-old cache at '@{[pretty_path($oldFullPath)]}' after ",
@@ -327,7 +332,7 @@ sub movePath {
             print_crud(View::CRUD_UPDATE, "Moved file '@{[pretty_path($oldFullPath)]}' ",
                       "to '@{[pretty_path($newFullPath)]}'\n");
             unless ($dryRun) {
-                OrPhDat::moveMd5Info($oldFullPath, $newFullPath);
+                OrPhDat::move_orphdat($oldFullPath, $newFullPath);
             }
         }
     } elsif (-d _) {
@@ -356,7 +361,7 @@ sub movePath {
                 my $oldChildFullPath = File::Spec->canonpath(File::Spec->catfile($oldFullPath, $_));
                 my $newChildFullPath = File::Spec->canonpath(File::Spec->catfile($newFullPath, $_));
                 # If we move the last media from a folder in previous iteration
-                # of this loop, it can delete an empty Md5File via moveMd5Info.
+                # of this loop, it can delete an empty Md5File via move_orphdat.
                 next if lc $_ eq $FileTypes::md5Filename and !(-e $oldChildFullPath);
                 movePath($oldChildFullPath, $newChildFullPath, $dryRun);
             }
