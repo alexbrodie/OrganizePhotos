@@ -238,7 +238,7 @@ sub doCheckMd5 {
         \&defaultIsFileWanted, # isFileWanted
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
-            -f $fullPath and resolveMd5Info($fullPath, $addOnly, $forceRecalc);
+            -f $fullPath and resolve_orphdat($fullPath, $addOnly, $forceRecalc);
         },
         @globPatterns);
 }
@@ -383,7 +383,7 @@ EOM
                         if ($group->[$1]->{exists}) {
                             trashPathAndSidecars($group->[$1]->{fullPath});
                         } else {
-                            trashMd5Info($group->[$1]->{fullPath});
+                            trash_orphdat($group->[$1]->{fullPath});
                         }
                         $group->[$1] = undef;
                         $itemCount--;
@@ -439,7 +439,7 @@ sub buildFindDupeFilesDupeGroups {
             @globPatterns);
     } else {
         # Hash key is MD5
-        findMd5s(
+        find_orphdat(
             \&defaultIsDirWanted, # isDirWanted
             \&defaultIsFileWanted, # isFileWanted
             sub {  # callback
@@ -494,7 +494,7 @@ sub populateFindDupeFilesDupeGroup {
             delete $elt->{md5Info};
             delete $elt->{dateTaken};
         } else {
-            $elt->{md5Info} = resolveMd5Info($elt->{fullPath}, 0, 0,
+            $elt->{md5Info} = resolve_orphdat($elt->{fullPath}, 0, 0,
                 exists $elt->{md5Info} ? $elt->{md5Info} : $elt->{cachedMd5Info});
             $elt->{dateTaken} = get_date_taken($elt->{fullPath});
         }
@@ -872,20 +872,20 @@ sub doPurgeMd5 {
     my (@globPatterns) = @_;
     # Note that this is O(N^2) because it was easier to reuse already
     # written and tested code (especially on the error paths and atomic-ness).
-    # To make this O(N) we'd want to unroll the findMd5s method, in the loop
+    # To make this O(N) we'd want to unroll the find_orphdat method, in the loop
     # over all the keys just move the apprpriate Md5Info to a temp hash, do a
     # single append of the collected Md5Info to .orphtrash/.orphdat (similar 
-    # to appendMd5Files), and then write back out the pruned .orphdat.
+    # to append_orphdat_files), and then write back out the pruned .orphdat.
     # TODO: If there's another file with the same size/date/full-md5, then
-    # rather than trashMd5Info, do deleteMd5Info
-    findMd5s(
+    # rather than trash_orphdat, do delete_orphdat
+    find_orphdat(
         \&defaultIsDirWanted, # isDirWanted
         sub { # isFileWanted
             return 1; # skip all filters for this
         },
         sub {  #callback
             my ($fullPath, $md5Info) = @_;
-            trashMd5Info($fullPath) unless -e $fullPath;
+            trash_orphdat($fullPath) unless -e $fullPath;
         }, @globPatterns);
 }
 
@@ -978,14 +978,14 @@ sub do_verify_md5 {
     my (@glob_patterns) = @_;
     my $all = 0;
     my $skip_md5 = 0;
-    findMd5s(
+    find_orphdat(
         \&defaultIsDirWanted, # isDirWanted
         \&defaultIsFileWanted, # isFileWanted
         sub {  #callback
             my ($path, $expected_md5_info) = @_;
             if (-e $path) {
                 # File exists
-                my $actual_md5_base = makeMd5InfoBase($path);
+                my $actual_md5_base = make_orphdat_base($path);
                 my $same_mtime = $expected_md5_info->{mtime} eq $actual_md5_base->{mtime};
                 my $same_size = $expected_md5_info->{size} eq $actual_md5_base->{size};
                 my $same_md5 = 1;

@@ -60,7 +60,7 @@ sub is_hash_version_current {
 
 # Calculates and returns the MD5 digest(s) of a file.
 # Returns these properties as a hashref which when combined with 
-# makeMd5InfoBase comprise a full Md5Info):
+# make_orphdat_base comprise a full Md5Info):
 #   version:  $CURRENT_HASH_VERSION
 #   md5:      primary MD5 comparison (excludes volitile data from calculation)
 #   full_md5: full MD5 calculation for exact match
