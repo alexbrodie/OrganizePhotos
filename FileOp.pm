@@ -79,6 +79,10 @@ sub traverseFiles {
     my $curDir = File::Spec->curdir();
     my $baseFullPath = File::Spec->rel2abs($curDir);
     $baseFullPath = File::Spec->canonpath($baseFullPath);
+    my $myCaller = 'unknown';
+    for (my $i = 1; $i < 16; $i++) {
+        $myCaller = $1 and last if (caller($i))[3] =~ /^\w+::do(.*)/;
+    }
     # the isDirWanted, isFileWanted, and callback methods take the same
     # params which share the following computations
     my $makeFullPath = sub {
@@ -103,7 +107,9 @@ sub traverseFiles {
             }
             local $_ = undef; # prevent use in the isDirWanted
             if ($isDirWanted->($fullPath, $rootFullPath, $filename)) {
-                print "Traversing '@{[pretty_path($fullPath)]}'...\033[K\n\033[1A";
+                # \033[K == "erase to end of line"
+                # \033[1A == "move cursor up 1 line"
+                print "$myCaller is traversing '@{[pretty_path($fullPath)]}'...\033[K\n\033[1A";
                 return 'd';
             }
         } elsif (-f _) {
@@ -129,10 +135,6 @@ sub traverseFiles {
     my $innerTraverse = sub {
         my ($rootPartialPath) = @_;
         my $rootFullPath = $makeFullPath->($rootPartialPath);
-        my $myCaller = 'unknown';
-        for (my $i = 2; $i < 16; $i++) {
-            $myCaller = $1 and last if (caller($i))[3] =~ /^\w+::do(.*)/;
-        }
         trace(View::VERBOSITY_LOW, "$myCaller is traversing '$rootPartialPath' ('$rootFullPath')");
         # Find::find's final wanted call for $rootFullPath doesn't have a 
         # matching preprocess call, so doing one up front for symetry with
@@ -322,15 +324,17 @@ sub movePath {
                     OrPhDat::append_orphdat_files($newFullPath, $oldFullPath);
                     unlink($oldFullPath) or die "Couldn't delete '$oldFullPath': $!";
                 }
-                print_crud(View::CRUD_DELETE, "  Deleted now-old cache at '@{[pretty_path($oldFullPath)]}' after ",
-                          "appending it to '@{[pretty_path($newFullPath)]}'");
+                print_crud(View::VERBOSITY_MEDIUM, View::CRUD_DELETE, 
+                    "Deleted now-old cache at '@{[pretty_path($oldFullPath)]}' after ",
+                    "appending it to '@{[pretty_path($newFullPath)]}'\n");
             } else {
                 die "Can't overwrite '$newFullPath' with '$oldFullPath'";
             }
         } else {
             $moveInternal->();
-            print_crud(View::CRUD_UPDATE, "Moved file '@{[pretty_path($oldFullPath)]}' ",
-                      "to '@{[pretty_path($newFullPath)]}'\n");
+            print_crud(View::VERBOSITY_LOW, View::CRUD_UPDATE, 
+                "Moved file '@{[pretty_path($oldFullPath)]}' ",
+                "to '@{[pretty_path($newFullPath)]}'\n");
             unless ($dryRun) {
                 OrPhDat::move_orphdat($oldFullPath, $newFullPath);
             }
@@ -374,8 +378,9 @@ sub movePath {
         } else {
             # Dest dir doesn't exist, so we can just move the whole directory
             $moveInternal->();
-            print_crud(View::CRUD_UPDATE, "Moved directory '@{[pretty_path($oldFullPath)]}'",
-                      " to '@{[pretty_path($newFullPath)]}'\n");
+            print_crud(View::VERBOSITY_LOW, View::CRUD_UPDATE, 
+                "Moved directory '@{[pretty_path($oldFullPath)]}'",
+                " to '@{[pretty_path($newFullPath)]}'\n");
         }
     } else {
         die "Programmer Error: unexpected type for object '$oldFullPath'";
@@ -392,7 +397,8 @@ sub ensureParentDirExists {
             File::Path::make_path($parentFullPath) or die
                 "Failed to make directory '$parentFullPath': $!";
         }
-        print_crud(View::CRUD_CREATE, "  Created dir '@{[pretty_path($parentFullPath)]}'\n");
+        print_crud(View::VERBOSITY_MEDIUM, View::CRUD_CREATE, 
+            "Created dir '@{[pretty_path($parentFullPath)]}'\n");
     }
 }
 
@@ -404,7 +410,8 @@ sub tryRemoveEmptyDir {
     my ($path) = @_;
     trace(View::VERBOSITY_MAX, "tryRemoveEmptyDir('$path');");
     if (-d $path and rmdir $path) {
-        print_crud(View::CRUD_DELETE, "  Deleted empty dir '@{[pretty_path($path)]}'\n");
+        print_crud(View::VERBOSITY_MEDIUM, View::CRUD_DELETE, 
+            "Deleted empty dir '@{[pretty_path($path)]}'\n");
         return 1;
     } else {
         return 0;

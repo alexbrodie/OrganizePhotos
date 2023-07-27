@@ -110,7 +110,8 @@ sub extract_info {
     trace(View::VERBOSITY_MEDIUM, "Image::ExifTool::ExtractInfo('$path');");
     $et->ExtractInfo($path, @exiftool_args) or die
         "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
-    print_crud(View::CRUD_READ, "  Extract meta of '@{[pretty_path($path)]}'");
+    print_crud(View::VERBOSITY_MEDIUM, View::CRUD_READ, 
+        "Extract metadata of '@{[pretty_path($path)]}'");
     return $et;
 }
 

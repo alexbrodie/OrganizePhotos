@@ -99,8 +99,9 @@ sub calculate_hash {
         # Can't get the partial MD5, so we'll just use the full hash
         warn "Unavailable content MD5 for '@{[pretty_path($path)]}' with error:\n\t$error\n";
     }
-    print_crud(View::CRUD_READ, "  Computed MD5 of '@{[pretty_path($path)]}'",
-              ($content_md5 ? ", including content only hash" : ''), "\n");
+    print_crud(View::VERBOSITY_MEDIUM, View::CRUD_READ, 
+        "Computed MD5 of '@{[pretty_path($path)]}'",
+        ($content_md5 ? ", including content only hash" : ''), "\n");
     return {
         version => $CURRENT_HASH_VERSION,
         md5 => $content_md5 || $full_md5,
