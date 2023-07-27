@@ -207,8 +207,7 @@ sub find_orphdat {
     $is_dir_wanted or die "Programmer Error: expected \$is_dir_wanted argument";
     $is_file_wanted or die "Programmer Error: expected \$is_file_wanted argument";
     $callback or die  "Programmer Error: expected \$callback argument";
-    trace(View::VERBOSITY_MAX, 'find_orphdat(...); with 
-    @glob_patterns of', 
+    trace(View::VERBOSITY_MAX, 'find_orphdat(...); with @glob_patterns of', 
           (@glob_patterns ? map { "\n\t'$_'" } @glob_patterns : ' (current dir)'));
     traverseFiles(
         $is_dir_wanted,
@@ -412,7 +411,7 @@ sub read_or_create_orphdat_file {
 # on that. Returns the Md5File and Md5Set.
 sub read_orphdat_file {
     my ($open_mode, $orphdat_path) = @_;
-    trace(View::VERBOSITY_MEDIUM, "read_orphdat_file('$open_mode', '$orphdat_path');");
+    trace(View::VERBOSITY_MAX, "read_orphdat_file('$open_mode', '$orphdat_path');");
     # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
     my $orphdat_file = openOrDie($open_mode, $orphdat_path);
     # If the first char is a open curly brace, treat as JSON,
