@@ -177,10 +177,11 @@ EOM
                 print "i/o/s/q? ", "\a"; 
                 chomp(my $in = <STDIN>);
                 if ($in eq 'i') {
-                    # Ignore new_orphdat, so we don't want to return that. Return
-                    # what is/was in the cache.
+                    # Ignore new_orphdat (including skipping persisting), so we 
+                    # don't want to return that. Return what is/was in the cache.
                     return { %$old_orphdat, %$new_orphdat_base };
                 } elsif ($in eq 'o') {
+                    # Persist and use new_orphdat
                     last;
                 } elsif ($in eq 's') {
                     return undef;
@@ -328,9 +329,10 @@ sub move_orphdat {
         trace(View::VERBOSITY_MEDIUM, "Deleting '$oldMd5Path' after removing MD5 for '$oldMd5Key' (the last one)");
         close($oldMd5File);
         unlink($oldMd5Path) or die "Couldn't delete '$oldMd5Path': $!";
-        print_crud(View::CRUD_DELETE, "  Deleted empty file '@{[pretty_path($oldMd5Path)]}'\n");
+        print_crud(View::VERBOSITY_MEDIUM, View::CRUD_DELETE, 
+            "Deleted empty file '@{[pretty_path($oldMd5Path)]}'\n");
     }
-    print_crud($crudOp, $crudMessage, "\n");
+    print_crud(View::VERBOSITY_LOW, $crudOp, $crudMessage, "\n");
     return $old_orphdat;
 }
 
@@ -381,8 +383,9 @@ sub append_orphdat_files {
               scalar @source_orphdat_paths, " files");
         write_orphdat_file($target_orphdat_path, $target_orphdat_file, $target_orphdat_set);
         my $items_added = (scalar keys %$target_orphdat_set) - $old_target_orphdat_set_count;
-        print_crud(View::CRUD_CREATE, "  Added $items_added MD5s to '${\pretty_path($target_orphdat_path)}' from ",
-                  join ', ', map { "'${\pretty_path($_)}'" } @source_orphdat_paths);
+        print_crud(View::VERBOSITY_MEDIUM, View::CRUD_CREATE, 
+            "Added $items_added MD5s to '${\pretty_path($target_orphdat_path)}' from ",
+            join ', ', map { "'${\pretty_path($_)}'" } @source_orphdat_paths);
     }
 }
 
@@ -397,7 +400,8 @@ sub read_or_create_orphdat_file {
     } else {
         # TODO: should mode here have :crlf on the end?
         my $fh = openOrDie('+>', $orphdat_path);
-        print_crud(View::CRUD_CREATE, "  Created cache at '@{[pretty_path($orphdat_path)]}'\n");
+        print_crud(View::VERBOSITY_MEDIUM, View::CRUD_CREATE, 
+            "Created cache at '@{[pretty_path($orphdat_path)]}'\n");
         return ($fh, {});
     }
 }
@@ -445,7 +449,8 @@ sub read_orphdat_file {
         }
     }
     update_orphdat_cache($orphdat_path, $orphdat_set);
-    print_crud(View::CRUD_READ, "  Read cache from '@{[pretty_path($orphdat_path)]}'\n");
+    print_crud(View::VERBOSITY_MEDIUM, View::CRUD_READ, 
+        "Read cache from '@{[pretty_path($orphdat_path)]}'\n");
     return ($orphdat_file, $orphdat_set);
 }
 
@@ -463,9 +468,11 @@ sub set_orphdat_and_write_file {
         trace(View::VERBOSITY_MEDIUM, "Writing '$orphdat_path' after updating value for key '$orphdat_key'");
         write_orphdat_file($orphdat_path, $orphdat_file, $orphdat_set);
         if (defined $old_orphdat) {
-            print_crud(View::CRUD_UPDATE, "Updated cache entry for '@{[pretty_path($path)]}'\n");
+            print_crud(View::VERBOSITY_LOW, View::CRUD_UPDATE, 
+                "Updated cache entry for '@{[pretty_path($path)]}'\n");
         } else {
-            print_crud(View::CRUD_CREATE, "Added cache entry for '@{[pretty_path($path)]}'\n");
+            print_crud(View::VERBOSITY_LOW, View::CRUD_CREATE, 
+                "Added cache entry for '@{[pretty_path($path)]}'\n");
         }
     }
     return $old_orphdat;
@@ -491,7 +498,8 @@ sub write_orphdat_file {
         warn "Writing empty data to $orphdat_path";
     }
     update_orphdat_cache($orphdat_path, $orphdat_set);
-    print_crud(View::CRUD_UPDATE, "  Wrote cache to '@{[pretty_path($orphdat_path)]}'\n");
+    print_crud(View::VERBOSITY_MEDIUM, View::CRUD_UPDATE, 
+        "Wrote cache to '@{[pretty_path($orphdat_path)]}'\n");
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
