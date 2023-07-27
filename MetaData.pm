@@ -107,7 +107,7 @@ sub extract_info {
         # We do ISO 8601 dates by default
         $et->Options(DateFormat => '%FT%T%z');
     }
-    trace(View::VERBOSITY_MEDIUM, "Image::ExifTool::ExtractInfo('$path');");
+    trace(View::VERBOSITY_HIGH, "Image::ExifTool::ExtractInfo('$path');");
     $et->ExtractInfo($path, @exiftool_args) or die
         "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
     print_crud(View::VERBOSITY_MEDIUM, View::CRUD_READ, 

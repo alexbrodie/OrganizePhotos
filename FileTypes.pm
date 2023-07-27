@@ -15,6 +15,11 @@ our @EXPORT = qw(
     compare_path_with_ext_order
 );
 
+# Enable local lib
+use File::Basename;
+use Cwd qw(abs_path);
+use lib dirname(abs_path(__FILE__));
+
 # Local uses
 use PathOp;
 use View;

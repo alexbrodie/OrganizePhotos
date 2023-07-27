@@ -11,11 +11,11 @@ our @EXPORT = qw(
     colored_bold
     colored_faint
     colored_by_index
+    dump_struct
     pretty_path
     print_crud
     print_with_icon
     trace
-    dump_struct
 );
 our @EXPORT_OK = qw(
     get_color_for_index
@@ -51,15 +51,22 @@ sub colored_bold($) {
 }
 
 # Colorizes text for diffing purposes
-# [message] - Text to color
-# [color_index] - Index for a color class
+#
+# $message = Text to color
+# $color_index = Index for a color class
 sub colored_by_index($$) {
     my ($message, $color_index) = @_;
     return Term::ANSIColor::colored($message, get_color_for_index($color_index));
 }
 
+# Stringify a perl data structure suitable for traceing
+sub dump_struct {
+    #return Data::Dumper::Dumper(@_);
+    return JSON->new->allow_nonref->allow_blessed->convert_blessed->pretty->canonical->encode(@_);
+}
+
 # Returns a color name (usable with colored()) based on an index
-# [color_index] - Index for a color class
+# $color_index = Index for a color class
 sub get_color_for_index($) {
     my ($color_index) = @_;
     my @colors = ('green', 'red', 'blue', 'yellow', 'magenta', 'cyan');
@@ -110,7 +117,7 @@ sub print_with_icon($$@) {
     my @lines = map { Term::ANSIColor::colored($_, $color) } split /\n/, join '', @statements;
     $lines[0]  = Term::ANSIColor::colored($icon, "white on_$color") . ' ' . $lines[0];
     $lines[$_] = (' ' x length $icon) . ' ' . $lines[$_] for 1..$#lines;
-    print map { ($_, "\n") } @lines;
+    print map { ($_, "\033[K\n") } @lines;
 }
 
 # Prints a message to user if the current verbosity level
@@ -129,12 +136,6 @@ sub trace($@) {
         }
         print_with_icon($icon, 'bright_black', @statements);
     }
-}
-
-# Stringify a perl data structure suitable for traceing
-sub dump_struct {
-    #return Data::Dumper::Dumper(@_);
-    return JSON->new->allow_nonref->allow_blessed->convert_blessed->pretty->canonical->encode(@_);
 }
 
 1;
