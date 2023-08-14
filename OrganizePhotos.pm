@@ -241,7 +241,7 @@ sub doCheckMd5 {
         \&defaultIsFileWanted, # isFileWanted
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
-            -f $fullPath and resolve_orphdat($fullPath, $addOnly, $forceRecalc);
+            -f $fullPath and resolve_orphdat($fullPath, $addOnly, $forceRecalc, undef);
         },
         @globPatterns);
 }

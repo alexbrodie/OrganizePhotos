@@ -88,7 +88,7 @@ my $CACHED_ORPHDAT_SET = {};
 #   if it is up to date and return that value if so (in the same way and
 #   together with the other caches). This is useful for ensuring Md5Info is up
 #   to date even if operations have taken place since originally retrieved.
-sub resolve_orphdat {
+sub resolve_orphdat($$$$) {
     my ($path, $add_only, $force_recalc, $cached_orphdat) = @_;
     trace(View::VERBOSITY_MAX, "resolve_orphdat('$path', $add_only, $force_recalc, ", 
         defined $cached_orphdat ? '{...}' : 'undef', ');');
@@ -204,7 +204,7 @@ EOM
 # invoke [callback] passing it full path and MD5 hash as arguments like
 #      callback($path, $orphdat)
 # TODO: add support for files (not just dirs) in the glob pattern
-sub find_orphdat {
+sub find_orphdat($$$@) {
     my ($is_dir_wanted, $is_file_wanted, $callback, @glob_patterns) = @_;
     $is_dir_wanted or die "Programmer Error: expected \$is_dir_wanted argument";
     $is_file_wanted or die "Programmer Error: expected \$is_file_wanted argument";
@@ -237,7 +237,7 @@ sub find_orphdat {
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Gets the Md5Path, Md5Key for a MediaPath.
-sub get_orphdat_path_and_key {
+sub get_orphdat_path_and_key($) {
     my ($path) = @_;
     my ($orphdat_path, $orphdat_key) = change_filename($path, $FileTypes::md5Filename);
     return ($orphdat_path, lc $orphdat_key);
@@ -247,7 +247,7 @@ sub get_orphdat_path_and_key {
 # Stores Md5Info for a MediaPath. If the the provided data is undef, removes
 # existing information via delete_orphdat. Returns the previous Md5Info
 # value if it existed (or undef if not).
-sub write_orphdat {
+sub write_orphdat($$) {
     my ($path, $new_orphdat) = @_;
     trace(View::VERBOSITY_MAX, "write_orphdat('$path', {...});");
     if ($new_orphdat) {
@@ -261,7 +261,7 @@ sub write_orphdat {
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Moves a Md5Info for a file from one directory's storage to another. 
-sub move_orphdat {
+sub move_orphdat($$) {
     my ($oldMediaPath, $newMediaPath) = @_;
     trace(View::VERBOSITY_MAX, "move_orphdat('$oldMediaPath', " . 
                          (defined $newMediaPath ? "'$newMediaPath'" : 'undef') . ");");
@@ -340,7 +340,7 @@ sub move_orphdat {
 # MODEL (MD5) ------------------------------------------------------------------
 # Moves Md5Info for a MediaPath to local trash. Returns the previous Md5Info
 # value if it existed (or undef if not).
-sub trash_orphdat {
+sub trash_orphdat($) {
     my ($path) = @_;
     trace(View::VERBOSITY_MAX, "trash_orphdat('$path');");
     my $trash_path = get_trash_path($path);
@@ -354,13 +354,13 @@ sub trash_orphdat {
 sub delete_orphdat {
     my ($path) = @_;
     trace(View::VERBOSITY_MAX, "delete_orphdat('$path');");
-    return move_orphdat($path);
+    return move_orphdat($path, undef);
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Takes a list of Md5Paths, and stores the concatinated Md5Info to the first
 # specified file. Dies without writing anything on key collisions.
-sub append_orphdat_files {
+sub append_orphdat_files($@) {
     my ($target_orphdat_path, @source_orphdat_paths) = @_;
     trace(View::VERBOSITY_MAX, 'append_orphdat_files(', join(', ', map { "'$_'" } @_), ');');
     my ($target_orphdat_file, $target_orphdat_set) = read_or_create_orphdat_file($target_orphdat_path);
@@ -396,7 +396,7 @@ sub append_orphdat_files {
 # MODEL (MD5) ------------------------------------------------------------------
 # This is a utility for updating Md5Info. It opens the Md5Path R/W and parses
 # it. Returns the Md5File and Md5Set.
-sub read_or_create_orphdat_file {
+sub read_or_create_orphdat_file($) {
     my ($orphdat_path) = @_;
     trace(View::VERBOSITY_MAX, "read_or_create_orphdat_file('$orphdat_path');");
     if (-e $orphdat_path) {
@@ -414,7 +414,7 @@ sub read_or_create_orphdat_file {
 # Low level helper routine to open a Md5Path and deserialize into a OM (Md5Set)
 # which can be read, modified, and/or passed to write_orphdat_file or methods built 
 # on that. Returns the Md5File and Md5Set.
-sub read_orphdat_file {
+sub read_orphdat_file($$) {
     my ($open_mode, $orphdat_path) = @_;
     trace(View::VERBOSITY_MAX, "read_orphdat_file('$open_mode', '$orphdat_path');");
     # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
@@ -444,7 +444,7 @@ sub read_orphdat_file {
     } else {
         # Parse as simple "name: md5" text
         for (<$orphdat_file>) {
-            /^([^:]+):\s*($ContentHash::md5DigestPattern)$/ or die "Unexpected line in '$orphdat_path': $_";
+            /^([^:]+):\s*($ContentHash::MD5_DIGEST_PATTERN)$/ or die "Unexpected line in '$orphdat_path': $_";
             # We use version 0 here for the very old way before we went to
             # JSON when we added more info than just the full file MD5
             my $fullMd5 = lc $2;
@@ -489,7 +489,7 @@ sub set_orphdat_and_write_file {
 # Lowest level helper routine to serialize OM into a file handle.
 # Caller is expected to print_crud with more context if this method returns
 # successfully.
-sub write_orphdat_file {
+sub write_orphdat_file($$$) {
     my ($orphdat_path, $orphdat_file, $orphdat_set) = @_;
     # TODO: write this out as UTF8 using :encoding(UTF-8):crlf (or :utf8:crlf?)
     #       and writing out the "\x{FEFF}" BOM. Not sure how to do that in
@@ -510,7 +510,7 @@ sub write_orphdat_file {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-sub update_orphdat_cache {
+sub update_orphdat_cache($$) {
     my ($orphdat_path, $orphdat_set) = @_;
     $CACHED_ORPHDAT_PATH = $orphdat_path;
     $CACHED_ORPHDAT_SET = Storable::dclone($orphdat_set);
@@ -523,7 +523,7 @@ sub update_orphdat_cache {
 #   filename:   the filename (only) of the path
 #   size:       size of the file in bytes
 #   mtime:      the mtime of the file
-sub make_orphdat_base  {
+sub make_orphdat_base($) {
     my ($path) = @_;
     my $stats = File::stat::stat($path) or die "Couldn't stat '$path': $!";
     my (undef, undef, $filename) = split_path($path);
@@ -533,7 +533,7 @@ sub make_orphdat_base  {
 # MODEL (MD5) ------------------------------------------------------------------
 # Returns a full Md5Info constructed from the cache if it can be used for the
 # specified base-only Md5Info without bothering to calculate_hash. 
-sub check_cached_orphdat {
+sub check_cached_orphdat($$$$$) {
     my ($path, $add_only, $cache_type, $cached_orphdat, $current_orphdat_base) = @_;
     #trace(View::VERBOSITY_MAX, 'check_cached_orphdat(...);');
     unless (defined $cached_orphdat) {
