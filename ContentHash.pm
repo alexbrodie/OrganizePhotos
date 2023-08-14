@@ -66,7 +66,7 @@ sub is_hash_version_current {
 #   full_md5: full MD5 calculation for exact match
 sub calculate_hash {
     my ($path) = @_;
-    trace(View::VERBOSITY_MEDIUM, "calculate_hash('$path');");
+    trace(View::VERBOSITY_MAX, "calculate_hash('$path');");
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
     #!!!   $CURRENT_HASH_VERSION should be incremented whenever the output
     #!!!   of this method changes in such a way that old values need to be 

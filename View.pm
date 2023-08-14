@@ -32,7 +32,7 @@ use constant VERBOSITY_MEDIUM => 2;  # moderate amount of traces on
 use constant VERBOSITY_HIGH => 3;    # all but the most trivial information
 use constant VERBOSITY_MAX => 4;     # the complete log
 
-our $Verbosity = VERBOSITY_MIN;
+our $Verbosity = VERBOSITY_LOW;
 
 use constant CRUD_UNKNOWN => 0;
 use constant CRUD_CREATE => 1;
@@ -101,6 +101,8 @@ sub print_crud($$@) {
             ($icon, $color) = ('(>)', 'yellow');
         } elsif ($type == CRUD_DELETE) {
             ($icon, $color) = ('(X)', 'magenta');
+        } else {
+            die "Programmer error: unexpected CRUD type $type";
         }
         print_with_icon($icon, $color, @statements);
     }
@@ -110,14 +112,19 @@ sub print_crud($$@) {
 #
 # $icon = a short graphical string that will be prefixed
 #         highlighted in the printed message
-# $color = Term::ANSIColor value
+# $color = Term::ANSIColor value, or undef to use default
 # @statements = value(s) to display
 sub print_with_icon($$@) {
     my ($icon, $color, @statements) = @_;
-    my @lines = map { Term::ANSIColor::colored($_, $color) } split /\n/, join '', @statements;
-    $lines[0]  = Term::ANSIColor::colored($icon, "white on_$color") . ' ' . $lines[0];
-    $lines[$_] = (' ' x length $icon) . ' ' . $lines[$_] for 1..$#lines;
-    print map { ($_, "\033[K\n") } @lines;
+    my $icon_space = ' ' x length $icon;
+    @statements = split /\n/, join '', @statements;
+    if ($color) {
+        $icon = Term::ANSIColor::colored($icon, "white on_$color");
+        @statements = map { Term::ANSIColor::colored($_, $color) } @statements;
+    }
+    @statements = map { "$_\033[K\n" } @statements;
+    my $full_message = $icon . ' ' . join "$icon_space ", @statements;
+    print $full_message;
 }
 
 # Prints a message to user if the current verbosity level
@@ -130,7 +137,7 @@ sub trace($@) {
     if ($level <= $Verbosity) {
         my $icon = sprintf "T% 2d", $level;
         # At higher verbosity settings, include the trace location
-        if ($Verbosity >= VERBOSITY_MEDIUM) {
+        if ($Verbosity >= VERBOSITY_MAX) {
             my ($package, $filename, $line) = caller;
             unshift @statements, basename($filename) . '@' . $line . ': ';
         }

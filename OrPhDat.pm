@@ -90,6 +90,8 @@ my $CACHED_ORPHDAT_SET = {};
 #   to date even if operations have taken place since originally retrieved.
 sub resolve_orphdat {
     my ($path, $add_only, $force_recalc, $cached_orphdat) = @_;
+    trace(View::VERBOSITY_MAX, "resolve_orphdat('$path', $add_only, $force_recalc, ", 
+        defined $cached_orphdat ? '{...}' : 'undef', ');');
     # First try to get suitable Md5Info from various cache locations
     # without opening or hashing the MediaFile
     my ($orphdat_path, $orphdat_key) = get_orphdat_path_and_key($path);
@@ -113,7 +115,7 @@ sub resolve_orphdat {
             trace(View::VERBOSITY_HIGH, "Memory cache miss for '$path', cache was '$CACHED_ORPHDAT_PATH'");
         }
     }
-    trace(View::VERBOSITY_MAX, "Opening cache '$orphdat_path' for '$path'");
+    trace(View::VERBOSITY_HIGH, "Opening cache '$orphdat_path' for '$path'");
     my ($orphdat_file, $orphdat_set) = read_or_create_orphdat_file($orphdat_path);
     my $old_orphdat = $orphdat_set->{$orphdat_key};
     unless ($force_recalc) {
@@ -133,7 +135,7 @@ sub resolve_orphdat {
             # Matches last recorded hash, but still continue and call
             # set_orphdat_and_write_file to handle other bookkeeping
             # to ensure we get a cache hit and short-circuit next time.
-            print_with_icon('(V)', 'green', "Verified MD5 for '@{[pretty_path($path)]}'");
+            trace(View::VERBOSITY_HIGH, "Verified MD5 for '@{[pretty_path($path)]}'");
         } elsif ($old_orphdat->{full_md5} eq $new_orphdat->{full_md5}) {
             # Full MD5 match and content mismatch. This should only be
             # expected when we change how to calculate content MD5s.
@@ -265,12 +267,12 @@ sub move_orphdat {
                          (defined $newMediaPath ? "'$newMediaPath'" : 'undef') . ");");
     my ($oldMd5Path, $oldMd5Key) = get_orphdat_path_and_key($oldMediaPath);
     unless (-e $oldMd5Path) {
-        trace(View::VERBOSITY_MAX, "Can't move/remove Md5Info for '$oldMd5Key' from missing '$oldMd5Path'"); 
+        trace(View::VERBOSITY_HIGH, "Can't move/remove Md5Info for '$oldMd5Key' from missing '$oldMd5Path'"); 
         return undef;
     }
     my ($oldMd5File, $oldMd5Set) = read_orphdat_file('+<:crlf', $oldMd5Path);
     unless (exists $oldMd5Set->{$oldMd5Key}) {
-        trace(View::VERBOSITY_MAX, "Can't move/remove missing Md5Info for '$oldMd5Key' from '$oldMd5Path'");
+        trace(View::VERBOSITY_HIGH, "Can't move/remove missing Md5Info for '$oldMd5Key' from '$oldMd5Path'");
         return undef;
     }
     # For a move we do a copy then a delete, but show it as a single CRUD
@@ -303,7 +305,7 @@ sub move_orphdat {
         } else {
             $newMd5Set->{$newMd5Key} = $new_orphdat;
             if ($newMd5File) {
-                trace(View::VERBOSITY_MEDIUM, "Writing '$newMd5Path' after moving entry for '$newMd5Key' elsewhere");
+                trace(View::VERBOSITY_HIGH, "Writing '$newMd5Path' after moving entry for '$newMd5Key' elsewhere");
                 write_orphdat_file($newMd5Path, $newMd5File, $newMd5Set);
             }
             $crudOp = View::CRUD_UPDATE;
@@ -321,11 +323,11 @@ sub move_orphdat {
     #       that any time someone tries to write an empty hashref, it deletes the file?
     delete $oldMd5Set->{$oldMd5Key};
     if (%$oldMd5Set) {
-        trace(View::VERBOSITY_MEDIUM, "Writing '$oldMd5Path' after removing MD5 for '$oldMd5Key'");
+        trace(View::VERBOSITY_HIGH, "Writing '$oldMd5Path' after removing MD5 for '$oldMd5Key'");
         write_orphdat_file($oldMd5Path, $oldMd5File, $oldMd5Set);
     } else {
         # Empty files create trouble down the line (especially with move-merges)
-        trace(View::VERBOSITY_MEDIUM, "Deleting '$oldMd5Path' after removing MD5 for '$oldMd5Key' (the last one)");
+        trace(View::VERBOSITY_HIGH, "Deleting '$oldMd5Path' after removing MD5 for '$oldMd5Key' (the last one)");
         close($oldMd5File);
         unlink($oldMd5Path) or die "Couldn't delete '$oldMd5Path': $!";
         print_crud(View::VERBOSITY_MEDIUM, View::CRUD_DELETE, 
@@ -360,6 +362,7 @@ sub delete_orphdat {
 # specified file. Dies without writing anything on key collisions.
 sub append_orphdat_files {
     my ($target_orphdat_path, @source_orphdat_paths) = @_;
+    trace(View::VERBOSITY_MAX, 'append_orphdat_files(', join(', ', map { "'$_'" } @_), ');');
     my ($target_orphdat_file, $target_orphdat_set) = read_or_create_orphdat_file($target_orphdat_path);
     my $old_target_orphdat_set_count = scalar keys %$target_orphdat_set;
     my $dirty = 0;
@@ -378,13 +381,15 @@ sub append_orphdat_files {
         }
     }
     if ($dirty) {
-        trace(View::VERBOSITY_MEDIUM, "Writing '$target_orphdat_path' after appending data from ",
+        trace(View::VERBOSITY_HIGH, "Writing '$target_orphdat_path' after appending data from ",
               scalar @source_orphdat_paths, " files");
         write_orphdat_file($target_orphdat_path, $target_orphdat_file, $target_orphdat_set);
         my $items_added = (scalar keys %$target_orphdat_set) - $old_target_orphdat_set_count;
-        print_crud(View::VERBOSITY_MEDIUM, View::CRUD_CREATE, 
+        print_crud(View::VERBOSITY_LOW, View::CRUD_CREATE, 
             "Added $items_added MD5s to '${\pretty_path($target_orphdat_path)}' from ",
             join ', ', map { "'${\pretty_path($_)}'" } @source_orphdat_paths);
+    } else {
+        trace(View::VERBOSITY_HIGH, "Skipping no-op append of cache for '$target_orphdat_path'");
     }
 }
 
@@ -460,11 +465,14 @@ sub read_orphdat_file {
 # new_orphdat represent the new data. Returns the previous md5Info value. 
 sub set_orphdat_and_write_file {
     my ($path, $new_orphdat, $orphdat_path, $orphdat_key, $orphdat_file, $orphdat_set) = @_;
+    trace(View::VERBOSITY_MAX, "set_orphdat_and_write_file('$path', ...);");
     # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
     my $old_orphdat = $orphdat_set->{$orphdat_key};
-    unless ($old_orphdat and Data::Compare::Compare($old_orphdat, $new_orphdat)) {
+    if ($old_orphdat and Data::Compare::Compare($old_orphdat, $new_orphdat)) {
+        trace(View::VERBOSITY_HIGH, "Skipping no-op update of cache for '$path'");
+    } else {
         $orphdat_set->{$orphdat_key} = $new_orphdat;
-        trace(View::VERBOSITY_MEDIUM, "Writing '$orphdat_path' after updating value for key '$orphdat_key'");
+        trace(View::VERBOSITY_HIGH, "Writing '$orphdat_path' after updating value for key '$orphdat_key'");
         write_orphdat_file($orphdat_path, $orphdat_file, $orphdat_set);
         if (defined $old_orphdat) {
             print_crud(View::VERBOSITY_LOW, View::CRUD_UPDATE, 
@@ -488,7 +496,7 @@ sub write_orphdat_file {
     #       a fully cross compatable way (older file versions as well as
     #       Windows/Mac compat)
     # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
-    trace(View::VERBOSITY_MAX, 'write_orphdat_file(<..>, { hash of @{[ scalar keys %$orphdat_set ]} items });');
+    trace(View::VERBOSITY_MAX, "write_orphdat_file('$orphdat_path', <file>, { hash of @{[ scalar keys %$orphdat_set ]} items });");
     seek($orphdat_file, 0, 0) or die "Couldn't reset seek on file: $!";
     truncate($orphdat_file, 0) or die "Couldn't truncate file: $!";
     if (%$orphdat_set) {
@@ -531,12 +539,12 @@ sub check_cached_orphdat {
     unless (defined $cached_orphdat) {
         # Note that this is assumed context from the caller, and not actually
         # something true based on this sub
-        trace(View::VERBOSITY_HIGH, "$cache_type cache miss for '$path', lookup failed'");
+        trace(View::VERBOSITY_HIGH, "$cache_type cache miss for '$path', lookup failed");
         return undef;
     }
 
     if ($add_only) {
-        trace(View::VERBOSITY_MAX, "$cache_type cache hit for '$path' (add-only mode)");
+        trace(View::VERBOSITY_HIGH, "$cache_type cache hit for '$path', add-only mode");
     } else {
         my @delta = ();
         unless (is_hash_version_current($path, $cached_orphdat->{version})) {
@@ -557,7 +565,7 @@ sub check_cached_orphdat {
             trace(View::VERBOSITY_HIGH, "$cache_type cache miss for '$path', different " . join('/', @delta));
             return undef;
         }
-        trace(View::VERBOSITY_MAX, "$cache_type cache hit for '$path' with version/name/size/mtime match");
+        trace(View::VERBOSITY_HIGH, "$cache_type cache hit for '$path', version/name/size/mtime match");
     }
 
     return { %{Storable::dclone($cached_orphdat)}, %$current_orphdat_base };

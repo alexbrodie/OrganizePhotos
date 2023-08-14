@@ -28,14 +28,17 @@ sub myGetOptions {
                     @_ );
     Getopt::Long::GetOptions(%flags) or die "Error in command line, aborting.";
 
+    my $msg = "Operation arguments:\n";
     for (sort keys %flags) {
         use Data::Dumper;
         local $Data::Dumper::Terse = 1;
-        trace(View::VERBOSITY_LOW, "Flag: $_ => ", Data::Dumper::Dumper(${$flags{$_}}));
+        chomp(my $flag_value = Data::Dumper::Dumper(${$flags{$_}}));
+        $msg = "$msg\tFlag: $_ => $flag_value\n";
     }
     for (@ARGV) {
-        trace(View::VERBOSITY_LOW, "Argv: '$_'");
+        $msg = "$msg\tArgv: '$_'\n";
     }
+    print_with_icon('[i]', undef, $msg);
 
     if ($filter) {
         if ($filter eq 'all') {
