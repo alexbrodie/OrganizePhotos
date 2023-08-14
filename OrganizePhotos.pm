@@ -75,6 +75,9 @@
 #   - Have extra suffix, e.g. “filename (2).ext” or “filename.ext_bak”
 #   - Dates in path and metadata don’t match
 #   - Sidecar verification of some kind?
+# * Check that sidecars files have same date taken as primary (lots of
+#   iPhone heic+mov have wrong date stamp in mov, or Lr gets them messed
+#   up somehow at least)
 
 use strict;
 use warnings;
@@ -472,7 +475,8 @@ sub buildFindDupeFilesDupeGroups {
     @dupes = sort { 
         compare_path_with_ext_order($a->[0]->{fullPath}, $b->[0]->{fullPath}, 1) 
     } @dupes;
-    trace(View::VERBOSITY_LOW, "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
+    print_crud(View::VERBOSITY_LOW, View::CRUD_READ,
+        "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files");
     return \@dupes;
 }
 
@@ -936,7 +940,7 @@ sub doTest {
                 }
 
                 if (-e $fixed_path) {
-                    print_with_icon('(!)', 'yellow', 
+                    print_with_icon('[!]', 'yellow', 
                                     "Wrong date in path '". pretty_path($path) ."'\n".
                                     "         should be '". pretty_path($fixed_path) ."'\n".
                                     "which already exists.");

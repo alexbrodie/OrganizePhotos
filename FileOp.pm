@@ -135,7 +135,8 @@ sub traverseFiles {
     my $innerTraverse = sub {
         my ($rootPartialPath) = @_;
         my $rootFullPath = $makeFullPath->($rootPartialPath);
-        trace(View::VERBOSITY_LOW, "$myCaller is traversing '$rootPartialPath' ('$rootFullPath')");
+        print_crud(View::VERBOSITY_LOW, View::CRUD_READ,
+            "$myCaller is traversing '$rootPartialPath' ('$rootFullPath')");
         # Find::find's final wanted call for $rootFullPath doesn't have a 
         # matching preprocess call, so doing one up front for symetry with
         # all other pairs while also doing the other filtering we want.
@@ -306,7 +307,7 @@ sub movePath {
     my $moveInternal = sub {
         ensureParentDirExists($newFullPath, $dryRun);
         # Move the file/dir
-        trace(View::VERBOSITY_MEDIUM, "File::Copy::move('$oldFullPath', '$newFullPath');");
+        trace(View::VERBOSITY_MAX, "File::Copy::move('$oldFullPath', '$newFullPath');");
         unless ($dryRun) {
             File::Copy::move($oldFullPath, $newFullPath) or die
                 "Failed to move '$oldFullPath' to '$newFullPath': $!";
@@ -392,7 +393,7 @@ sub ensureParentDirExists {
     my ($fullPath, $dryRun) = @_;
     my $parentFullPath = parent_path($fullPath);
     unless (-d $parentFullPath) {
-        trace(View::VERBOSITY_MEDIUM, "File::Copy::make_path('$parentFullPath');");
+        trace(View::VERBOSITY_MAX, "File::Copy::make_path('$parentFullPath');");
         unless ($dryRun) {
             File::Path::make_path($parentFullPath) or die
                 "Failed to make directory '$parentFullPath': $!";
@@ -421,7 +422,7 @@ sub tryRemoveEmptyDir {
 # MODEL (File Operations) ------------------------------------------------------
 sub openOrDie {
     my ($mode, $path) = @_;
-    trace(View::VERBOSITY_MAX, "openOrDie('$path');");
+    trace(View::VERBOSITY_MAX, "openOrDie('$mode', '$path');");
     open(my $fh, $mode, $path) or die "Couldn't open '$path' in $mode mode: $!";
     # TODO: Can we determine why and add a helpful error message. E.g. if in R/W
     # mode, maybe suggest they run one of the following
