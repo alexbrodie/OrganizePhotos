@@ -215,7 +215,7 @@ sub find_orphdat($$$@) {
         $is_dir_wanted,
         sub {  # is_file_wanted
             my ($path, $root, $filename) = @_;
-            return (lc $filename eq $FileTypes::md5Filename); # only process Md5File files
+            return (lc $filename eq $FileTypes::ORPHDAT_FILENAME); # only process Md5File files
         },
         sub {  # callback
             my ($path, $root) = @_;
@@ -239,7 +239,7 @@ sub find_orphdat($$$@) {
 # Gets the Md5Path, Md5Key for a MediaPath.
 sub get_orphdat_path_and_key($) {
     my ($path) = @_;
-    my ($orphdat_path, $orphdat_key) = change_filename($path, $FileTypes::md5Filename);
+    my ($orphdat_path, $orphdat_key) = change_filename($path, $FileTypes::ORPHDAT_FILENAME);
     return ($orphdat_path, lc $orphdat_key);
 }
 
@@ -342,9 +342,10 @@ sub move_orphdat($$) {
 # value if it existed (or undef if not).
 sub trash_orphdat($) {
     my ($path) = @_;
+    my $dry_run = 0;
     trace(View::VERBOSITY_MAX, "trash_orphdat('$path');");
     my $trash_path = get_trash_path($path);
-    ensureParentDirExists($trash_path);
+    ensure_parent_dir($trash_path, $dry_run);
     return move_orphdat($path, $trash_path);
 }
 
@@ -403,7 +404,7 @@ sub read_or_create_orphdat_file($) {
         return read_orphdat_file('+<:crlf', $orphdat_path);
     } else {
         # TODO: should mode here have :crlf on the end?
-        my $fh = openOrDie('+>', $orphdat_path);
+        my $fh = open_file('+>', $orphdat_path);
         print_crud(View::VERBOSITY_MEDIUM, View::CRUD_CREATE, 
             "Created cache at '@{[pretty_path($orphdat_path)]}'\n");
         return ($fh, {});
@@ -417,8 +418,8 @@ sub read_or_create_orphdat_file($) {
 sub read_orphdat_file($$) {
     my ($open_mode, $orphdat_path) = @_;
     trace(View::VERBOSITY_MAX, "read_orphdat_file('$open_mode', '$orphdat_path');");
-    # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
-    my $orphdat_file = openOrDie($open_mode, $orphdat_path);
+    # TODO: Should we validate filename is $FileTypes::ORPHDAT_FILENAME or do we care?
+    my $orphdat_file = open_file($open_mode, $orphdat_path);
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple "name: md5\n" format parsing
     my $useJson = 0;
@@ -466,7 +467,7 @@ sub read_orphdat_file($$) {
 sub set_orphdat_and_write_file {
     my ($path, $new_orphdat, $orphdat_path, $orphdat_key, $orphdat_file, $orphdat_set) = @_;
     trace(View::VERBOSITY_MAX, "set_orphdat_and_write_file('$path', ...);");
-    # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
+    # TODO: Should we validate filename is $FileTypes::ORPHDAT_FILENAME or do we care?
     my $old_orphdat = $orphdat_set->{$orphdat_key};
     if ($old_orphdat and Data::Compare::Compare($old_orphdat, $new_orphdat)) {
         trace(View::VERBOSITY_HIGH, "Skipping no-op update of cache for '$path'");
@@ -495,7 +496,7 @@ sub write_orphdat_file($$$) {
     #       and writing out the "\x{FEFF}" BOM. Not sure how to do that in
     #       a fully cross compatable way (older file versions as well as
     #       Windows/Mac compat)
-    # TODO: Should we validate filename is $FileTypes::md5Filename or do we care?
+    # TODO: Should we validate filename is $FileTypes::ORPHDAT_FILENAME or do we care?
     trace(View::VERBOSITY_MAX, "write_orphdat_file('$orphdat_path', <file>, { hash of @{[ scalar keys %$orphdat_set ]} items });");
     seek($orphdat_file, 0, 0) or die "Couldn't reset seek on file: $!";
     truncate($orphdat_file, 0) or die "Couldn't truncate file: $!";
