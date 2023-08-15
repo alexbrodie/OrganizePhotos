@@ -43,7 +43,7 @@
 # * Add a trim-md5 verb to remove missing files from md5.txt files (and
 #   add it to checkup?)
 # * Add a new restore-trash verb that searches for .orphtrash dirs and for each
-#   one calls consolidateTrash(self, self) and movePath(self, parent)
+#   one calls consolidateTrash(self, self) and move_path(self, parent)
 # * Find mis-homed media (date taken/captured != folder name)
 # * calculate_hash: content only match for tiff
 # * find-dupe-files undo support (z)
@@ -262,7 +262,7 @@ sub doCollectTrash {
             my ($vol, $dir, $filename) = split_path($fullPath);
             if (lc $filename eq $FileTypes::TRASH_DIR_NAME) {
                 # Convert root/bunch/of/dirs/.orphtrash to root/.orphtrash/bunch/of/dirs
-                trashPathWithRoot($fullPath, $rootFullPath);
+                trash_path_with_root($fullPath, $rootFullPath);
             }
         },
         @globPatterns);
@@ -384,7 +384,7 @@ EOM
                         warn "$1 has already been trashed";
                     } else {
                         if ($group->[$1]->{exists}) {
-                            trashPathAndSidecars($group->[$1]->{fullPath});
+                            trash_path_and_sidecars($group->[$1]->{fullPath});
                         } else {
                             trash_orphdat($group->[$1]->{fullPath});
                         }
@@ -831,7 +831,7 @@ sub doRemoveEmpties {
             # not processing) as if they didn't exist and let them get
             # cleaned up if the folder gets trashed
             my $lcfn = lc $filename;
-            return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', $FileTypes::md5Filename);
+            return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', $FileTypes::ORPHDAT_FILENAME);
             # TODO: exclude zero byte or hidden files as well?
             return 1; # Other files count
         },
@@ -846,11 +846,11 @@ sub doRemoveEmpties {
                 # a non-trashable dir. 
                 delete $dirSubItemsMap{$fullPath};
                 # If this dir is empty, then we'll want to trash it and have the
-                # parent dir ignore it like trashable files (e.g. $FileTypes::md5Filename). If
+                # parent dir ignore it like trashable files (e.g. $FileTypes::ORPHDAT_FILENAME). If
                 # it's not trashable, then fall through to add this to its parent
                 # dir's list (to prevent the parent from being trashed).
                 unless ($subItemCount) {
-                    trashPath($fullPath);
+                    trash_path($fullPath);
                     return;
                 }
             }
@@ -897,6 +897,7 @@ sub doPurgeMd5 {
 # Execute restore-trash verb
 sub doRestoreTrash {
     my (@globPatterns) = @_;
+    my $dry_run = 0;
     traverseFiles(
         sub {  # isDirWanted
             return 1;
@@ -908,7 +909,7 @@ sub doRestoreTrash {
             my ($fullPath, $rootFullPath) = @_;
             my ($vol, $dir, $filename) = split_path($fullPath);
             if (lc $filename eq $FileTypes::TRASH_DIR_NAME) {
-                movePath($fullPath, combine_path($vol, $dir));
+                move_path($fullPath, combine_path($vol, $dir), $dry_run);
             }
         },
         @globPatterns);
@@ -919,6 +920,7 @@ sub doRestoreTrash {
 # Execute test verb - usually just a playground for testing and new ideas
 sub doTest {
     my (@globPatterns) = @_;
+    my $dry_run = 0;
     #$View::Verbosity = View::VERBOSITY_HIGH;
     my $all = 0;
     traverseFiles(
@@ -968,7 +970,7 @@ sub doTest {
                         }
                     }
                     if ($move) {
-                        movePath($path, $fixed_path);
+                        move_path($path, $fixed_path, $dry_run);
                     }
                 }
             }
@@ -1036,7 +1038,7 @@ sub defaultIsDirWanted {
 # Default implementation for traverseFiles's isDirWanted param
 sub defaultIsFileWanted {
     my ($fullPath, $rootFullPath, $filename) = @_;
-    return (lc $filename ne $FileTypes::md5Filename and $filename =~ /$filenameFilter/);
+    return (lc $filename ne $FileTypes::ORPHDAT_FILENAME and $filename =~ /$filenameFilter/);
 }
 
 1;

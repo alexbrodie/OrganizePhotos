@@ -30,7 +30,7 @@ use File::Spec;
 
 # Filename only portion of the path to Md5File which stores
 # Md5Info data for other files in the same directory
-const our $md5Filename => '.orphdat';
+const our $ORPHDAT_FILENAME => '.orphdat';
 
 # This subdirectory contains the trash for its parent
 const our $TRASH_DIR_NAME => '.orphtrash';

@@ -206,7 +206,7 @@ sub parseIsobmffBoxChildren {
 #       an empty hashref that serves as sort of header node
 #
 # Usage:
-#       my $fh = openOrDie('<:raw', $mediaPath);
+#       my $fh = open_file('<:raw', $mediaPath);
 #       my $ftyp = readIsobmffFtyp($mediaPath, $fh);
 #       # (Add verification of $ftyp's brand/version here.)
 #       my $bmff = { b_ftyp => $ftyp };

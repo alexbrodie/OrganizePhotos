@@ -73,7 +73,7 @@ sub calculate_hash {
     #!!!   recalculated, and is_hash_version_current should be updated accordingly.
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
     const my $CURRENT_HASH_VERSION => 7;
-    my $fh = openOrDie('<:raw', $path);
+    my $fh = open_file('<:raw', $path);
     my $full_md5 = calc_md5($path, $fh);
     seek($fh, 0, 0) or die "Failed to reset seek for '$path': $!";
     # If we fail to generate a partial match, just warn and use the full file
