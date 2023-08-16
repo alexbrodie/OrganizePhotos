@@ -476,8 +476,11 @@ sub set_orphdat_and_write_file {
         trace(View::VERBOSITY_HIGH, "Writing '$orphdat_path' after updating value for key '$orphdat_key'");
         write_orphdat_file($orphdat_path, $orphdat_file, $orphdat_set);
         if (defined $old_orphdat) {
+            my $changed_fields = join ', ', sort grep {
+                !Data::Compare::Compare($old_orphdat->{$_}, $new_orphdat->{$_})
+            } keys %$new_orphdat;
             print_crud(View::VERBOSITY_LOW, View::CRUD_UPDATE, 
-                "Updated cache entry for '@{[pretty_path($path)]}'\n");
+                "Updated cache entry for '@{[pretty_path($path)]}': $changed_fields\n");
         } else {
             print_crud(View::VERBOSITY_LOW, View::CRUD_CREATE, 
                 "Added cache entry for '@{[pretty_path($path)]}'\n");
