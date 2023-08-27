@@ -1,6 +1,10 @@
-severity = 3
-verbose = %f: [%p] %m at line %l, column %c.\n
-[-ErrorHandling::RequireCarping]
-[-RegularExpressions::RequireDotMatchAnything]
-[-RegularExpressions::RequireLineBoundaryMatching]
+# Our perlcritic profile. See Perl::Critic's CONFIGURATION documentation.
+
+severity = 5
+verbose = 11
+
+[TestingAndDebugging::RequireUseWarnings]
+severity = 5
+
+[-Subroutines::RequireFinalReturn]
 [-Subroutines::ProhibitExplicitReturnUndef]

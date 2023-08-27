@@ -21,13 +21,12 @@ use Getopt::Long ();
 BEGIN { $Pod::Usage::Formatter = 'Pod::Text::Termcap'; }
 use Pod::Usage ();
 
-sub myGetOptions {
+sub my_get_options {
+    my (%flags) = @_;
+    $flags{'verbosity|v:+'} = \$View::Verbosity;
     my $filter = undef;
-    my %flags = (   'verbosity|v:+' => \$View::Verbosity,
-                    'filter|f=s' => \$filter, 
-                    @_ );
+    $flags{'filter|f=s'} = \$filter;
     Getopt::Long::GetOptions(%flags) or die "Error in command line, aborting.";
-
     my $msg = "Operation arguments:\n";
     for (sort keys %flags) {
         use Data::Dumper;
@@ -66,15 +65,15 @@ unless (@ARGV) {
     Getopt::Long::Configure('bundling');
     my $verb = shift @ARGV;
     if ($verb eq 'append-metadata') {
-        my @args = myGetOptions();
+        my @args = my_get_options();
         doAppendMetadata(@args);
     } elsif ($verb eq 'check-date') {
-        my @args = myGetOptions();
+        my @args = my_get_options();
         do_check_date(@args);
     } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
         my $addOnly = 0;
         my $forceRecalc = 0;
-        my @args = myGetOptions(
+        my @args = my_get_options(
             'add-only' => \$addOnly,
             'force-recalc' => \$forceRecalc);
         do_check_hash($addOnly, $forceRecalc, @args);
@@ -84,7 +83,7 @@ unless (@ARGV) {
         my $byName = 0;
         my $forceRecalc = 0;
         my $noDefaultLastAction = 0;
-        my @args = myGetOptions(
+        my @args = my_get_options(
             'add-only' => \$addOnly,
             'auto-diff|d' => \$autoDiff,
             'by-name|n' => \$byName,
@@ -96,17 +95,17 @@ unless (@ARGV) {
         doRemoveEmpties(@args);
         doCollectTrash(@args);
     } elsif ($verb eq 'collect-trash' or $verb eq 'ct') {
-        my @args = myGetOptions();
+        my @args = my_get_options();
         doCollectTrash(@args);
     } elsif ($verb eq 'find-dupe-dirs' or $verb eq 'fdd') {
-        my @args = myGetOptions();
+        my @args = my_get_options();
         @args and die "Unexpected parameters: @args\n";
         doFindDupeDirs();
     } elsif ($verb eq 'find-dupe-files' or $verb eq 'fdf') {
         my $autoDiff = 0;
         my $byName = 0;
         my $noDefaultLastAction = 0;
-        my @args = myGetOptions(
+        my @args = my_get_options(
             'auto-diff|d' => \$autoDiff,
             'by-name|n' => \$byName,
             'no-default-last-action' => \$noDefaultLastAction);
@@ -114,23 +113,23 @@ unless (@ARGV) {
                         !$noDefaultLastAction, @args);
     } elsif ($verb eq 'metadata-diff' or $verb eq 'md') {
         my $excludeSidecars = 0;
-        my @args = myGetOptions(
+        my @args = my_get_options(
             'exclude-sidecars|x' => \$excludeSidecars);
         do_metadata_diff(0, $excludeSidecars, @args);
     } elsif ($verb eq 'purge-md5' or $verb eq 'p5') {
-        my @args = myGetOptions();
+        my @args = my_get_options();
         doPurgeMd5(@args);
     } elsif ($verb eq 'remove-empties' or $verb eq 're') {
-        my @args = myGetOptions();
+        my @args = my_get_options();
         doRemoveEmpties(@args);
     } elsif ($verb eq 'restore-trash' or $verb eq 'rt') {
-        my @args = myGetOptions();
+        my @args = my_get_options();
         doRestoreTrash(@args);
     } elsif ($verb eq 'test') {
-        my @args = myGetOptions();
+        my @args = my_get_options();
         do_test(@args);
     } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
-        my @args = myGetOptions();
+        my @args = my_get_options();
         do_verify_md5(@args);
     } else {
         Pod::Usage::pod2usage({

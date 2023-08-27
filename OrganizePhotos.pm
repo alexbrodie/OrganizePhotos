@@ -235,7 +235,7 @@ sub doAppendMetadata {
 
 # API ==========================================================================
 # EXPERIMENTAL
-sub do_check_date(@) {
+sub do_check_date {
     my (@globPatterns) = @_;
     my $dry_run = 0;
     #$View::Verbosity = View::VERBOSITY_HIGH;
@@ -297,7 +297,7 @@ sub do_check_date(@) {
 
 # API ==========================================================================
 # Execute check-md5 verb
-sub do_check_hash($$@) {
+sub do_check_hash {
     my ($add_only, $force_recalc, @glob_patterns) = @_;
     traverse_files(
         \&default_is_dir_wanted, # isDirWanted
@@ -980,7 +980,7 @@ sub doRestoreTrash {
 
 # API ==========================================================================
 # Execute test verb. This is intended to run a suite of tests.
-sub do_test(@) {
+sub do_test {
     my (@args) = @_;
 }
 
