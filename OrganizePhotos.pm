@@ -88,7 +88,8 @@ use Exporter;
 our @ISA = ('Exporter');
 our @EXPORT = qw(
     doAppendMetadata
-    doCheckMd5
+    do_check_date
+    do_check_hash
     doCollectTrash
     doFindDupeDirs
     doFindDupeFiles
@@ -96,7 +97,7 @@ our @EXPORT = qw(
     doRemoveEmpties
     doPurgeMd5
     doRestoreTrash
-    doTest
+    do_test
     do_verify_md5
 );
 
@@ -233,17 +234,79 @@ sub doAppendMetadata {
 }
 
 # API ==========================================================================
+# EXPERIMENTAL
+sub do_check_date(@) {
+    my (@globPatterns) = @_;
+    my $dry_run = 0;
+    #$View::Verbosity = View::VERBOSITY_HIGH;
+    my $all = 0;
+    traverse_files(
+        \&default_is_dir_wanted, # isDirWanted
+        \&default_is_file_wanted, # isFileWanted
+        sub {  # callback
+            my ($path, $root_path) = @_;
+
+            my $date = get_date_taken($path);
+            my $fixed_path = check_path_dates($path, $date);
+            #$fixed_path =~ s/\/(\d{4}-\d\d-\d\d-)(\d{4}-\d\d-\d\d-)/\/$1/;
+            #$fixed_path =~ s/(\w{4}\d{4})[- ]\d(\.\w{2,4})$/$1$2/;
+
+            if ($path ne $fixed_path) {
+                for (get_sidecar_paths($path)) {
+                    my $sidecar_fixed_path = check_path_dates($_, $date);
+                    warn "sidecars not yet supported, path to fix has sidecars: '". pretty_path($path) ."'";
+                    return;
+                }
+
+                if (-e $fixed_path) {
+                    print_with_icon('[!]', 'yellow', 
+                                    "Wrong date in path '". pretty_path($path) ."'\n".
+                                    "         should be '". pretty_path($fixed_path) ."'\n".
+                                    "which already exists.");
+                } else {
+                    print_with_icon('[?]', 'yellow', 
+                                    " from '". pretty_path($path) ."'\n".
+                                    "   to '". pretty_path($fixed_path) ."'");
+                    my $move = $all;
+                    unless ($move) {
+                        while (1) {
+                            print "Move file (y/n/a/q)? ";
+                            chomp(my $in = <STDIN>);
+                            if ($in eq 'y') {
+                                $move = 1;
+                                last;
+                            } elsif ($in eq 'n') {
+                                last;
+                            } elsif ($in eq 'a') {
+                                $move = 1;
+                                $all = 1;
+                                last;
+                            } elsif ($in eq 'q') {
+                                exit 0;
+                            }
+                        }
+                    }
+                    if ($move) {
+                        move_path($path, $fixed_path, $dry_run);
+                    }
+                }
+            }
+        },
+        @globPatterns);
+}
+
+# API ==========================================================================
 # Execute check-md5 verb
-sub doCheckMd5 {
-    my ($addOnly, $forceRecalc, @globPatterns) = @_;
+sub do_check_hash($$@) {
+    my ($add_only, $force_recalc, @glob_patterns) = @_;
     traverse_files(
         \&default_is_dir_wanted, # isDirWanted
         \&default_is_file_wanted, # isFileWanted
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
-            -f $fullPath and resolve_orphdat($fullPath, $addOnly, $forceRecalc, undef);
+            -f $fullPath and resolve_orphdat($fullPath, $add_only, $force_recalc, undef);
         },
-        @globPatterns);
+        @glob_patterns);
 }
 
 # API ==========================================================================
@@ -916,66 +979,9 @@ sub doRestoreTrash {
 }
 
 # API ==========================================================================
-# EXPERIMENTAL
-# Execute test verb - usually just a playground for testing and new ideas
-sub doTest {
-    my (@globPatterns) = @_;
-    my $dry_run = 0;
-    #$View::Verbosity = View::VERBOSITY_HIGH;
-    my $all = 0;
-    traverse_files(
-        \&default_is_dir_wanted, # isDirWanted
-        \&default_is_file_wanted, # isFileWanted
-        sub {  # callback
-            my ($path, $root_path) = @_;
-
-            my $date = get_date_taken($path);
-            my $fixed_path = check_path_dates($path, $date);
-            #$fixed_path =~ s/\/(\d{4}-\d\d-\d\d-)(\d{4}-\d\d-\d\d-)/\/$1/;
-            #$fixed_path =~ s/(\w{4}\d{4})[- ]\d(\.\w{2,4})$/$1$2/;
-
-            if ($path ne $fixed_path) {
-                for (get_sidecar_paths($path)) {
-                    my $sidecar_fixed_path = check_path_dates($_, $date);
-                    warn "sidecars not yet supported, path to fix has sidecars: '". pretty_path($path) ."'";
-                    return;
-                }
-
-                if (-e $fixed_path) {
-                    print_with_icon('[!]', 'yellow', 
-                                    "Wrong date in path '". pretty_path($path) ."'\n".
-                                    "         should be '". pretty_path($fixed_path) ."'\n".
-                                    "which already exists.");
-                } else {
-                    print_with_icon('[?]', 'yellow', 
-                                    " from '". pretty_path($path) ."'\n".
-                                    "   to '". pretty_path($fixed_path) ."'");
-                    my $move = $all;
-                    unless ($move) {
-                        while (1) {
-                            print "Move file (y/n/a/q)? ";
-                            chomp(my $in = <STDIN>);
-                            if ($in eq 'y') {
-                                $move = 1;
-                                last;
-                            } elsif ($in eq 'n') {
-                                last;
-                            } elsif ($in eq 'a') {
-                                $move = 1;
-                                $all = 1;
-                                last;
-                            } elsif ($in eq 'q') {
-                                exit 0;
-                            }
-                        }
-                    }
-                    if ($move) {
-                        move_path($path, $fixed_path, $dry_run);
-                    }
-                }
-            }
-        },
-        @globPatterns);
+# Execute test verb. This is intended to run a suite of tests.
+sub do_test(@) {
+    my (@args) = @_;
 }
 
 # API ==========================================================================
