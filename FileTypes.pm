@@ -177,7 +177,7 @@ const our $MEDIA_TYPE_FILENAME_FILTER => qr{
     (?: $BACKUP_SUFFIX)?
 $}sx;
 
-sub get_file_type_info {
+sub get_file_type_info($$) {
     my ($ext, $property) = @_;
     if (defined $ext) {
         my $key = uc $ext;
@@ -192,7 +192,7 @@ sub get_file_type_info {
 }
 
 # Gets the mime type from a path
-sub get_mime_type {
+sub get_mime_type($) {
     my ($path) = @_;
     # If the file is a backup (has some "bak"/"original" suffix), 
     # we want to consider the real extension
@@ -202,7 +202,7 @@ sub get_mime_type {
 }
 
 # Provided a path, returns an array of sidecar files based on extension.
-sub get_sidecar_paths {
+sub get_sidecar_paths($) {
     my ($path) = @_;
     if ($path =~ /$BACKUP_SUFFIX$/) {
         # Associating sidecars with backups only creates problems
@@ -221,14 +221,14 @@ sub get_sidecar_paths {
 
 # Gets the local trash location for the specified path: the same filename
 # in the .orphtrash subdirectory.
-sub get_trash_path {
+sub get_trash_path($) {
     my ($path) = @_;
     my ($vol, $dir, $filename) = split_path($path);
     my $trash_dir = File::Spec->catdir($dir, $TRASH_DIR_NAME);
     return combine_path($vol, $trash_dir, $filename);
 }
 
-sub compare_path_with_ext_order {
+sub compare_path_with_ext_order($$$) {
     my ($path_a, $path_b, $reverse_ext_order) = @_;
     my ($vol_a, $dir_a, $filename_a) = split_path($path_a);
     my ($vol_b, $dir_b, $filename_b) = split_path($path_b);
@@ -236,7 +236,7 @@ sub compare_path_with_ext_order {
            compare_filename_with_ext_order($filename_a, $filename_b, $reverse_ext_order);
 }
 
-sub compare_dir {
+sub compare_dir($$) {
     my ($dir_a, $dir_b) = @_;
     return 0 if $dir_a eq $dir_b; # optimization
     my @as = File::Spec->splitdir($dir_a);
@@ -261,7 +261,7 @@ sub compare_dir {
     }
 }
 
-sub compare_filename_with_ext_order {
+sub compare_filename_with_ext_order($$$) {
     my ($filename_a, $filename_b, $reverse_ext_order) = @_;
     my ($basename_a, $ext_a) = split_ext($filename_a);
     my ($basename_b, $ext_b) = split_ext($filename_b);

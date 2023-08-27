@@ -35,7 +35,7 @@ const our $MD5_DIGEST_PATTERN => qr/[0-9a-f]{32}/;
 # changes are meaningful for every type of file. This method determines if
 # the provided version is equivalent to the current version for the specified
 # file type.
-sub is_hash_version_current {
+sub is_hash_version_current($$) {
     my ($path, $version) = @_;
     #trace(View::VERBOSITY_MAX, "is_hash_version_current('$path', $version);");
     my $type = get_mime_type($path);
@@ -64,7 +64,7 @@ sub is_hash_version_current {
 #   version:  $CURRENT_HASH_VERSION
 #   md5:      primary MD5 comparison (excludes volitile data from calculation)
 #   full_md5: full MD5 calculation for exact match
-sub calculate_hash {
+sub calculate_hash($) {
     my ($path) = @_;
     trace(View::VERBOSITY_MAX, "calculate_hash('$path');");
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
@@ -111,7 +111,7 @@ sub calculate_hash {
 
 # Reads a file as if it were an ISOBMFF file,
 # and returns the MD5 digest of the data in the mdat box.
-sub hash_isobmff_mdat {
+sub hash_isobmff_mdat($$) {
     my ($path, $fh) = @_;
     until (eof($fh)) {
         my $box = readIsobmffBoxHeader($path, $fh);
@@ -127,7 +127,7 @@ sub hash_isobmff_mdat {
 
 # Reads a file as if it were an ISOBMFF file,
 # and returns the MD5 digest of the data 
-sub hash_isobmff_primary_item {
+sub hash_isobmff_primary_item($$) {
     my ($path, $fh) = @_;
     my $ftyp = readIsobmffFtyp($path, $fh);
     # This only works for ISO BMFF, not Apple QTFF (i.e. mp3, heic)
@@ -144,13 +144,14 @@ sub hash_isobmff_primary_item {
     return resolve_md5_digest($md5);
 }
 
-sub content_hash_heic {
-    return hash_isobmff_primary_item(@_);
+sub content_hash_heic($$) {
+    my ($path, $fh) = @_;
+    return hash_isobmff_primary_item($path, $fh);
 }
 
 # If JPEG, skip metadata which may change and only hash pixel data
 # and hash from Start of Scan [SOS] to end of file
-sub content_hash_jpeg {
+sub content_hash_jpeg($$) {
     my ($path, $fh) = @_;
     # Read Start of Image [SOI]
     read($fh, my $file_data, 2) or die "Failed to read JPEG SOI from '$path': $!";
@@ -171,22 +172,23 @@ sub content_hash_jpeg {
     }
 }
 
-sub content_hash_mov {
-    return hash_isobmff_mdat(@_);
+sub content_hash_mov($$) {
+    my ($path, $fh) = @_;
+    return hash_isobmff_mdat($path, $fh);
 }
 
-sub content_hash_mp4 {
+sub content_hash_mp4($$) {
     my ($path, $fh) = @_;
     my $ftyp = readIsobmffFtyp($path, $fh);
-    my $majorBrand = $ftyp->{f_major_brand};
+    my $major_brand = $ftyp->{f_major_brand};
     # 'isom' means the first version of ISO Base Media, and is not supposed to
     # ever be a major brand, but it happens. Try to handle a little bit.
-    if ($majorBrand eq 'isom') {
+    if ($major_brand eq 'isom') {
         my @compatible = grep { $_ ne 'isom' } @{$ftyp->{f_compatible_brands}};
-        $majorBrand = $compatible[0] if @compatible == 1;
+        $major_brand = $compatible[0] if @compatible == 1;
     } 
     # This works for both Apple QTFF and ISO BMFF (i.e. mov, mp4, heic)
-    unless (any { $majorBrand eq $_ } ('heic', 'isom', 'mp41', 'mp42', 'qt  ')) {
+    unless (any { $major_brand eq $_ } ('heic', 'isom', 'mp41', 'mp42', 'qt  ')) {
         my $brand = "'$ftyp->{f_major_brand}'";
         if (@{$ftyp->{f_compatible_brands}}) {
             $brand = $brand . ' (\'' . join('\', \'', @{$ftyp->{f_compatible_brands}}) . '\')';
@@ -194,15 +196,15 @@ sub content_hash_mp4 {
         warn "unexpected brand $brand for " . getIsobmffBoxDiagName($path, $ftyp);
         return undef;
     }
-    return hash_isobmff_mdat(@_);
+    return hash_isobmff_mdat($path, $fh);
 }
 
-sub content_hash_png {
+sub content_hash_png($$) {
     my ($path, $fh) = @_;
     read($fh, my $file_data, 8) or die "Failed to read PNG header from '$path': $!";
-    my @actualHeader = unpack('C8', $file_data);
-    my @pngHeader = ( 137, 80, 78, 71, 13, 10, 26, 10 );
-    Data::Compare::Compare(\@actualHeader, \@pngHeader) or die
+    my @actual_header = unpack('C8', $file_data);
+    my @png_header = ( 137, 80, 78, 71, 13, 10, 26, 10 );
+    Data::Compare::Compare(\@actual_header, \@png_header) or die
         "File didn't start with PNG header: '$path'";
     my $md5 = new Digest::MD5;
     while (!eof($fh)) {
@@ -210,7 +212,7 @@ sub content_hash_png {
         read($fh, $file_data, 8) or die
             "Failed to read PNG chunk header from '$path' at @{[tell $fh]}: $!";
         my ($size, $type) = unpack('Na4', $file_data);
-        my $seekStartOfData = tell($fh);
+        my $seek_start_of_data = tell($fh);
         # TODO: Check that 'IHDR' chunk comes first and 'IEND' last?
         if ($type eq 'tEXt' or $type eq 'zTXt' or $type eq 'iTXt') {
             # This is a text field, so not pixel data
@@ -227,21 +229,21 @@ sub content_hash_png {
             add_to_md5_digest($md5, $path, $fh, $size);
         }
         # Seek to start of next chunk (past header, data, and CRC)
-        my $address = $seekStartOfData + $size + 4;
+        my $address = $seek_start_of_data + $size + 4;
         seek($fh, $address, 0) or die "Failed to seek '$path' to $address: $!";
     }
     return resolve_md5_digest($md5);
 }
 
 # Get/verify/canonicalize hash from a FILEHANDLE object
-sub calc_md5 {
+sub calc_md5($$$) {
     my ($path, $fh, $size) = @_;
     my $md5 = new Digest::MD5;
     add_to_md5_digest($md5, $path, $fh, $size);
     return resolve_md5_digest($md5);
 }
 
-sub add_to_md5_digest {
+sub add_to_md5_digest($$$$) {
     my ($md5, $path, $fh, $size) = @_;
     unless (defined $size) {
         $md5->addfile($fh);
@@ -262,7 +264,7 @@ sub add_to_md5_digest {
 # MODEL (MD5) ------------------------------------------------------------------
 # Extracts, verifies, and canonicalizes resulting MD5 digest
 # final result from a Digest::MD5.
-sub resolve_md5_digest {
+sub resolve_md5_digest($) {
     my ($md5) = @_;
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$MD5_DIGEST_PATTERN/ or die "Unexpected MD5: $hexdigest";
