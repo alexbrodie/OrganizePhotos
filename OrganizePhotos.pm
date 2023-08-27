@@ -464,7 +464,7 @@ sub buildFindDupeFilesDupeGroups {
         $fileCount += @$fullPathList;
         if (@$fullPathList > 1) {
             my @group = sort { 
-                compare_path_with_ext_order($a->{fullPath}, $b->{fullPath}) 
+                compare_path_with_ext_order($a->{fullPath}, $b->{fullPath}, 0) 
             } @$fullPathList;
             push @dupes, \@group;
         }

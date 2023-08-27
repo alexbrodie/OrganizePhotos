@@ -262,79 +262,79 @@ sub write_orphdat($$) {
 # MODEL (MD5) ------------------------------------------------------------------
 # Moves a Md5Info for a file from one directory's storage to another. 
 sub move_orphdat($$) {
-    my ($oldMediaPath, $newMediaPath) = @_;
-    trace(View::VERBOSITY_MAX, "move_orphdat('$oldMediaPath', " . 
-                         (defined $newMediaPath ? "'$newMediaPath'" : 'undef') . ");");
-    my ($oldMd5Path, $oldMd5Key) = get_orphdat_path_and_key($oldMediaPath);
-    unless (-e $oldMd5Path) {
-        trace(View::VERBOSITY_HIGH, "Can't move/remove Md5Info for '$oldMd5Key' from missing '$oldMd5Path'"); 
+    my ($source_path, $target_path) = @_;
+    trace(View::VERBOSITY_MAX, "move_orphdat('$source_path', " . 
+                         (defined $target_path ? "'$target_path'" : 'undef') . ");");
+    my ($source_orphdat_path, $source_orphdat_key) = get_orphdat_path_and_key($source_path);
+    unless (-e $source_orphdat_path) {
+        trace(View::VERBOSITY_HIGH, "Can't move/remove Md5Info for '$source_orphdat_key' from missing '$source_orphdat_path'"); 
         return undef;
     }
-    my ($oldMd5File, $oldMd5Set) = read_orphdat_file('+<:crlf', $oldMd5Path);
-    unless (exists $oldMd5Set->{$oldMd5Key}) {
-        trace(View::VERBOSITY_HIGH, "Can't move/remove missing Md5Info for '$oldMd5Key' from '$oldMd5Path'");
+    my ($source_orphdat_file, $source_orphdat_set) = read_orphdat_file('+<:crlf', $source_orphdat_path);
+    unless (exists $source_orphdat_set->{$source_orphdat_key}) {
+        trace(View::VERBOSITY_HIGH, "Can't move/remove missing Md5Info for '$source_orphdat_key' from '$source_orphdat_path'");
         return undef;
     }
     # For a move we do a copy then a delete, but show it as a single CRUD
     # operation. The logging info will be built up during the copy phase
     # and then logged after deleting.
-    my ($crudOp, $crudMessage);
-    my $old_orphdat = $oldMd5Set->{$oldMd5Key};
-    if ($newMediaPath) {
-        my (undef, undef, $newFilename) = split_path($newMediaPath);
-        my $new_orphdat = { %$old_orphdat, filename => $newFilename };
+    my ($crud_op, $crud_msg);
+    my $source_orphdat = $source_orphdat_set->{$source_orphdat_key};
+    if ($target_path) {
+        my (undef, undef, $target_filename) = split_path($target_path);
+        my $new_orphdat = { %$source_orphdat, filename => $target_filename };
         # The code for the remainder of this scope is very similar to 
-        #   write_orphdat($newMediaPath, $new_orphdat);
+        #   write_orphdat($target_path, $new_orphdat);
         # but with additional cases considered and improved context in traces
-        my ($newMd5Path, $newMd5Key) = get_orphdat_path_and_key($newMediaPath);
-        my ($newMd5File, $newMd5Set);
-        if ($oldMd5Path eq $newMd5Path) {
-            $newMd5Set = $oldMd5Set;
+        my ($target_orphdat_path, $target_orphdat_key) = get_orphdat_path_and_key($target_path);
+        my ($target_orphdat_file, $target_orphdat_set);
+        if ($source_orphdat_path eq $target_orphdat_path) {
+            $target_orphdat_set = $source_orphdat_set;
         } else {
-            ($newMd5File, $newMd5Set) = read_or_create_orphdat_file($newMd5Path);
+            ($target_orphdat_file, $target_orphdat_set) = read_or_create_orphdat_file($target_orphdat_path);
         }
         # The code for the remainder of this scope is very similar to 
-        #   set_orphdat_and_write_file($newMediaPath, $new_orphdat, $newMd5Path, $newMd5Key, $newMd5File, $newMd5Set);
+        #   set_orphdat_and_write_file($target_path, $new_orphdat, $target_orphdat_path, $target_orphdat_key, $target_orphdat_file, $target_orphdat_set);
         # but with additional cases considered and improved context in traces
-        my $existingMd5Info = $newMd5Set->{$newMd5Key};
-        if ($existingMd5Info and Data::Compare::Compare($existingMd5Info, $new_orphdat)) {
+        my $existing_orphdat = $target_orphdat_set->{$target_orphdat_key};
+        if ($existing_orphdat and Data::Compare::Compare($existing_orphdat, $new_orphdat)) {
             # Existing Md5Info at target is identical, so target is up to date already
-            $crudOp = View::CRUD_DELETE;
-            $crudMessage = "Removed cache data for '@{[pretty_path($oldMediaPath)]}' (up to date " .
-                        "data already exists for '@{[pretty_path($newMediaPath)]}')";
+            $crud_op = View::CRUD_DELETE;
+            $crud_msg = "Removed cache data for '@{[pretty_path($source_path)]}' (up to date " .
+                        "data already exists for '@{[pretty_path($target_path)]}')";
         } else {
-            $newMd5Set->{$newMd5Key} = $new_orphdat;
-            if ($newMd5File) {
-                trace(View::VERBOSITY_HIGH, "Writing '$newMd5Path' after moving entry for '$newMd5Key' elsewhere");
-                write_orphdat_file($newMd5Path, $newMd5File, $newMd5Set);
+            $target_orphdat_set->{$target_orphdat_key} = $new_orphdat;
+            if ($target_orphdat_file) {
+                trace(View::VERBOSITY_HIGH, "Writing '$target_orphdat_path' after moving entry for '$target_orphdat_key' elsewhere");
+                write_orphdat_file($target_orphdat_path, $target_orphdat_file, $target_orphdat_set);
             }
-            $crudOp = View::CRUD_UPDATE;
-            $crudMessage = "Moved cache data for '@{[pretty_path($oldMediaPath)]}' to '@{[pretty_path($newMediaPath)]}'";
-            if (defined $existingMd5Info) {
-                $crudMessage = "$crudMessage overwriting existing value";
+            $crud_op = View::CRUD_UPDATE;
+            $crud_msg = "Moved cache data for '@{[pretty_path($source_path)]}' to '@{[pretty_path($target_path)]}'";
+            if (defined $existing_orphdat) {
+                $crud_msg = "$crud_msg overwriting existing value";
             }
         }
     } else {
-        # No new media path, this is a delete only
-        $crudOp = View::CRUD_DELETE;
-        $crudMessage = "Removed MD5 for '@{[pretty_path($oldMediaPath)]}'";
+        # No target path, this is a delete only
+        $crud_op = View::CRUD_DELETE;
+        $crud_msg = "Removed MD5 for '@{[pretty_path($source_path)]}'";
     }
     # TODO: Should this if/else code move to write_orphdat_file/set_orphdat_and_write_file such
     #       that any time someone tries to write an empty hashref, it deletes the file?
-    delete $oldMd5Set->{$oldMd5Key};
-    if (%$oldMd5Set) {
-        trace(View::VERBOSITY_HIGH, "Writing '$oldMd5Path' after removing MD5 for '$oldMd5Key'");
-        write_orphdat_file($oldMd5Path, $oldMd5File, $oldMd5Set);
+    delete $source_orphdat_set->{$source_orphdat_key};
+    if (%$source_orphdat_set) {
+        trace(View::VERBOSITY_HIGH, "Writing '$source_orphdat_path' after removing MD5 for '$source_orphdat_key'");
+        write_orphdat_file($source_orphdat_path, $source_orphdat_file, $source_orphdat_set);
     } else {
         # Empty files create trouble down the line (especially with move-merges)
-        trace(View::VERBOSITY_HIGH, "Deleting '$oldMd5Path' after removing MD5 for '$oldMd5Key' (the last one)");
-        close($oldMd5File);
-        unlink($oldMd5Path) or die "Couldn't delete '$oldMd5Path': $!";
+        trace(View::VERBOSITY_HIGH, "Deleting '$source_orphdat_path' after removing MD5 for '$source_orphdat_key' (the last one)");
+        close($source_orphdat_file);
+        unlink($source_orphdat_path) or die "Couldn't delete '$source_orphdat_path': $!";
         print_crud(View::VERBOSITY_MEDIUM, View::CRUD_DELETE, 
-            "Deleted empty file '@{[pretty_path($oldMd5Path)]}'\n");
+            "Deleted empty file '@{[pretty_path($source_orphdat_path)]}'\n");
     }
-    print_crud(View::VERBOSITY_LOW, $crudOp, $crudMessage, "\n");
-    return $old_orphdat;
+    print_crud(View::VERBOSITY_LOW, $crud_op, $crud_msg, "\n");
+    return $source_orphdat;
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -371,8 +371,8 @@ sub append_orphdat_files($@) {
         my (undef, $source_orphdat_set) = read_orphdat_file('<:crlf', $source_orphdat_path);
         while (my ($orphdat_key, $source_orphdat) = each %$source_orphdat_set) {
             if (exists $target_orphdat_set->{$orphdat_key}) {
-                my $targetMd5Info = $target_orphdat_set->{$orphdat_key};
-                Data::Compare::Compare($source_orphdat, $targetMd5Info) or die
+                my $target_orphdat = $target_orphdat_set->{$orphdat_key};
+                Data::Compare::Compare($source_orphdat, $target_orphdat) or die
                     "Can't append MD5 info from '$source_orphdat_path' to '$target_orphdat_path'" .
                     " due to key collision for '$orphdat_key'";
             } else {
@@ -422,16 +422,16 @@ sub read_orphdat_file($$) {
     my $orphdat_file = open_file($open_mode, $orphdat_path);
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple "name: md5\n" format parsing
-    my $useJson = 0;
+    my $use_json = 0;
     while (<$orphdat_file>) {
         if (/^\s*([^\s])/) {
-            $useJson = 1 if $1 eq '{';
+            $use_json = 1 if $1 eq '{';
             last;
         }
     }
     seek($orphdat_file, 0, 0) or die "Couldn't reset seek on file: $!";
     my $orphdat_set = {};
-    if ($useJson) {
+    if ($use_json) {
         $orphdat_set = JSON::decode_json(join '', <$orphdat_file>);
         # TODO: Consider validating parsed content - do a lc on
         #       filename/md5s/whatever, and verify vs $MD5_DIGEST_PATTERN???
@@ -448,9 +448,9 @@ sub read_orphdat_file($$) {
             /^([^:]+):\s*($ContentHash::MD5_DIGEST_PATTERN)$/ or die "Unexpected line in '$orphdat_path': $_";
             # We use version 0 here for the very old way before we went to
             # JSON when we added more info than just the full file MD5
-            my $fullMd5 = lc $2;
+            my $full_md5 = lc $2;
             $orphdat_set->{lc $1} = { version => 0, filename => $1, 
-                                 md5 => $fullMd5, full_md5 => $fullMd5 };
+                                 md5 => $full_md5, full_md5 => $full_md5 };
         }
     }
     update_orphdat_cache($orphdat_path, $orphdat_set);
