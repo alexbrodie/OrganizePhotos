@@ -8,7 +8,7 @@ package FileOp;
 use Exporter;
 our @ISA = ('Exporter');
 our @EXPORT = qw(
-    traverseFiles
+    traverse_files
     trash_path
     trash_path_and_sidecars
     trash_path_with_root
@@ -67,49 +67,49 @@ use File::Spec ();
 #
 # Note that if glob patterns overlap, then some files might invoke the 
 # callbacks more than once. For example, 
-#   traverseFiles(..., 'Al*.jpg', '*ex.jpg');
+#   traverse_files(..., 'Al*.jpg', '*ex.jpg');
 # would match Alex.jpg twice, and invoke is_file_wanted/callback twice as well.
-sub traverseFiles {
-    my ($is_dir_wanted, $is_file_wanted, $callback, @globPatterns) = @_;
+sub traverse_files($$$@) {
+    my ($is_dir_wanted, $is_file_wanted, $callback, @glob_patterns) = @_;
     $is_dir_wanted or die "Programmer Error: expected \$is_dir_wanted argument";
     $is_file_wanted or die "Programmer Error: expected \$is_file_wanted argument";
     $callback or die  "Programmer Error: expected \$callback argument";
     # Record base now so that no_chdir doesn't affect rel2abs/abs2rel below
     # (and - bonus - just resolve and canonicalize once)
-    my $curDir = File::Spec->curdir();
-    my $baseFullPath = File::Spec->rel2abs($curDir);
-    $baseFullPath = File::Spec->canonpath($baseFullPath);
-    my $myCaller = 'unknown';
+    my $current_dir = File::Spec->curdir();
+    my $base_path = File::Spec->rel2abs($current_dir);
+    $base_path = File::Spec->canonpath($base_path);
+    my $my_caller = 'unknown';
     for (my $i = 1; $i < 16; $i++) {
-        $myCaller = $1 and last if (caller($i))[3] =~ /^\w+::do(.*)/;
+        $my_caller = $1 and last if (caller($i))[3] =~ /^\w+::do(.*)/;
     }
     # the is_dir_wanted, is_file_wanted, and callback methods take the same
     # params which share the following computations
-    my $makeFullPath = sub {
-        my ($partialPath) = @_;
-        my $fullPath = File::Spec->rel2abs($partialPath, $baseFullPath);
-        $fullPath = File::Spec->canonpath($fullPath);
-        -e $fullPath or die
-            "Programmer Error: enumerated file doesn't exist: '$fullPath'";
-        return $fullPath;
+    my $make_full_path = sub {
+        my ($partial_path) = @_;
+        my $full_path = File::Spec->rel2abs($partial_path, $base_path);
+        $full_path = File::Spec->canonpath($full_path);
+        -e $full_path or die
+            "Programmer Error: enumerated file doesn't exist: '$full_path'";
+        return $full_path;
     };
     # Returns 'f' if it's a wanted file, 'd' if it's a wanted dir
     # or falsy if not wanted
-    my $isWanted = sub {
-        my ($fullPath, $root) = @_;
-        my ($vol, $dir, $filename) = split_path($fullPath);
-        if (-d $fullPath) {
+    my $is_wanted = sub {
+        my ($path, $root) = @_;
+        my ($vol, $dir, $filename) = split_path($path);
+        if (-d $path) {
             # Never peek inside of a .git folder or any folder
             # containing .orphignore (opt out mechanism)
             if (lc $filename eq '.git' or
-                -e File::Spec->catfile($fullPath, '.orphignore')) {
+                -e File::Spec->catfile($path, '.orphignore')) {
                 return '';
             }
             local $_ = undef; # prevent use in the is_dir_wanted
-            if ($is_dir_wanted->($fullPath, $root, $filename)) {
+            if ($is_dir_wanted->($path, $root, $filename)) {
                 # \033[K == "erase to end of line"
                 # \033[1A == "move cursor up 1 line"
-                print "$myCaller is traversing '@{[pretty_path($fullPath)]}'...\033[K\n\033[1A";
+                print "$my_caller is traversing '@{[pretty_path($path)]}'...\033[K\n\033[1A";
                 return 'd';
             }
         } elsif (-f _) {
@@ -123,25 +123,25 @@ sub traverseFiles {
                 return '';
             }
             local $_ = undef; # prevent use in the is_file_wanted
-            if ($is_file_wanted->($fullPath, $root, $filename)) {
+            if ($is_file_wanted->($path, $root, $filename)) {
                 return 'f';
             }
         } else {
-            die "Programmer Error: unknown object type for '$fullPath'";
+            die "Programmer Error: unknown object type for '$path'";
         }
         return '';
     };
-    # Method to be called for each directory found in globPatterns
+    # Method to be called for each directory found in glob_patterns
     my $inner_traverse = sub {
-        my ($rootPartialPath) = @_;
-        my $root = $makeFullPath->($rootPartialPath);
+        my ($root_partial_path) = @_;
+        my $root = $make_full_path->($root_partial_path);
         print_crud(View::VERBOSITY_LOW, View::CRUD_READ,
-            "$myCaller is traversing '$rootPartialPath' ('$root')");
+            "$my_caller is traversing '$root_partial_path' ('$root')");
         # Find::find's final wanted call for $root doesn't have a 
         # matching preprocess call, so doing one up front for symetry with
         # all other pairs while also doing the other filtering we want.
-        my $isWantedResult = $isWanted->($root, $root);
-        if ($isWantedResult eq 'd') {
+        my $is_wanted_result = $is_wanted->($root, $root);
+        if ($is_wanted_result eq 'd') {
             my $preprocess = sub {
                 my @dirs = ();
                 my @files = ();
@@ -154,18 +154,18 @@ sub traverseFiles {
                     # once and $root not at all.
                     next if (($_ eq '.') or ($_ eq '..'));
                     # The values used here to compute the path relative
-                    # to $baseFullPath matches the values of wanted's
+                    # to $base_path matches the values of wanted's
                     # implementation, and both work the same whether
                     # no_chdir is set or not. 
-                    my $fullPath = $makeFullPath->(
+                    my $path = $make_full_path->(
                         File::Spec->catfile($File::Find::dir, $_));
-                    my $result = $isWanted->($fullPath, $root);
+                    my $result = $is_wanted->($path, $root);
                     if ($result eq 'd') {
                         push @dirs, $_;
                     } elsif ($result eq 'f') {
                         push @files, $_;
                     } elsif ($result) {
-                        die "Programmer Error: unknown return value from isWanted: '$result'";
+                        die "Programmer Error: unknown return value from is_wanted: '$result'";
                     }
                 }
                 # Dirs first will be depth first traversal (nieces/nephews first).
@@ -176,34 +176,34 @@ sub traverseFiles {
             };
             my $wanted = sub {
                 # The values used here to compute the path relative
-                # to $baseFullPath matches the values of preprocess'
+                # to $base_path matches the values of preprocess'
                 # implementation, and both work the same whether
                 # no_chdir is set or not.
-                my $fullPath = $makeFullPath->($File::Find::name);
+                my $path = $make_full_path->($File::Find::name);
                 local $_ = undef; # prevent use in callback
-                $callback->($fullPath, $root);
+                $callback->($path, $root);
             };
             File::Find::find({ bydepth => 1, no_chdir => 1, 
                             preprocess => $preprocess,
                             wanted => $wanted }, $root);
-        } elsif ($isWantedResult eq 'f') {
+        } elsif ($is_wanted_result eq 'f') {
             local $_ = undef; # prevent use in callback
             $callback->($root, $root);
-        } elsif ($isWantedResult) {
-            die "Programmer Error: unknown return value from isWanted: $isWantedResult";
+        } elsif ($is_wanted_result) {
+            die "Programmer Error: unknown return value from is_wanted: $is_wanted_result";
         }
     };
-    if (@globPatterns) {
-        for my $globPattern (@globPatterns) {
+    if (@glob_patterns) {
+        for my $pattern (@glob_patterns) {
             # TODO: Is this workaround to handle globbing with spaces for
             # Windows compatible with MacOS (with and without spaces)? Does it
             # work okay with single quotes in file/dir names on each platform?
-            $globPattern = "'$globPattern'";
-            $inner_traverse->($_) for glob $globPattern;
+            $pattern = "'$pattern'";
+            $inner_traverse->($_) for glob $pattern;
         }
     } else {
         # If no glob patterns are provided, just search current directory
-        $inner_traverse->($curDir);
+        $inner_traverse->($current_dir);
     }
 }
 

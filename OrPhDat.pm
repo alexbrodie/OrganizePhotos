@@ -211,7 +211,7 @@ sub find_orphdat($$$@) {
     $callback or die  "Programmer Error: expected \$callback argument";
     trace(View::VERBOSITY_MAX, 'find_orphdat(...); with @glob_patterns of', 
           (@glob_patterns ? map { "\n\t'$_'" } @glob_patterns : ' (current dir)'));
-    traverseFiles(
+    traverse_files(
         $is_dir_wanted,
         sub {  # is_file_wanted
             my ($path, $root, $filename) = @_;
