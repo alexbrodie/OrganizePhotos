@@ -35,7 +35,7 @@ const our $MD5_DIGEST_PATTERN => qr/[0-9a-f]{32}/;
 # changes are meaningful for every type of file. This method determines if
 # the provided version is equivalent to the current version for the specified
 # file type.
-sub is_hash_version_current($$) {
+sub is_hash_version_current {
     my ($path, $version) = @_;
     #trace(View::VERBOSITY_MAX, "is_hash_version_current('$path', $version);");
     my $type = get_mime_type($path);
@@ -64,7 +64,7 @@ sub is_hash_version_current($$) {
 #   version:  $CURRENT_HASH_VERSION
 #   md5:      primary MD5 comparison (excludes volitile data from calculation)
 #   full_md5: full MD5 calculation for exact match
-sub calculate_hash($) {
+sub calculate_hash {
     my ($path) = @_;
     trace(View::VERBOSITY_MAX, "calculate_hash('$path');");
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
@@ -111,7 +111,7 @@ sub calculate_hash($) {
 
 # Reads a file as if it were an ISOBMFF file,
 # and returns the MD5 digest of the data in the mdat box.
-sub hash_isobmff_mdat($$) {
+sub hash_isobmff_mdat {
     my ($path, $fh) = @_;
     until (eof($fh)) {
         my $box = readIsobmffBoxHeader($path, $fh);
@@ -122,12 +122,12 @@ sub hash_isobmff_mdat($$) {
         seek($fh, $box->{__end_pos}, 0) or die 
             "failed to seek '$path' to $box->{__end_pos}: $!";
     }
-    return undef;
+    return;
 }
 
 # Reads a file as if it were an ISOBMFF file,
 # and returns the MD5 digest of the data 
-sub hash_isobmff_primary_item($$) {
+sub hash_isobmff_primary_item {
     my ($path, $fh) = @_;
     my $ftyp = readIsobmffFtyp($path, $fh);
     # This only works for ISO BMFF, not Apple QTFF (i.e. mp3, heic)
@@ -135,7 +135,7 @@ sub hash_isobmff_primary_item($$) {
         "unexpected brand for " . getIsobmffBoxDiagName($path, $ftyp);
     my $bmff = { b_ftyp => $ftyp };
     parseIsobmffBox($path, $fh, $bmff);
-    my $md5 = new Digest::MD5;
+    my $md5 = Digest::MD5->new;
     for (getIsobmffPrimaryDataExtents($path, $bmff)) {
         seek($fh, $_->{pos}, 0) or die 
             "Failed to seek '$path' to $_->{pos}: $!";
@@ -144,14 +144,14 @@ sub hash_isobmff_primary_item($$) {
     return resolve_md5_digest($md5);
 }
 
-sub content_hash_heic($$) {
+sub content_hash_heic {
     my ($path, $fh) = @_;
     return hash_isobmff_primary_item($path, $fh);
 }
 
 # If JPEG, skip metadata which may change and only hash pixel data
 # and hash from Start of Scan [SOS] to end of file
-sub content_hash_jpeg($$) {
+sub content_hash_jpeg {
     my ($path, $fh) = @_;
     # Read Start of Image [SOI]
     read($fh, my $file_data, 2) or die "Failed to read JPEG SOI from '$path': $!";
@@ -172,12 +172,12 @@ sub content_hash_jpeg($$) {
     }
 }
 
-sub content_hash_mov($$) {
+sub content_hash_mov {
     my ($path, $fh) = @_;
     return hash_isobmff_mdat($path, $fh);
 }
 
-sub content_hash_mp4($$) {
+sub content_hash_mp4 {
     my ($path, $fh) = @_;
     my $ftyp = readIsobmffFtyp($path, $fh);
     my $major_brand = $ftyp->{f_major_brand};
@@ -194,19 +194,19 @@ sub content_hash_mp4($$) {
             $brand = $brand . ' (\'' . join('\', \'', @{$ftyp->{f_compatible_brands}}) . '\')';
         }
         warn "unexpected brand $brand for " . getIsobmffBoxDiagName($path, $ftyp);
-        return undef;
+        return;
     }
     return hash_isobmff_mdat($path, $fh);
 }
 
-sub content_hash_png($$) {
+sub content_hash_png {
     my ($path, $fh) = @_;
     read($fh, my $file_data, 8) or die "Failed to read PNG header from '$path': $!";
     my @actual_header = unpack('C8', $file_data);
     my @png_header = ( 137, 80, 78, 71, 13, 10, 26, 10 );
     Data::Compare::Compare(\@actual_header, \@png_header) or die
         "File didn't start with PNG header: '$path'";
-    my $md5 = new Digest::MD5;
+    my $md5 = Digest::MD5->new;
     while (!eof($fh)) {
         # Read chunk header
         read($fh, $file_data, 8) or die
@@ -236,14 +236,14 @@ sub content_hash_png($$) {
 }
 
 # Get/verify/canonicalize hash from a FILEHANDLE object
-sub calc_md5($$$) {
+sub calc_md5 {
     my ($path, $fh, $size) = @_;
-    my $md5 = new Digest::MD5;
+    my $md5 = Digest::MD5->new;
     add_to_md5_digest($md5, $path, $fh, $size);
     return resolve_md5_digest($md5);
 }
 
-sub add_to_md5_digest($$$$) {
+sub add_to_md5_digest {
     my ($md5, $path, $fh, $size) = @_;
     unless (defined $size) {
         $md5->addfile($fh);
@@ -264,7 +264,7 @@ sub add_to_md5_digest($$$$) {
 # MODEL (MD5) ------------------------------------------------------------------
 # Extracts, verifies, and canonicalizes resulting MD5 digest
 # final result from a Digest::MD5.
-sub resolve_md5_digest($) {
+sub resolve_md5_digest {
     my ($md5) = @_;
     my $hexdigest = lc $md5->hexdigest;
     $hexdigest =~ /$MD5_DIGEST_PATTERN/ or die "Unexpected MD5: $hexdigest";

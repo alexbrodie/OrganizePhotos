@@ -370,7 +370,8 @@ sub resolveIsobmffIref {
             push @queue, grep { $refs{$_}++ == 0 } @{$_->{f_to_item_id}};
         }
     }
-    return sort { $a <=> $b } map { $_+0 } keys %refs;
+    my @result = sort { $a <=> $b } map { $_+0 } keys %refs;
+    return @result;
 }
 
 # MODEL (ISOBMFF) --------------------------------------------------------------

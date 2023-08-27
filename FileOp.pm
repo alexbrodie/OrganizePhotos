@@ -69,7 +69,7 @@ use File::Spec ();
 # callbacks more than once. For example, 
 #   traverse_files(..., 'Al*.jpg', '*ex.jpg');
 # would match Alex.jpg twice, and invoke is_file_wanted/callback twice as well.
-sub traverse_files($$$@) {
+sub traverse_files {
     my ($is_dir_wanted, $is_file_wanted, $callback, @glob_patterns) = @_;
     $is_dir_wanted or die "Programmer Error: expected \$is_dir_wanted argument";
     $is_file_wanted or die "Programmer Error: expected \$is_file_wanted argument";
@@ -81,7 +81,7 @@ sub traverse_files($$$@) {
     $base_path = File::Spec->canonpath($base_path);
     my $my_caller = 'unknown';
     for (my $i = 1; $i < 16; $i++) {
-        $my_caller = $1 and last if (caller($i))[3] =~ /^\w+::do(.*)/;
+        $my_caller = $1 and last if (caller($i))[3] =~ /^\w+::do_?(.*)/;
     }
     # the is_dir_wanted, is_file_wanted, and callback methods take the same
     # params which share the following computations
@@ -210,7 +210,7 @@ sub traverse_files($$$@) {
 # MODEL (File Operations) ------------------------------------------------------
 # Trash the specified path and any sidecars (anything with the same path
 # except for extension)
-sub trash_path_and_sidecars($) {
+sub trash_path_and_sidecars {
     my ($path) = @_;
     trace(View::VERBOSITY_MAX, "trash_path_and_sidecars('$path');");
     # TODO: check all for existance before performing any operations to
@@ -221,7 +221,7 @@ sub trash_path_and_sidecars($) {
 # MODEL (File Operations) ------------------------------------------------------
 # Trash the specified path by moving it to a .orphtrash subdir and moving
 # its entry from the per-directory database file
-sub trash_path($) {
+sub trash_path {
     my ($path) = @_;
     trace(View::VERBOSITY_MAX, "trash_path('$path');");
     # If it's an empty directory, just delete it. Trying to trash
@@ -251,7 +251,7 @@ sub trash_path($) {
 # Example 3: (edge case)
 #   trash_path_with_root('.../root/.orphtrash/.orphtrash/.orphtrash', '.../root')
 #   moves file to: '.../root/.orphtrash'
-sub trash_path_with_root($$) {
+sub trash_path_with_root {
     my ($path, $root) = @_;
     trace(View::VERBOSITY_MAX, "trash_path_with_root('$path', '$root');");
     # Split the directories into pieces assuming root is a dir
@@ -300,8 +300,7 @@ sub trash_path_with_root($$) {
 # MODEL (File Operations) ------------------------------------------------------
 # Move old_path to new_path doing a move-merge where
 # necessary and possible. Does not overwrite existing files.
-sub move_path($$$); # Needed for recursive call
-sub move_path($$$) {
+sub move_path {
     my ($old_path, $new_path, $dry_run) = @_;
     trace(View::VERBOSITY_MAX, "move_path('$old_path', '$new_path');");
     return if $old_path eq $new_path;
@@ -391,7 +390,7 @@ sub move_path($$$) {
 }
 
 # MODEL (File Operations) ------------------------------------------------------
-sub ensure_parent_dir($$) {
+sub ensure_parent_dir {
     my ($path, $dry_run) = @_;
     my $parent = parent_path($path);
     unless (-d $parent) {
@@ -409,7 +408,7 @@ sub ensure_parent_dir($$) {
 # Removes the specified path if it's an empty directory and returns truthy.
 # If it's not a directory or a directory with children, the do nothing
 # and return falsy.
-sub try_remove_empty_dir($) {
+sub try_remove_empty_dir {
     my ($path) = @_;
     trace(View::VERBOSITY_MAX, "try_remove_empty_dir('$path');");
     if (-d $path and rmdir $path) {
@@ -422,7 +421,7 @@ sub try_remove_empty_dir($) {
 }
 
 # MODEL (File Operations) ------------------------------------------------------
-sub open_file($$) {
+sub open_file {
     my ($mode, $path) = @_;
     trace(View::VERBOSITY_MAX, "open_file('$mode', '$path');");
     open(my $fh, $mode, $path) or die "Couldn't open '$path' in $mode mode: $!";

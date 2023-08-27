@@ -40,12 +40,12 @@ use constant CRUD_READ => 2;
 use constant CRUD_UPDATE => 3;
 use constant CRUD_DELETE => 4;
 
-sub colored_faint($) {
+sub colored_faint {
     my ($message) = @_;
     return Term::ANSIColor::colored($message, 'faint');
 }
 
-sub colored_bold($) {
+sub colored_bold {
     my ($message) = @_;
     return Term::ANSIColor::colored($message, 'bold');
 }
@@ -54,7 +54,7 @@ sub colored_bold($) {
 #
 # $message = Text to color
 # $color_index = Index for a color class
-sub colored_by_index($$) {
+sub colored_by_index {
     my ($message, $color_index) = @_;
     return Term::ANSIColor::colored($message, get_color_for_index($color_index));
 }
@@ -67,14 +67,14 @@ sub dump_struct {
 
 # Returns a color name (usable with colored()) based on an index
 # $color_index = Index for a color class
-sub get_color_for_index($) {
+sub get_color_for_index {
     my ($color_index) = @_;
     my @colors = ('green', 'red', 'blue', 'yellow', 'magenta', 'cyan');
     return 'bright_' . $colors[$color_index % scalar @colors];
 }
 
 # Returns a form of the specified path prettified for display/reading
-sub pretty_path($) {
+sub pretty_path {
     my ($path) = @_;
     my $full_path = File::Spec->rel2abs($path);
     $full_path = File::Spec->canonpath($full_path);
@@ -89,7 +89,7 @@ sub pretty_path($) {
 # $level = prints if the current level is this or higher
 # $type = the View::CRUD_* value that best describes the operation
 # $level = the View::VERBOSITY_* value 
-sub print_crud($$@) {
+sub print_crud {
     my ($level, $type, @statements) = @_;
     if ($level <= $Verbosity) {
         my ($icon, $color) = ('', '');
@@ -114,7 +114,7 @@ sub print_crud($$@) {
 #         highlighted in the printed message
 # $color = Term::ANSIColor value, or undef to use default
 # @statements = value(s) to display
-sub print_with_icon($$@) {
+sub print_with_icon {
     my ($icon, $color, @statements) = @_;
     my $icon_space = ' ' x length $icon;
     @statements = split /\n/, join '', @statements;
@@ -132,7 +132,7 @@ sub print_with_icon($$@) {
 #
 # $level = prints if the current level is this or higher
 # @statements = value(s) to display
-sub trace($@) {
+sub trace {
     my ($level, @statements) = @_;
     if ($level <= $Verbosity) {
         my $icon = sprintf "T% 2d", $level;
