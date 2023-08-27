@@ -52,14 +52,14 @@
 #   up when data is copied from HFS on MacOS to shared exFAT drive and viewed
 #   on Windows), and treat them sort of like sidecars (except, that we want
 #   the resource fork of each sidecar in some cases - maybe it should be lower
-#   level like moveFile, traverseFiles, etc)
+#   level like moveFile, traverse_files, etc)
 # * consider multiple factors for resolving dupe group, not just {md5}, also
 #   existance, full_md5, size/mtime, filename, basename, extension. Possibly
 #   weighted. And examine the similarity between each pair of items in the
 #   group. Then sort by the sum of similarty value compared to all other items
 #   to determine priority. Or something along those lines.
 # * dedupe IMG_XXXX.HEIC and IMG_EXXXX.JPG
-# * traverseFiles should skip any dir which contains a special (zero byte?)
+# * traverse_files should skip any dir which contains a special (zero byte?)
 #   unique file (named .orphignore?) and add documentation (e.g. put this in
 #   the same dir as your lrcat file). Maybe if it's not zero byte, it can act
 #   like .gitignore Or, alternately do a .rsync-filter style file instead of
@@ -236,9 +236,9 @@ sub doAppendMetadata {
 # Execute check-md5 verb
 sub doCheckMd5 {
     my ($addOnly, $forceRecalc, @globPatterns) = @_;
-    traverseFiles(
-        \&defaultIsDirWanted, # isDirWanted
-        \&defaultIsFileWanted, # isFileWanted
+    traverse_files(
+        \&default_is_dir_wanted, # isDirWanted
+        \&default_is_file_wanted, # isFileWanted
         sub {  # callback
             my ($fullPath, $rootFullPath) = @_;
             -f $fullPath and resolve_orphdat($fullPath, $addOnly, $forceRecalc, undef);
@@ -250,7 +250,7 @@ sub doCheckMd5 {
 # Execute collect-trash verb
 sub doCollectTrash {
     my (@globPatterns) = @_;
-    traverseFiles(
+    traverse_files(
         sub {  # isDirWanted
             return 1;
         },
@@ -272,7 +272,7 @@ sub doCollectTrash {
 # EXPERIMENTAL
 # Execute find-dupe-dirs verb
 sub doFindDupeDirs {
-    # TODO: clean this up and use traverseFiles
+    # TODO: clean this up and use traverse_files
     my %keyToPaths = ();
     File::Find::find({
         preprocess => sub {
@@ -429,9 +429,9 @@ sub buildFindDupeFilesDupeGroups {
     my %keyToFullPathList = ();
     if ($byName) {
         # Hash key based on file/dir name
-        traverseFiles(
-            \&defaultIsDirWanted, # isDirWanted
-            \&defaultIsFileWanted, # isFileWanted
+        traverse_files(
+            \&default_is_dir_wanted, # isDirWanted
+            \&default_is_file_wanted, # isFileWanted
             sub {  # callback
                 my ($fullPath, $rootFullPath) = @_;
                 if (-f $fullPath) {
@@ -443,8 +443,8 @@ sub buildFindDupeFilesDupeGroups {
     } else {
         # Hash key is MD5
         find_orphdat(
-            \&defaultIsDirWanted, # isDirWanted
-            \&defaultIsFileWanted, # isFileWanted
+            \&default_is_dir_wanted, # isDirWanted
+            \&default_is_file_wanted, # isFileWanted
             sub {  # callback
                 my ($fullPath, $md5Info) = @_;
                 push @{$keyToFullPathList{$md5Info->{md5}}}, 
@@ -823,8 +823,8 @@ sub doRemoveEmpties {
     my (@globPatterns) = @_;
     # Map from directory absolute path to sub-item count
     my %dirSubItemsMap = ();
-    traverseFiles(
-        \&defaultIsDirWanted, # isDirWanted
+    traverse_files(
+        \&default_is_dir_wanted, # isDirWanted
         sub {  # isFileWanted
             my ($fullPath, $rootFullPath, $filename) = @_;
             # These files don't count - they're trashible, ignore them (by 
@@ -883,7 +883,7 @@ sub doPurgeMd5 {
     # TODO: If there's another file with the same size/date/full-md5, then
     # rather than trash_orphdat, do delete_orphdat
     find_orphdat(
-        \&defaultIsDirWanted, # isDirWanted
+        \&default_is_dir_wanted, # isDirWanted
         sub { # isFileWanted
             return 1; # skip all filters for this
         },
@@ -898,7 +898,7 @@ sub doPurgeMd5 {
 sub doRestoreTrash {
     my (@globPatterns) = @_;
     my $dry_run = 0;
-    traverseFiles(
+    traverse_files(
         sub {  # isDirWanted
             return 1;
         },
@@ -923,9 +923,9 @@ sub doTest {
     my $dry_run = 0;
     #$View::Verbosity = View::VERBOSITY_HIGH;
     my $all = 0;
-    traverseFiles(
-        \&defaultIsDirWanted, # isDirWanted
-        \&defaultIsFileWanted, # isFileWanted
+    traverse_files(
+        \&default_is_dir_wanted, # isDirWanted
+        \&default_is_file_wanted, # isFileWanted
         sub {  # callback
             my ($path, $root_path) = @_;
 
@@ -985,8 +985,8 @@ sub do_verify_md5 {
     my $all = 0;
     my $skip_md5 = 0;
     find_orphdat(
-        \&defaultIsDirWanted, # isDirWanted
-        \&defaultIsFileWanted, # isFileWanted
+        \&default_is_dir_wanted, # isDirWanted
+        \&default_is_file_wanted, # isFileWanted
         sub {  #callback
             my ($path, $expected_md5_info) = @_;
             if (-e $path) {
@@ -1029,15 +1029,15 @@ sub do_verify_md5 {
         }, @glob_patterns);
 }
 
-# Default implementation for traverseFiles's isDirWanted param
-sub defaultIsDirWanted {
-    my ($fullPath, $rootFullPath, $filename) = @_;
+# Default implementation for traverse_files's isDirWanted param
+sub default_is_dir_wanted {
+    my ($path, $root_path, $filename) = @_;
     return (lc $filename ne $FileTypes::TRASH_DIR_NAME);
 }
 
-# Default implementation for traverseFiles's isDirWanted param
-sub defaultIsFileWanted {
-    my ($fullPath, $rootFullPath, $filename) = @_;
+# Default implementation for traverse_files's isDirWanted param
+sub default_is_file_wanted {
+    my ($path, $root_path, $filename) = @_;
     return (lc $filename ne $FileTypes::ORPHDAT_FILENAME and $filename =~ /$filenameFilter/);
 }
 
