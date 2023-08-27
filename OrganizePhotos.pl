@@ -65,16 +65,19 @@ unless (@ARGV) {
 } else {
     Getopt::Long::Configure('bundling');
     my $verb = shift @ARGV;
-    if ($verb eq 'append-metadata' or $verb eq 'am') {
+    if ($verb eq 'append-metadata') {
         my @args = myGetOptions();
         doAppendMetadata(@args);
+    } elsif ($verb eq 'check-date') {
+        my @args = myGetOptions();
+        do_check_date(@args);
     } elsif ($verb eq 'check-md5' or $verb eq 'c5') {
         my $addOnly = 0;
         my $forceRecalc = 0;
         my @args = myGetOptions(
             'add-only' => \$addOnly,
             'force-recalc' => \$forceRecalc);
-        doCheckMd5($addOnly, $forceRecalc, @args);
+        do_check_hash($addOnly, $forceRecalc, @args);
     } elsif ($verb eq 'checkup' or $verb eq 'c') {
         my $addOnly = 0;
         my $autoDiff = 0;
@@ -86,7 +89,7 @@ unless (@ARGV) {
             'auto-diff|d' => \$autoDiff,
             'by-name|n' => \$byName,
             'no-default-last-action' => \$noDefaultLastAction);
-        doCheckMd5($addOnly, $forceRecalc, @args);
+        do_check_hash($addOnly, $forceRecalc, @args);
         #doPurgeMd5(@args);
         doFindDupeFiles($byName, $autoDiff, 
                         !$noDefaultLastAction, @args);
@@ -125,12 +128,14 @@ unless (@ARGV) {
         doRestoreTrash(@args);
     } elsif ($verb eq 'test') {
         my @args = myGetOptions();
-        doTest(@args);
+        do_test(@args);
     } elsif ($verb eq 'verify-md5' or $verb eq 'v5') {
         my @args = myGetOptions();
         do_verify_md5(@args);
     } else {
-        die "Unknown verb: $verb\n";
+        Pod::Usage::pod2usage({
+            -message => "Unknown verb: $verb\n",
+            -verbose => 0});
     }
 }
 
