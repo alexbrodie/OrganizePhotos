@@ -990,11 +990,13 @@ sub do_verify_md5 {
     my (@glob_patterns) = @_;
     my $all = 0;
     my $skip_md5 = 0;
+    my $file_count = 0;
     find_orphdat(
         \&default_is_dir_wanted, # isDirWanted
         \&default_is_file_wanted, # isFileWanted
         sub {  #callback
             my ($path, $expected_md5_info) = @_;
+            $file_count++;
             if (-e $path) {
                 # File exists
                 my $actual_md5_base = make_orphdat_base($path);
@@ -1033,6 +1035,7 @@ sub do_verify_md5 {
                 }
             }
         }, @glob_patterns);
+    print "Checked $file_count files\n";
 }
 
 # Default implementation for traverse_files's isDirWanted param
