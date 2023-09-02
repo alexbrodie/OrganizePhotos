@@ -221,7 +221,7 @@ sub find_orphdat {
             my ($path, $root) = @_;
             if (-f $path) {
                 my ($vol, $dir, $filename) = split_path($path);
-                my (undef, $orphdat_set) = read_orphdat_file('<:crlf', $path);
+                my (undef, $orphdat_set) = read_orphdat_file('<', $path);
                 for my $orphdat_key (sort { $orphdat_set->{$a}->{filename} cmp $orphdat_set->{$b}->{filename} } keys %$orphdat_set) {
                     my $orphdat = $orphdat_set->{$orphdat_key};
                     my $other_filename = $orphdat->{filename};
@@ -270,7 +270,7 @@ sub move_orphdat {
         trace(View::VERBOSITY_HIGH, "Can't move/remove Md5Info for '$source_orphdat_key' from missing '$source_orphdat_path'"); 
         return undef;
     }
-    my ($source_orphdat_file, $source_orphdat_set) = read_orphdat_file('+<:crlf', $source_orphdat_path);
+    my ($source_orphdat_file, $source_orphdat_set) = read_orphdat_file('+<', $source_orphdat_path);
     unless (exists $source_orphdat_set->{$source_orphdat_key}) {
         trace(View::VERBOSITY_HIGH, "Can't move/remove missing Md5Info for '$source_orphdat_key' from '$source_orphdat_path'");
         return undef;
@@ -368,7 +368,7 @@ sub append_orphdat_files {
     my $old_target_orphdat_set_count = scalar keys %$target_orphdat_set;
     my $dirty = 0;
     for my $source_orphdat_path (@source_orphdat_paths) {
-        my (undef, $source_orphdat_set) = read_orphdat_file('<:crlf', $source_orphdat_path);
+        my (undef, $source_orphdat_set) = read_orphdat_file('<', $source_orphdat_path);
         while (my ($orphdat_key, $source_orphdat) = each %$source_orphdat_set) {
             if (exists $target_orphdat_set->{$orphdat_key}) {
                 my $target_orphdat = $target_orphdat_set->{$orphdat_key};
@@ -401,10 +401,9 @@ sub read_or_create_orphdat_file {
     my ($orphdat_path) = @_;
     trace(View::VERBOSITY_MAX, "read_or_create_orphdat_file('$orphdat_path');");
     if (-e $orphdat_path) {
-        return read_orphdat_file('+<:crlf', $orphdat_path);
+        return read_orphdat_file('+<', $orphdat_path);
     } else {
-        # TODO: should mode here have :crlf on the end?
-        my $fh = open_file('+>', $orphdat_path);
+        my $fh = open_orphdat_file('+>', $orphdat_path);
         print_crud(View::VERBOSITY_MEDIUM, View::CRUD_CREATE, 
             "Created cache at '@{[pretty_path($orphdat_path)]}'\n");
         return ($fh, {});
@@ -418,8 +417,7 @@ sub read_or_create_orphdat_file {
 sub read_orphdat_file {
     my ($open_mode, $orphdat_path) = @_;
     trace(View::VERBOSITY_MAX, "read_orphdat_file('$open_mode', '$orphdat_path');");
-    # TODO: Should we validate filename is $FileTypes::ORPHDAT_FILENAME or do we care?
-    my $orphdat_file = open_file($open_mode, $orphdat_path);
+    my $orphdat_file = open_orphdat_file($open_mode, $orphdat_path);
     # If the first char is a open curly brace, treat as JSON,
     # otherwise do the older simple "name: md5\n" format parsing
     my $use_json = 0;
@@ -467,7 +465,6 @@ sub read_orphdat_file {
 sub set_orphdat_and_write_file {
     my ($path, $new_orphdat, $orphdat_path, $orphdat_key, $orphdat_file, $orphdat_set) = @_;
     trace(View::VERBOSITY_MAX, "set_orphdat_and_write_file('$path', ...);");
-    # TODO: Should we validate filename is $FileTypes::ORPHDAT_FILENAME or do we care?
     my $old_orphdat = $orphdat_set->{$orphdat_key};
     if ($old_orphdat and Data::Compare::Compare($old_orphdat, $new_orphdat)) {
         trace(View::VERBOSITY_HIGH, "Skipping no-op update of cache for '$path'");
@@ -499,8 +496,8 @@ sub write_orphdat_file {
     #       and writing out the "\x{FEFF}" BOM. Not sure how to do that in
     #       a fully cross compatable way (older file versions as well as
     #       Windows/Mac compat)
-    # TODO: Should we validate filename is $FileTypes::ORPHDAT_FILENAME or do we care?
     trace(View::VERBOSITY_MAX, "write_orphdat_file('$orphdat_path', <file>, { hash of @{[ scalar keys %$orphdat_set ]} items });");
+    verify_orphdat_path($orphdat_path);
     seek($orphdat_file, 0, 0) or die "Couldn't reset seek on file: $!";
     truncate($orphdat_file, 0) or die "Couldn't truncate file: $!";
     if (%$orphdat_set) {
@@ -511,6 +508,23 @@ sub write_orphdat_file {
     update_orphdat_cache($orphdat_path, $orphdat_set);
     print_crud(View::VERBOSITY_MEDIUM, View::CRUD_UPDATE, 
         "Wrote cache to '@{[pretty_path($orphdat_path)]}'\n");
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Opens a filehandle given a path to a .orphdat file. This adds safeguards
+# and encoding handling on top of open_file. 
+sub open_orphdat_file {
+    my ($open_mode, $orphdat_path) = @_;
+    verify_orphdat_path($orphdat_path);
+    return open_file($open_mode . ':crlf', $orphdat_path);
+}
+
+# MODEL (MD5) ------------------------------------------------------------------
+# Verify filename of provided path is $ORPHDAT_FILENAME
+sub verify_orphdat_path {
+    my ($orphdat_path) = @_;
+    my (undef, undef, $filename) = split_path($orphdat_path);
+    $filename eq $FileTypes::ORPHDAT_FILENAME or die "Expected cache filename '${FileTypes::ORPHDAT_FILENAME}' for '$orphdat_path'";
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
