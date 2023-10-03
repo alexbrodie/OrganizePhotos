@@ -430,6 +430,7 @@ sub read_orphdat_file {
     seek($orphdat_file, 0, 0) or die "Couldn't reset seek on file: $!";
     my $orphdat_set = {};
     if ($use_json) {
+        # decode (and decode_json) converts UTF-8 binary string to perl data struct
         $orphdat_set = JSON::decode_json(join '', <$orphdat_file>);
         # TODO: Consider validating parsed content - do a lc on
         #       filename/md5s/whatever, and verify vs $MD5_DIGEST_PATTERN???
@@ -501,6 +502,7 @@ sub write_orphdat_file {
     seek($orphdat_file, 0, 0) or die "Couldn't reset seek on file: $!";
     truncate($orphdat_file, 0) or die "Couldn't truncate file: $!";
     if (%$orphdat_set) {
+        # encode (and encode_json) produces UTF-8 binary string
         print $orphdat_file JSON->new->allow_nonref->pretty->canonical->encode($orphdat_set);
     } else {
         warn "Writing empty data to $orphdat_path";
@@ -512,7 +514,8 @@ sub write_orphdat_file {
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Opens a filehandle given a path to a .orphdat file. This adds safeguards
-# and encoding handling on top of open_file. 
+# and encoding handling on top of open_file. Use in place of open_file for
+# .orphdat files.
 sub open_orphdat_file {
     my ($open_mode, $orphdat_path) = @_;
     verify_orphdat_path($orphdat_path);
