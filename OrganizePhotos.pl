@@ -8,6 +8,7 @@ use warnings FATAL => qw(uninitialized);
 use File::Basename;
 use Cwd qw(abs_path);
 use lib dirname(abs_path(__FILE__));
+use lib dirname(abs_path(__FILE__)) . '/lib';
 
 # Local uses
 use OrganizePhotos;
