@@ -1,3 +1,6 @@
 {
     "perlnavigator.perlcriticProfile": ".perlcriticrc",
+    "perl.perlInc": [
+        "./lib",
+    ],
 }
