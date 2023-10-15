@@ -284,8 +284,8 @@ sub compare_filename_with_ext_order {
 sub is_reserved_system_filename {
     my ($filename) = @_;
     $filename = lc $filename;
-    return $filename eq '.ds_store'
-        or $filename eq 'thumbs.db';
+    return ($filename eq '.ds_store')
+        || ($filename eq 'thumbs.db');
 }
 
 1;
