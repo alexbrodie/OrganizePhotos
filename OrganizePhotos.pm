@@ -982,6 +982,7 @@ sub doRestoreTrash {
 # Execute test verb. This is intended to run a suite of tests.
 sub do_test {
     my (@args) = @_;
+    print_with_icon('/!\\', 'yellow', 'Not implemented');
 }
 
 # API ==========================================================================
