@@ -18,11 +18,6 @@ our @EXPORT = qw(
     make_orphdat_base
 );
 
-# Enable local lib
-use File::Basename;
-use Cwd qw(abs_path);
-use lib dirname(abs_path(__FILE__));
-
 # Local uses
 use ContentHash;
 use FileOp;
