@@ -11,3 +11,7 @@ severity = 5
 
 [-Subroutines::RequireFinalReturn]
 [-Subroutines::ProhibitExplicitReturnUndef]
+
+# Maybe later
+[-ValuesAndExpressions::ProhibitConstantPragma]
+[-Modules::ProhibitAutomaticExportation]

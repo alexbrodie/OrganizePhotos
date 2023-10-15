@@ -36,25 +36,25 @@ sub change_filename {
 # Splits a path into three components:
 #   my ($volume, $dirs, $filename) = split_path($path);
 # The inverse of combine_path.
-sub split_path {
+sub split_path { ## no critic (RequireArgUnpacking)
     return File::Spec->splitpath(@_);
 }
 
 # Merges the three components:
 #   my $path = combine_path($volume, $dirs, $filename);
 # The inverse of split_path.
-sub combine_path {
+sub combine_path { ## no critic (RequireArgUnpacking)
     # Experience shows that canonpath should follow catpath.
     return File::Spec->canonpath(File::Spec->catpath(@_));
 }
 
 # The inverse of combine_dir
-sub split_dir {
+sub split_dir { ## no critic (RequireArgUnpacking)
     return File::Spec->splitdir(@_);
 }
 
 # The inverse of split_dir
-sub combine_dir {
+sub combine_dir { ## no critic (RequireArgUnpacking)
     return File::Spec->catdir(@_);
 }
 
