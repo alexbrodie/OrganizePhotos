@@ -5,13 +5,14 @@ OrganizePhotos - utilities for managing a collection of photos/videos
 # SYNOPSIS
 
     OrganizePhotos -h
-    OrganizePhotos check-md5|c5 [--add-only] [glob patterns...]
+    OrganizePhotos check-md5|c5 [--add-only] [--force-recalc] [glob patterns...]
     OrganizePhotos checkup|c [--add-only] [--auto-diff|-d] [--by-name|-n]
         [--no-default-last-action] [glob patterns...]
     OrganizePhotos collect-trash|ct [glob patterns...]
     OrganizePhotos find-dupe-files|fdf [--auto-diff|-d] [--by-name|-n]
         [--no-default-last-action] [glob-patterns...]
     OrganizePhotos metadata-diff|md [--exclude-sidecars|-x] [glob-patterns...]
+    OrganizePhotos purge-md5|p5 [glob-patterns...]
     OrganizePhotos remove-empties|re [glob-patterns...]
     OrganizePhotos restore-trash|rt [glob-patterns...]
 
@@ -61,6 +62,11 @@ the per-directory database files.
     Only operate on files that haven't had their MD5 computed and stored
     yet. This option means that no existing MD5s will be verified.
 
+- **`--force-recalc`**
+
+    Forces a recalc of file even if cached data is up to date. Updates
+    the cache with the new data.
+
 - **glob patterns**
 
     Rather than operate on files under the current directory, operate on
@@ -76,12 +82,18 @@ the per-directory database files.
 
 This command runs the following suggested suite of commands:
 
-    check-md5
-    find-dupe-files
-    remove-empties
-    collect-trash
+    check-md5 [--add-only] [glob patterns]
+    find-dupe-files [--auto-diff|d] [--by-name|n]
+        [--no-default-last-action] [glob patterns]
+    remove-empties [glob patterns]
+    collect-trash [glob patterns]
 
 ### Options & Arguments
+
+- **`--add-only`**
+
+    Only operate on files that haven't had their MD5 computed and stored
+    yet. This option means that no existing MD5s will be verified.
 
 - **`-d`**, **`--auto-diff`**
 
@@ -92,6 +104,10 @@ This command runs the following suggested suite of commands:
     Don't use the last action as the default action (what is used if an
     empty command is specified, i.e. you just press Enter). Enter without
     entering a command will re-prompt.
+
+- **`-n`**, **`--by-name`**
+
+    Search for duplicates based on name rather than the default of MD5.
 
 - **glob patterns**
 
@@ -165,7 +181,7 @@ and walks through a series of interactive prompts for resolution.
 
 - **`-n`**, **`--by-name`**
 
-    Search for duplicates based on name rather than the default of MD5
+    Search for duplicates based on name rather than the default of MD5.
 
 - **glob patterns**
 
@@ -199,6 +215,24 @@ This method does not modify any file.
 
     # Do a three way diff between the metadata in the JPGs
     $ OrganizePhotos md one.jpg two.jpg three.jpg
+
+## **`purge-md5`** _(`p5`)_
+
+Trash database entries that reference files that no longer exist at the
+location where they were indexed, presumably because they were moved
+or deleted.
+
+### Options & Arguments
+
+- **glob patterns**
+
+    Rather than operate on files under the current directory, operate on
+    the specified glob pattern(s).
+
+### Examples
+
+    # Trash all orphaned MD5 data under the current directory
+    $ OrganizePhotos p5
 
 ## **`remove-empties`** _(`re`)_
 
