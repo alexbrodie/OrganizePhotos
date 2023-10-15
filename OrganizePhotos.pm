@@ -893,8 +893,8 @@ sub doRemoveEmpties {
             # These files don't count - they're trashible, ignore them (by 
             # not processing) as if they didn't exist and let them get
             # cleaned up if the folder gets trashed
-            my $lcfn = lc $filename;
-            return 0 if any { $lcfn eq $_ } ('.ds_store', 'thumbs.db', $FileTypes::ORPHDAT_FILENAME);
+            return 0 if is_reserved_system_filename($filename);
+            return 0 if (lc $filename eq $FileTypes::ORPHDAT_FILENAME);
             # TODO: exclude zero byte or hidden files as well?
             return 1; # Other files count
         },
