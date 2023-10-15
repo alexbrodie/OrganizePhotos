@@ -14,11 +14,6 @@ our @EXPORT = qw(
     read_metadata
 );
 
-# Enable local lib
-use File::Basename;
-use Cwd qw(abs_path);
-use lib dirname(abs_path(__FILE__));
-
 # Local uses
 use View;
 use PathOp;
@@ -103,7 +98,7 @@ sub read_metadata {
 sub extract_info {
     my ($path, $et, @exiftool_args) = @_;
     unless ($et) {
-        $et = new Image::ExifTool;
+        $et = Image::ExifTool->new;
         # We do ISO 8601 dates by default
         $et->Options(DateFormat => '%FT%T%z');
     }

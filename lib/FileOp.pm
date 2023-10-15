@@ -18,11 +18,6 @@ our @EXPORT = qw(
     open_file
 );
 
-# Enable local lib
-use File::Basename;
-use Cwd qw(abs_path);
-use lib dirname(abs_path(__FILE__));
-
 # Local uses
 use FileTypes;
 use PathOp;

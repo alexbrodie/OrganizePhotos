@@ -16,11 +16,6 @@ our @EXPORT = qw(
     is_reserved_system_filename
 );
 
-# Enable local lib
-use File::Basename;
-use Cwd qw(abs_path);
-use lib dirname(abs_path(__FILE__));
-
 # Local uses
 use PathOp;
 use View;
