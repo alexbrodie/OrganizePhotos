@@ -13,6 +13,7 @@ our @EXPORT = qw(
     get_sidecar_paths
     get_trash_path
     compare_path_with_ext_order
+    is_reserved_system_filename
 );
 
 # Enable local lib
@@ -276,6 +277,15 @@ sub compare_filename_with_ext_order {
     return $direction * $c if $c;
     # And then just the extension as a string
     return $direction * (lc ($ext_a || '') cmp lc ($ext_b || ''));
+}
+
+# Returns true if the provided filename is one of the reserved
+# system filenames (and should then be ignored)
+sub is_reserved_system_filename {
+    my ($filename) = @_;
+    $filename = lc $filename;
+    return $filename eq '.ds_store'
+        or $filename eq 'thumbs.db';
 }
 
 1;
