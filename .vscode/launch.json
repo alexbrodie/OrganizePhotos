@@ -9,7 +9,7 @@
             "request": "launch",
             "name": "Perl-Debug",
             "program": "${workspaceFolder}/OrganizePhotos.pl",
-            "stopOnEntry": true,
+            "stopOnEntry": false,
             "reloadModules": true,
             "cwd": "~/MyTemp",
             "args": [ "test", "-v99", "~/MyTemp/Test" ]
