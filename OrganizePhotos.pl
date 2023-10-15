@@ -15,8 +15,8 @@ use View;
 
 # Library uses
 use Carp;
-$SIG{__DIE__} =  \&Carp::confess;
-$SIG{__WARN__} = \&Carp::cluck;
+local $SIG{__DIE__} =  \&Carp::confess;
+local $SIG{__WARN__} = \&Carp::cluck;
 use Getopt::Long ();
 BEGIN { $Pod::Usage::Formatter = 'Pod::Text::Termcap'; }
 use Pod::Usage ();

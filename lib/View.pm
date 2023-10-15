@@ -60,7 +60,7 @@ sub colored_by_index {
 }
 
 # Stringify a perl data structure suitable for traceing
-sub dump_struct {
+sub dump_struct { ## no critic (RequireArgUnpacking)
     #return Data::Dumper::Dumper(@_);
     return JSON->new->allow_nonref->allow_blessed->convert_blessed->pretty->canonical->encode(@_);
 }
