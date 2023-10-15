@@ -1,7 +1,10 @@
 # Our perlcritic profile. See Perl::Critic's CONFIGURATION documentation.
 
+severity = 3
+verbose = 4
+
+[TestingAndDebugging::RequireUseStrict]
 severity = 5
-verbose = 11
 
 [TestingAndDebugging::RequireUseWarnings]
 severity = 5
