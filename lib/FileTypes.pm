@@ -177,6 +177,7 @@ sub get_file_type_info {
     my ($ext, $property) = @_;
     if (defined $ext) {
         my $key = uc $ext;
+        $key =~ s{^\.}{};
         if (exists $FILE_TYPES{$key}) {
             my $file_type = $FILE_TYPES{$key};
             if (exists $file_type->{$property}) {
