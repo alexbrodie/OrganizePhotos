@@ -53,7 +53,8 @@ sub get_date_taken {
             }
         }
 
-        if ($date_taken_raw) {
+        if ($date_taken_raw && 
+            $date_taken_raw ne '0000:00:00 00:00:00') {
             $date_taken = DateTime::Format::HTTP->parse_datetime($date_taken_raw);
         }
     };
