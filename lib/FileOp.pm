@@ -8,6 +8,8 @@ package FileOp;
 use Exporter;
 our @ISA = ('Exporter');
 our @EXPORT = qw(
+    default_is_dir_wanted
+    default_is_file_wanted
     traverse_files
     trash_path
     trash_path_and_sidecars
@@ -29,6 +31,20 @@ use File::Copy ();
 use File::Find ();
 use File::Path ();
 use File::Spec ();
+
+our $filenameFilter = $FileTypes::MEDIA_TYPE_FILENAME_FILTER;
+
+# Default implementation for traverse_files's isDirWanted param
+sub default_is_dir_wanted {
+    my ($path, $root_path, $filename) = @_;
+    return (lc $filename ne $FileTypes::TRASH_DIR_NAME);
+}
+
+# Default implementation for traverse_files's isDirWanted param
+sub default_is_file_wanted {
+    my ($path, $root_path, $filename) = @_;
+    return (lc $filename ne $FileTypes::ORPHDAT_FILENAME and $filename =~ /$filenameFilter/);
+}
 
 # MODEL (File Operations) ------------------------------------------------------
 # This is a wrapper over File::Find::find that offers a few benefits:

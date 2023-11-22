@@ -11,8 +11,20 @@
             "program": "${workspaceFolder}/OrganizePhotos.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "~/MyTemp",
-            "args": [ "test", "-v99", "~/MyTemp/Test" ]
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            //"args": [ "append-metadata", "-v3", "AppendMetadata/target.jpg", "AppendMetadata/source1.jpg", "AppendMetadata/source2.jpg" ]
+            //"args": [ "check-date", "-v3", "CheckDate" ]
+            //"args": [ "check-md5", "-v3", "CheckHash" ]
+            //"args": [ "checkup", "-v3" ]
+            //"args": [ "collect-trash", "-v3", "CollectTrash" ]
+            //"args": [ "find-dupe-dirs", "-v3", "FindDupeDirs" ]
+            //"args": [ "find-dupe-files", "-v3", "FindDupeFiles" ]
+            //"args": [ "metadata-diff", "-v3", "MetadataDiff/g.jpg", "MetadataDiff/r.jpg", "MetadataDiff/b.jpg" ]
+            //"args": [ "purge-md5", "-v3", "PruneOrphdat" ]
+            //"args": [ "remove-empties", "-v3", "RemoveEmpties" ]
+            //"args": [ "restore-trash", "-v3", "RestoreTrash" ]
+            //"args": [ "test", "-v99" ]
+            //"args": [ "verify-md5", "-v3", "VerifyHash" ]
         }
     ]
 }

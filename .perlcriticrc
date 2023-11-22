@@ -9,9 +9,29 @@ severity = 5
 [TestingAndDebugging::RequireUseWarnings]
 severity = 5
 
+[Modules::RequireExplicitInclusion]
+severity = 2
+
+[Subroutines::ProhibitCallsToUndeclaredSubs]
+severity = 5
+exempt_subs = Test::More::can_ok Test::More::is Test::More::isnt Test::More::like Test::More::use_ok
+
+[Subroutines::ProhibitExportingUndeclaredSubs]
+severity = 5
+
+[Subroutines::ProhibitQualifiedSubDeclarations]
+severity = 5
+
+[Subroutines::ProhibitSubroutinePrototypes]
+severity = 5
+
+[TooMuchCode::ProhibitUnusedImport]
+severity = 5
+
 [-Subroutines::RequireFinalReturn]
 [-Subroutines::ProhibitExplicitReturnUndef]
 
 # Maybe later
 [-ValuesAndExpressions::ProhibitConstantPragma]
 [-Modules::ProhibitAutomaticExportation]
+

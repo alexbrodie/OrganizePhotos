@@ -10,7 +10,18 @@ use Cwd qw(abs_path);
 use lib dirname(abs_path(__FILE__)) . '/lib';
 
 # Local uses
-use OrganizePhotos;
+use DoAppendMetadata;
+use DoCheckDate;
+use DoCheckHash;
+use DoCollectTrash;
+use DoFindDupeDirs;
+use DoFindDupeFiles;
+use DoMetadataDiff;
+use DoPruneOrphdat;
+use DoRemoveEmpties;
+use DoRestoreTrash;
+use DoTest;
+use DoVerifyHash;
 use View;
 
 # Library uses
@@ -41,17 +52,18 @@ sub my_get_options {
 
     if ($filter) {
         if ($filter eq 'all') {
-            $OrganizePhotos::filenameFilter = qr//;
+            $filter = qr//;
         } elsif ($filter eq 'media') {
-            $OrganizePhotos::filenameFilter = $FileTypes::MEDIA_TYPE_FILENAME_FILTER;
+            $filter = $FileTypes::MEDIA_TYPE_FILENAME_FILTER;
         } elsif ($filter =~ /^qr(.*)$/) {
-            $OrganizePhotos::filenameFilter = qr/$1/;
+            $filter = qr/$1/;
         } elsif ($filter =~ /^\.(.*)$/) {
-            $OrganizePhotos::filenameFilter = qr/\.(?i)(?:@{[ join '|', split '\.', $1 ]})$/;
+            $filter = qr/\.(?i)(?:@{[ join '|', split '\.', $1 ]})$/;
         } else {
             die "Unknown filter '$filter', choose from all, media, .ext.ex2.etc, qrREGEXP\n";
         }
-        trace(View::VERBOSITY_LOW, "Filter set to: ", $OrganizePhotos::filenameFilter);
+        $FileOp::filenameFilter = $filter;
+        trace(View::VERBOSITY_LOW, "Filter set to: ", $filter);
     }
     return @ARGV;
 }
