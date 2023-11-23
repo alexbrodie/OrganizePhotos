@@ -8,7 +8,7 @@
             "type": "perl",
             "request": "launch",
             "name": "Perl-Debug",
-            "program": "${workspaceFolder}/OrganizePhotos.pl",
+            "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
             "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
@@ -23,7 +23,7 @@
             //"args": [ "purge-md5", "-v3", "PruneOrphdat" ]
             //"args": [ "remove-empties", "-v3", "RemoveEmpties" ]
             //"args": [ "restore-trash", "-v3", "RestoreTrash" ]
-            //"args": [ "test", "-v99" ]
+            "args": [ "test", "-v99" ]
             //"args": [ "verify-md5", "-v3", "VerifyHash" ]
         }
     ]

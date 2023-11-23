@@ -7,7 +7,7 @@ use warnings FATAL => qw(uninitialized);
 # Enable local lib
 use File::Basename;
 use Cwd qw(abs_path);
-use lib dirname(abs_path(__FILE__)) . '/lib';
+use lib dirname(abs_path(__FILE__)) . '/../lib';
 
 # Local uses
 use DoAppendMetadata;
@@ -156,25 +156,25 @@ __END__
 
 Commands to regenerate documentation:
   cpanm Pod::Markdown
-  pod2markdown OrganizePhotos.pl > README.md
+  pod2markdown script/app.pl > README.md
 
 =head1 NAME
 
-OrganizePhotos - utilities for managing a collection of photos/videos
+orph - organizing photo and video collections
 
 =head1 SYNOPSIS
 
-    OrganizePhotos -h
-    OrganizePhotos check-md5|c5 [--add-only] [--force-recalc] [glob patterns...]
-    OrganizePhotos checkup|c [--add-only] [--auto-diff|-d] [--by-name|-n]
+    orph -h
+    orph check-md5|c5 [--add-only] [--force-recalc] [glob patterns...]
+    orph checkup|c [--add-only] [--auto-diff|-d] [--by-name|-n]
         [--no-default-last-action] [glob patterns...]
-    OrganizePhotos collect-trash|ct [glob patterns...]
-    OrganizePhotos find-dupe-files|fdf [--auto-diff|-d] [--by-name|-n]
+    orph collect-trash|ct [glob patterns...]
+    orph find-dupe-files|fdf [--auto-diff|-d] [--by-name|-n]
         [--no-default-last-action] [glob-patterns...]
-    OrganizePhotos metadata-diff|md [--exclude-sidecars|-x] [glob-patterns...]
-    OrganizePhotos purge-md5|p5 [glob-patterns...]
-    OrganizePhotos remove-empties|re [glob-patterns...]
-    OrganizePhotos restore-trash|rt [glob-patterns...]
+    orph metadata-diff|md [--exclude-sidecars|-x] [glob-patterns...]
+    orph purge-md5|p5 [glob-patterns...]
+    orph remove-empties|re [glob-patterns...]
+    orph restore-trash|rt [glob-patterns...]
 
 =head1 DESCRIPTION
 
@@ -193,7 +193,7 @@ Metadata operations are powered by L<C<Image::ExifTool>>.
 
 The calling pattern for each command follows the pattern:
 
-    OrganizePhotos <verb> [options...]
+    orph <verb> [options...]
 
 Options are managed with L<C<Getopt::Long>>, and thus may appear anywhere
 after the verb, with remaining arguments being used as input for the verb.
@@ -240,7 +240,7 @@ the specified glob pattern(s).
 
     # Check or add MD5 for several types of video files in the
     # current directory
-    $ OrganizePhotos c5 *.mp4 *.m4v *.mov
+    $ orph c5 *.mp4 *.m4v *.mov
 
 =head2 B<C<checkup>> I<(C<c>)>
 
@@ -286,16 +286,16 @@ the specified glob pattern(s).
 
     # Performs a checkup of directory foo doing auto-diff during
     # the find-dupe-files phase
-    $ OrganizePhotos c foo -d
+    $ orph c foo -d
 
     # These next 4 together are equivalent to the previous statement 
-    $ OrganizePhotos c5 foo
-    $ OrganizePhotos fdf --auto-diff foo 
-    $ OrganizePhotos re foo
-    $ OrganizePhotos ct foo
+    $ orph c5 foo
+    $ orph fdf --auto-diff foo 
+    $ orph re foo
+    $ orph ct foo
 
     # Find all the duplicate windows binaries under the bin dir
-    $ OrganizePhotos c -fqr"\.(?:(?i)dll|exe|scr)$" bin
+    $ orph c -fqr"\.(?:(?i)dll|exe|scr)$" bin
 
 =head2 B<C<collect-trash>> I<(C<ct>)>
 
@@ -332,7 +332,7 @@ the specified glob pattern(s).
 
     # Collect trash in directories starting with Do, e.g.
     # Documents/.orphtrash, Downloads/.orphtrash, etc.
-    $ OrganizePhotos ct Do*
+    $ orph ct Do*
 
 =head2 B<C<find-dupe-files>> I<(C<fdf>)>
 
@@ -367,7 +367,7 @@ the specified glob pattern(s).
 =head3 Examples
 
     # Find duplicate files across Alpha and Bravo directories
-    $ OrganizePhotos fdf Alpha Bravo
+    $ orph fdf Alpha Bravo
 
 =head2 B<C<metadata-diff>> I<(C<md>)>
 
@@ -394,7 +394,7 @@ Specifies which files to diff
 =head3 Examples
 
     # Do a three way diff between the metadata in the JPGs
-    $ OrganizePhotos md one.jpg two.jpg three.jpg
+    $ orph md one.jpg two.jpg three.jpg
 
 =head2 B<C<purge-md5>> I<(C<p5>)>
 
@@ -416,7 +416,7 @@ the specified glob pattern(s).
 =head3 Examples
 
     # Trash all orphaned MD5 data under the current directory
-    $ OrganizePhotos p5
+    $ orph p5
 
 =head2 B<C<remove-empties>> I<(C<re>)>
 
@@ -439,7 +439,7 @@ the specified glob pattern(s).
 
     # Removes empty directories that are descendants of directories
     # in the current directory that have 'abc' in their name
-    $ OrganizePhotos re *abc*
+    $ orph re *abc*
 
 =head2 B<C<restore-trash>> I<(C<rt>)>
 
@@ -459,7 +459,7 @@ the specified glob pattern(s).
 =head3 Examples
 
     # Restores all trash under the Foo directory
-    $ OrganizePhotos rt Foo
+    $ orph rt Foo
 
 =head2 B<C<verify-md5>> I<(C<v5>)>
 
@@ -484,7 +484,7 @@ the specified glob pattern(s).
 =head3 Examples
 
     # Verifies the MD5 for all MP4 files in the current directory
-    $ OrganizePhotos v5 *.mp4
+    $ orph v5 *.mp4
 
 =begin comment
 
