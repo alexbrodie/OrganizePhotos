@@ -5,9 +5,9 @@ use warnings;
 use warnings FATAL => qw(uninitialized);
 
 # Enable local lib
-use File::Basename;
+use File::Basename qw(dirname);
 use Cwd qw(abs_path);
-use lib dirname(abs_path(__FILE__)) . '/../lib';
+use lib dirname(dirname(abs_path(__FILE__))) . '/lib';
 
 # Local uses
 use DoAppendMetadata;
