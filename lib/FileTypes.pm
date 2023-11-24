@@ -6,7 +6,7 @@ use warnings FATAL => qw(uninitialized);
 
 package FileTypes;
 use Exporter;
-our @ISA = ('Exporter');
+our @ISA    = ('Exporter');
 our @EXPORT = qw(
     get_file_type_info
     get_mime_type
@@ -54,16 +54,16 @@ const our $TRASH_DIR_NAME => '.orphtrash';
 #   EXTORDER of the sidecar type must be strictly greater if it exists. Thus
 #   this is also used to control processing order so that primary files are
 #   handled before their sidecars - e.g. raf files are handled before jpg
-#   sidecars. 
+#   sidecars.
 #
 #   The default if not specified (or the type is not known and is
 #   missing from the list altogether) is zero.
 #
-#   TODO: verify this EXTORDER/SIDECAR claim, perhaps in tests somewhere. It 
+#   TODO: verify this EXTORDER/SIDECAR claim, perhaps in tests somewhere. It
 #   would also ensure the statement in SIDECARS that there are no cycles.
 #
 # MIMETYPE
-#   The mime type of the file type (source: filext.com). For types without 
+#   The mime type of the file type (source: filext.com). For types without
 #   a MIME type, we fabricate a "non-standard" one based on extension.
 #
 # TODO: flesh this out
@@ -80,13 +80,14 @@ const my %FILE_TYPES => (
     CR2 => {
         SIDECARS => [qw( JPEG JPG XMP )],
         EXTORDER => -1,
-        MIMETYPE => 'image/cr2' # Non-standard
+        MIMETYPE => 'image/cr2'             # Non-standard
     },
     CR3 => {
         SIDECARS => [qw( JPEG JPG XMP )],
         EXTORDER => -1,
-        MIMETYPE => 'image/x-canon-cr3' # Non-standard
+        MIMETYPE => 'image/x-canon-cr3'     # Non-standard
     },
+
     #ICNS => {
     #    MIMETYPE => 'image/x-icns'
     #},
@@ -131,8 +132,9 @@ const my %FILE_TYPES => (
     NEF => {
         SIDECARS => [qw( JPEG JPG XMP )],
         EXTORDER => -1,
-        MIMETYPE => 'image/nef' # Non-standard
+        MIMETYPE => 'image/nef'             # Non-standard
     },
+
     #PDF => {
     #    MIMETYPE => 'application/pdf'
     #},
@@ -140,7 +142,7 @@ const my %FILE_TYPES => (
         MIMETYPE => 'image/png'
     },
     PSB => {
-        MIMETYPE => 'image/psb' # Non-standard
+        MIMETYPE => 'image/psb'    # Non-standard
     },
     PSD => {
         MIMETYPE => 'image/photoshop'
@@ -148,7 +150,7 @@ const my %FILE_TYPES => (
     RAF => {
         SIDECARS => [qw( JPEG JPG XMP )],
         EXTORDER => -1,
-        MIMETYPE => 'image/raf' # Non-standard
+        MIMETYPE => 'image/raf'             # Non-standard
     },
     TIF => {
         MIMETYPE => 'image/tiff'
@@ -156,6 +158,7 @@ const my %FILE_TYPES => (
     TIFF => {
         MIMETYPE => 'image/tiff'
     },
+
     #ZIP => {
     #    MIMETYPE => 'application/zip'
     #}
@@ -174,13 +177,13 @@ const our $MEDIA_TYPE_FILENAME_FILTER => qr{
 $}sx;
 
 sub get_file_type_info {
-    my ($ext, $property) = @_;
-    if (defined $ext) {
+    my ( $ext, $property ) = @_;
+    if ( defined $ext ) {
         my $key = uc $ext;
         $key =~ s{^\.}{};
-        if (exists $FILE_TYPES{$key}) {
+        if ( exists $FILE_TYPES{$key} ) {
             my $file_type = $FILE_TYPES{$key};
-            if (exists $file_type->{$property}) {
+            if ( exists $file_type->{$property} ) {
                 return $file_type->{$property};
             }
         }
@@ -191,27 +194,32 @@ sub get_file_type_info {
 # Gets the mime type from a path
 sub get_mime_type {
     my ($path) = @_;
-    # If the file is a backup (has some "bak"/"original" suffix), 
+
+    # If the file is a backup (has some "bak"/"original" suffix),
     # we want to consider the real extension
     $path =~ s/$BACKUP_SUFFIX$//;
-    my ($basename, $ext) = split_ext($path);
-    return get_file_type_info($ext, 'MIMETYPE') || '';
+    my ( $basename, $ext ) = split_ext($path);
+    return get_file_type_info( $ext, 'MIMETYPE' ) || '';
 }
 
 # Provided a path, returns an array of sidecar files based on extension.
 sub get_sidecar_paths {
     my ($path) = @_;
-    if ($path =~ /$BACKUP_SUFFIX$/) {
+    if ( $path =~ /$BACKUP_SUFFIX$/ ) {
+
         # Associating sidecars with backups only creates problems
         # like multiple versions of a file sharing the same sidecar(s)
         return ();
-    } else {
+    }
+    else {
         # Using extension as a key, look up associated sidecar types (if any)
         # and return the paths to the other types which exist
-        my ($vol, $dir, $filename) = split_path($path);
-        my ($basename, $ext) = split_ext($filename);
-        my @sidecars = @{get_file_type_info($ext, 'SIDECARS') || []};
-        @sidecars = map { combine_path($vol, $dir, combine_ext($basename, $_)) } @sidecars;
+        my ( $vol, $dir, $filename ) = split_path($path);
+        my ( $basename, $ext ) = split_ext($filename);
+        my @sidecars = @{ get_file_type_info( $ext, 'SIDECARS' ) || [] };
+        @sidecars
+            = map { combine_path( $vol, $dir, combine_ext( $basename, $_ ) ) }
+            @sidecars;
         return grep { -e } @sidecars;
     }
 }
@@ -220,35 +228,39 @@ sub get_sidecar_paths {
 # in the .orphtrash subdirectory.
 sub get_trash_path {
     my ($path) = @_;
-    my ($vol, $dir, $filename) = split_path($path);
-    my $trash_dir = File::Spec->catdir($dir, $TRASH_DIR_NAME);
-    return combine_path($vol, $trash_dir, $filename);
+    my ( $vol, $dir, $filename ) = split_path($path);
+    my $trash_dir = File::Spec->catdir( $dir, $TRASH_DIR_NAME );
+    return combine_path( $vol, $trash_dir, $filename );
 }
 
 sub compare_path_with_ext_order {
-    my ($path_a, $path_b, $reverse_ext_order) = @_;
-    my ($vol_a, $dir_a, $filename_a) = split_path($path_a);
-    my ($vol_b, $dir_b, $filename_b) = split_path($path_b);
-    return compare_dir($dir_a, $dir_b) ||
-           compare_filename_with_ext_order($filename_a, $filename_b, $reverse_ext_order);
+    my ( $path_a, $path_b, $reverse_ext_order ) = @_;
+    my ( $vol_a,  $dir_a,  $filename_a )        = split_path($path_a);
+    my ( $vol_b,  $dir_b,  $filename_b )        = split_path($path_b);
+    return compare_dir( $dir_a, $dir_b )
+        || compare_filename_with_ext_order( $filename_a, $filename_b,
+        $reverse_ext_order );
 }
 
 sub compare_dir {
-    my ($dir_a, $dir_b) = @_;
-    return 0 if $dir_a eq $dir_b; # optimization
+    my ( $dir_a, $dir_b ) = @_;
+    return 0 if $dir_a eq $dir_b;    # optimization
     my @as = File::Spec->splitdir($dir_a);
     my @bs = File::Spec->splitdir($dir_b);
-    for (my $i = 0;; $i++) {
-        if ($i >= @as) {
-            if ($i >= @bs) {
-                return 0; # A and B both ran out, so they're equal
-            } else {
-                return -1; # A is ancestor of B, so A goes first
+    for ( my $i = 0;; $i++ ) {
+        if ( $i >= @as ) {
+            if ( $i >= @bs ) {
+                return 0;    # A and B both ran out, so they're equal
             }
-        } else {
-            if ($i >= @bs) {
-                return 1; # B is ancestor of A, so B goes first
-            } else {
+            else {
+                return -1;    # A is ancestor of B, so A goes first
+            }
+        }
+        else {
+            if ( $i >= @bs ) {
+                return 1;     # B is ancestor of A, so B goes first
+            }
+            else {
                 # Compare this generation - if not equal, then we
                 # know the order, else move on to children
                 my $c = lc $as[$i] cmp lc $bs[$i];
@@ -259,20 +271,23 @@ sub compare_dir {
 }
 
 sub compare_filename_with_ext_order {
-    my ($filename_a, $filename_b, $reverse_ext_order) = @_;
-    my ($basename_a, $ext_a) = split_ext($filename_a);
-    my ($basename_b, $ext_b) = split_ext($filename_b);
+    my ( $filename_a, $filename_b, $reverse_ext_order ) = @_;
+    my ( $basename_a, $ext_a ) = split_ext($filename_a);
+    my ( $basename_b, $ext_b ) = split_ext($filename_b);
+
     # Compare by basename first
-    my $c = lc ($basename_a || '') cmp lc ($basename_b || '');
+    my $c = lc( $basename_a || '' ) cmp lc( $basename_b || '' );
     return $c if $c;
+
     # Next by extorder
-    my $direction = $reverse_ext_order ? -1 : 1;
-    my $ext_order_a = get_file_type_info($ext_a, 'EXTORDER');
-    my $ext_order_b = get_file_type_info($ext_b, 'EXTORDER');
-    $c = ($ext_order_a || 0) <=> ($ext_order_b || 0);
+    my $direction   = $reverse_ext_order ? -1 : 1;
+    my $ext_order_a = get_file_type_info( $ext_a, 'EXTORDER' );
+    my $ext_order_b = get_file_type_info( $ext_b, 'EXTORDER' );
+    $c = ( $ext_order_a || 0 ) <=> ( $ext_order_b || 0 );
     return $direction * $c if $c;
+
     # And then just the extension as a string
-    return $direction * (lc ($ext_a || '') cmp lc ($ext_b || ''));
+    return $direction * ( lc( $ext_a || '' ) cmp lc( $ext_b || '' ) );
 }
 
 # Returns true if the provided filename is one of the reserved
@@ -280,8 +295,8 @@ sub compare_filename_with_ext_order {
 sub is_reserved_system_filename {
     my ($filename) = @_;
     $filename = lc $filename;
-    return ($filename eq '.ds_store')
-        || ($filename eq 'thumbs.db');
+    return ( $filename eq '.ds_store' )
+        || ( $filename eq 'thumbs.db' );
 }
 
 1;

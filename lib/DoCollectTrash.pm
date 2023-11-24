@@ -6,7 +6,7 @@ use warnings FATAL => qw(uninitialized);
 
 package DoCollectTrash;
 use Exporter;
-our @ISA = ('Exporter');
+our @ISA    = ('Exporter');
 our @EXPORT = qw(
     doCollectTrash
 );
@@ -19,21 +19,23 @@ use PathOp qw(split_path);
 sub doCollectTrash {
     my (@globPatterns) = @_;
     traverse_files(
-        sub {  # isDirWanted
+        sub {    # isDirWanted
             return 1;
         },
-        sub {  # isFileWanted
+        sub {    # isFileWanted
             return 0;
         },
-        sub {  # callback
-            my ($fullPath, $rootFullPath) = @_;
-            my ($vol, $dir, $filename) = split_path($fullPath);
-            if (lc $filename eq $FileTypes::TRASH_DIR_NAME) {
+        sub {    # callback
+            my ( $fullPath, $rootFullPath ) = @_;
+            my ( $vol, $dir, $filename ) = split_path($fullPath);
+            if ( lc $filename eq $FileTypes::TRASH_DIR_NAME ) {
+
                 # Convert root/bunch/of/dirs/.orphtrash to root/.orphtrash/bunch/of/dirs
-                trash_path_with_root($fullPath, $rootFullPath);
+                trash_path_with_root( $fullPath, $rootFullPath );
             }
         },
-        @globPatterns);
+        @globPatterns
+    );
 }
 
 1;

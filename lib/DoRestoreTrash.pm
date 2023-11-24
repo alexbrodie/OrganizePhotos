@@ -6,7 +6,7 @@ use warnings FATAL => qw(uninitialized);
 
 package DoRestoreTrash;
 use Exporter;
-our @ISA = ('Exporter');
+our @ISA    = ('Exporter');
 our @EXPORT = qw(
     doRestoreTrash
 );
@@ -21,20 +21,21 @@ sub doRestoreTrash {
     my (@globPatterns) = @_;
     my $dry_run = 0;
     traverse_files(
-        sub {  # isDirWanted
+        sub {    # isDirWanted
             return 1;
         },
-        sub {  # isFileWanted
+        sub {    # isFileWanted
             return 0;
         },
-        sub {  # callback
-            my ($fullPath, $rootFullPath) = @_;
-            my ($vol, $dir, $filename) = split_path($fullPath);
-            if (lc $filename eq $FileTypes::TRASH_DIR_NAME) {
-                move_path($fullPath, combine_path($vol, $dir), $dry_run);
+        sub {    # callback
+            my ( $fullPath, $rootFullPath ) = @_;
+            my ( $vol, $dir, $filename ) = split_path($fullPath);
+            if ( lc $filename eq $FileTypes::TRASH_DIR_NAME ) {
+                move_path( $fullPath, combine_path( $vol, $dir ), $dry_run );
             }
         },
-        @globPatterns);
+        @globPatterns
+    );
 }
 
 1;
