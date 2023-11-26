@@ -1,10 +1,9 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 9;
+use Test::More tests => 8;
 
 use_ok('FileOp');
-can_ok('FileOp', 'traverse_files');
 can_ok('FileOp', 'trash_path');
 can_ok('FileOp', 'trash_path_and_sidecars');
 can_ok('FileOp', 'trash_path_with_root');

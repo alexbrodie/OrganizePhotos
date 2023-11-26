@@ -12,8 +12,9 @@ our @EXPORT = qw(
 );
 
 # Local uses
-use FileOp qw(traverse_files trash_path_with_root);
-use PathOp qw(split_path);
+use FileOp        qw(trash_path_with_root);
+use PathOp        qw(split_path);
+use TraverseFiles qw(traverse_files);
 
 # Execute collect-trash verb
 sub doCollectTrash {

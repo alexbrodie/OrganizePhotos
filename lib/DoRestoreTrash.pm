@@ -12,8 +12,9 @@ our @EXPORT = qw(
 );
 
 # Local uses
-use FileOp qw(traverse_files move_path);
-use PathOp qw(combine_path split_path);
+use FileOp        qw(move_path);
+use PathOp        qw(combine_path split_path);
+use TraverseFiles qw(traverse_files);
 use View;
 
 # Execute restore-trash verb

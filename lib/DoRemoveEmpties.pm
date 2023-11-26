@@ -12,9 +12,10 @@ our @EXPORT = qw(
 );
 
 # Local uses
-use FileOp    qw(traverse_files default_is_dir_wanted trash_path);
-use FileTypes qw(is_reserved_system_filename);
-use PathOp    qw(parent_path);
+use FileOp        qw(trash_path);
+use FileTypes     qw(is_reserved_system_filename);
+use PathOp        qw(parent_path);
+use TraverseFiles qw(traverse_files default_is_dir_wanted);
 use View;
 
 # Execute remove-empties verb

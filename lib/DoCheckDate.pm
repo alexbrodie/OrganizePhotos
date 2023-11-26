@@ -12,11 +12,12 @@ our @EXPORT = qw(
 );
 
 # Local uses
-use FileOp
-    qw(traverse_files default_is_dir_wanted default_is_file_wanted move_path);
+use FileOp qw(move_path);
 use FileTypes qw(get_sidecar_paths);
 use MetaData  qw(get_date_taken check_path_dates);
-use View      qw(pretty_path print_with_icon);
+use TraverseFiles
+    qw(traverse_files default_is_dir_wanted default_is_file_wanted);
+use View qw(pretty_path print_with_icon);
 
 # EXPERIMENTAL
 sub do_check_date {
