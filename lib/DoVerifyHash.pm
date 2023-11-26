@@ -12,9 +12,9 @@ our @EXPORT = qw(
 );
 
 # Local uses
-use ContentHash qw(calculate_hash);
-use FileOp      qw(default_is_dir_wanted default_is_file_wanted);
-use OrPhDat     qw(find_orphdat make_orphdat_base);
+use ContentHash   qw(calculate_hash);
+use OrPhDat       qw(find_orphdat make_orphdat_base);
+use TraverseFiles qw(default_is_dir_wanted default_is_file_wanted);
 use View;
 
 # Execute verify-md5 verb

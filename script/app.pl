@@ -37,6 +37,7 @@ sub my_get_options {
     $flags{'verbosity|v:+'} = \$View::Verbosity;
     my $filter = undef;
     $flags{'filter|f=s'} = \$filter;
+    Getopt::Long::Configure('bundling');
     Getopt::Long::GetOptions(%flags) or die "Error in command line, aborting.";
     my $msg = "Operation arguments:\n";
     for (sort keys %flags) {
@@ -62,7 +63,7 @@ sub my_get_options {
         } else {
             die "Unknown filter '$filter', choose from all, media, .ext.ex2.etc, qrREGEXP\n";
         }
-        $FileOp::filenameFilter = $filter;
+        $TraverseFiles::filenameFilter = $filter;
         trace(View::VERBOSITY_LOW, "Filter set to: ", $filter);
     }
     return @ARGV;
@@ -74,7 +75,6 @@ unless (@ARGV) {
 } elsif ($#ARGV == 0 and $ARGV[0] =~ /^-[?h]|help$/i) {
     Pod::Usage::pod2usage(-verbose => 2);
 } else {
-    Getopt::Long::Configure('bundling');
     my $verb = shift @ARGV;
     if ($verb eq 'append-metadata') {
         my @args = my_get_options();

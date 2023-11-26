@@ -12,8 +12,8 @@ our @EXPORT = qw(
 );
 
 # Local uses
-use FileOp  qw(default_is_dir_wanted);
-use OrPhDat qw(find_orphdat trash_orphdat);
+use TraverseFiles qw(default_is_dir_wanted);
+use OrPhDat       qw(find_orphdat trash_orphdat);
 use View;
 
 # Execute purge-md5 verb

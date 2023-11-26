@@ -7,24 +7,187 @@
         {
             "type": "perl",
             "request": "launch",
-            "name": "Perl-Debug",
+            "name": "append-metadata",
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
             "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
-            //"args": [ "append-metadata", "-v3", "AppendMetadata/target.jpg", "AppendMetadata/source1.jpg", "AppendMetadata/source2.jpg" ]
-            //"args": [ "check-date", "-v3", "CheckDate" ]
-            //"args": [ "check-md5", "-v3", "CheckHash" ]
-            //"args": [ "checkup", "-v3" ]
-            //"args": [ "collect-trash", "-v3", "CollectTrash" ]
-            //"args": [ "find-dupe-dirs", "-v3", "FindDupeDirs" ]
-            //"args": [ "find-dupe-files", "-v3", "FindDupeFiles" ]
-            //"args": [ "metadata-diff", "-v3", "MetadataDiff/g.jpg", "MetadataDiff/r.jpg", "MetadataDiff/b.jpg" ]
-            //"args": [ "purge-md5", "-v3", "PruneOrphdat" ]
-            //"args": [ "remove-empties", "-v3", "RemoveEmpties" ]
-            //"args": [ "restore-trash", "-v3", "RestoreTrash" ]
-            "args": [ "test", "-v99" ]
-            //"args": [ "verify-md5", "-v3", "VerifyHash" ]
+            "args": [
+                "append-metadata",
+                "-v3",
+                "AppendMetadata/target.jpg",
+                "AppendMetadata/source1.jpg",
+                "AppendMetadata/source2.jpg"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "check-date",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "check-date",
+                "-v3",
+                "CheckDate"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "check-md5",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "check-md5",
+                "-v3",
+                "CheckHash"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "checkup",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "checkup",
+                "-v3",
+                "Checkup"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "collect-trash",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "collect-trash",
+                "-v3",
+                "CollectTrash"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "find-dupe-dirs",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "find-dupe-dirs",
+                "-v3",
+                "FindDupeDirs"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "find-dupe-files",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "find-dupe-files",
+                "-v3",
+                "FindDupeFiles"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "metadata-diff",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "metadata-diff",
+                "-v3",
+                "MetadataDiff/g.jpg",
+                "MetadataDiff/r.jpg",
+                "MetadataDiff/b.jpg"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "purge-md5",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "purge-md5",
+                "-v3",
+                "PruneOrphdat"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "remove-empties",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "remove-empties",
+                "-v3",
+                "RemoveEmpties"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "restore-trash",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "restore-trash",
+                "-v3",
+                "RestoreTrash"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "test",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "test",
+                "-v99"
+            ]
+        },
+        {
+            "type": "perl",
+            "request": "launch",
+            "name": "verify-md5",
+            "program": "${workspaceFolder}/script/app.pl",
+            "stopOnEntry": false,
+            "reloadModules": true,
+            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "args": [
+                "verify-md5",
+                "-v3",
+                "VerifyHash"
+            ]
         }
     ]
 }
