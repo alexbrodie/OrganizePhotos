@@ -130,7 +130,7 @@ sub trash_path_with_root {
     my $new_dir = File::Spec->catdir( @root_dir_parts, @post_root );
 
     # Example 1: new_path = '.../root/.orphtrash/A/B/C/D'
-    # Example 2: new_path = '.../root/.Trahs/foo'
+    # Example 2: new_path = '.../root/.orphtrash/foo'
     # Example 3: new_path = '.../root/.orphtrash'
     my $new_path = combine_path( $main_vol, $new_dir, $new_filename );
     move_path( $path, $new_path );
