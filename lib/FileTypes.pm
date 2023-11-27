@@ -217,8 +217,8 @@ sub get_sidecar_paths {
         my ( $vol, $dir, $filename ) = split_path($path);
         my ( $basename, $ext ) = split_ext($filename);
         my @sidecars = @{ get_file_type_info( $ext, 'SIDECARS' ) || [] };
-        @sidecars
-            = map { combine_path( $vol, $dir, combine_ext( $basename, $_ ) ) }
+        @sidecars =
+            map { combine_path( $vol, $dir, combine_ext( $basename, $_ ) ) }
             @sidecars;
         return grep { -e } @sidecars;
     }
