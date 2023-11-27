@@ -4,4 +4,4 @@ use warnings;
 use Test::More tests => 2;
 
 use_ok('DoAppendMetadata');
-can_ok('DoAppendMetadata', 'doAppendMetadata');
+can_ok( 'DoAppendMetadata', 'doAppendMetadata' );

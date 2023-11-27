@@ -46,16 +46,16 @@ sub readIsobmffBoxHeader {
     my ( $mediaPath, $fh ) = @_;
     my $startPos = tell($fh);
     read( $fh, my $fileData, 8 )
-            or die
-            "Failed to read ISOBMFF box header from '$mediaPath' at $startPos: $!";
+        or die
+        "Failed to read ISOBMFF box header from '$mediaPath' at $startPos: $!";
     my ( $boxSize, $type ) = unpack( 'Na4', $fileData );
     my $headerSize = 8;
     if ( $boxSize == 1 ) {
 
         # 1 means it's 64 bit size
         read( $fh, $fileData, 8 )
-                or die
-                "Failed to read ISOBMFF box extended size from '$mediaPath': $!";
+            or die
+            "Failed to read ISOBMFF box extended size from '$mediaPath': $!";
         $boxSize = unpack( 'Q>', $fileData );
         $headerSize += 8;
     }
@@ -69,7 +69,7 @@ sub readIsobmffBoxHeader {
     # we don't have a data size or end of box position either
     if ( $boxSize != 0 ) {
         $boxSize >= $headerSize
-                or die "Bad size for ISOBMFF box '$type': $boxSize";
+            or die "Bad size for ISOBMFF box '$type': $boxSize";
 
         # Note that any of these can be computed from the other, so
         # only one is necessary, but all are added for convinence
@@ -95,12 +95,12 @@ sub readIsobmffFtyp {
     my ( $mediaPath, $fh ) = @_;
     my $box = readIsobmffBoxHeader( $mediaPath, $fh );
     $box->{__type} eq 'ftyp'
-            or die "box type was not ftyp as expected: $box->{__type}";
+        or die "box type was not ftyp as expected: $box->{__type}";
     my $size = $box->{__data_size};
     $size >= 8 && ( $size % 4 ) == 0
-            or die "ftyp box data was unexpected size $size";
+        or die "ftyp box data was unexpected size $size";
     read( $fh, my $fileData, $size )
-            or die "failed to read ISOBMFF box data from '$mediaPath': $!";
+        or die "failed to read ISOBMFF box data from '$mediaPath': $!";
     my ( $majorBrand, $minorVersion, @compatibleBrands ) =
         unpack( 'a4N(a4)*', $fileData );
     return {
@@ -130,15 +130,15 @@ sub unpackIsobmffBoxData {
     my ( $mediaPath, $fh, $box, $format, $size ) = @_;
     my $pos = tell($fh);
     $box->{__data_pos} <= $pos
-            or die "seek position $pos is before start of box data in "
-            . getIsobmffBoxDiagName( $mediaPath, $box );
+        or die "seek position $pos is before start of box data in "
+        . getIsobmffBoxDiagName( $mediaPath, $box );
     if ( exists $box->{__data_size} ) {
         my $maxRead = $box->{__data_pos} + $box->{__data_size} - $pos;
         if ( defined $size ) {
             $size <= $maxRead
-                    or die "can't read $size bytes at $pos from "
-                    . getIsobmffBoxDiagName( $mediaPath, $box )
-                    . ": only $maxRead bytes left in box";
+                or die "can't read $size bytes at $pos from "
+                . getIsobmffBoxDiagName( $mediaPath, $box )
+                . ": only $maxRead bytes left in box";
         }
         else {
             $size = $maxRead;
@@ -149,12 +149,12 @@ sub unpackIsobmffBoxData {
         # i'm not sure we need to handle this case
         die
             "don't (yet) know how to do sizeless read and unpack in unbounded box for "
-                . getIsobmffBoxDiagName( $mediaPath, $box );
+            . getIsobmffBoxDiagName( $mediaPath, $box );
     }
     my $bytesRead = read( $fh, my $fileData, $size );
     defined $bytesRead and $bytesRead == $size
-            or die "failed to read $size bytes at $pos from "
-            . getIsobmffBoxDiagName( $mediaPath, $box ) . ": $!";
+        or die "failed to read $size bytes at $pos from "
+        . getIsobmffBoxDiagName( $mediaPath, $box ) . ": $!";
     return unpack( $format, $fileData );
 }
 
@@ -171,9 +171,9 @@ sub readIsobmffBoxVersionAndFlags {
     $box->{f_version} = $version;
     $box->{f_flags}   = $flags;
     !defined $maxSupportedVersion
-            or $version <= $maxSupportedVersion
-            or die "unsupported version $version for "
-            . getIsobmffBoxDiagName( $mediaPath, $box );
+        or $version <= $maxSupportedVersion
+        or die "unsupported version $version for "
+        . getIsobmffBoxDiagName( $mediaPath, $box );
     return ( $version, $flags );
 }
 
@@ -192,9 +192,10 @@ sub parseIsobmffBoxChildren {
         my $child = readIsobmffBoxHeader( $mediaPath, $fh );
         if ( exists $child->{__end_pos} ) {
             !defined $parent->{__end_pos}
-                    or $child->{__end_pos} <= $parent->{__end_pos}
-                    or die "box extended past parent end ($parent->{__end_pos}) for "
-                    . getIsobmffBoxDiagName( $mediaPath, $child );
+                or $child->{__end_pos} <= $parent->{__end_pos}
+                or die
+                "box extended past parent end ($parent->{__end_pos}) for "
+                . getIsobmffBoxDiagName( $mediaPath, $child );
         }
         elsif ( exists $parent->{__end_pos} ) {
             $child->{__end_pos} = $parent->{__end_pos};
@@ -208,8 +209,8 @@ sub parseIsobmffBoxChildren {
         # Advance to next box or terminate loop
         last unless exists $child->{__end_pos};
         seek( $fh, $child->{__end_pos}, 0 )
-                or die "failed to seek to $child->{__end_pos} for "
-                . getIsobmffBoxDiagName( $mediaPath, $child ) . ": $!";
+            or die "failed to seek to $child->{__end_pos} for "
+            . getIsobmffBoxDiagName( $mediaPath, $child ) . ": $!";
         if ( exists $parent->{__end_pos} ) {
             last if $child->{__end_pos} >= $parent->{__end_pos};
         }
@@ -218,8 +219,8 @@ sub parseIsobmffBoxChildren {
         }
     }
     $count
-            and die "failed to read all child boxes, $count still remain for"
-            . getIsobmffBoxDiagName( $mediaPath, $parent );
+        and die "failed to read all child boxes, $count still remain for"
+        . getIsobmffBoxDiagName( $mediaPath, $parent );
 
     # TODO - let caller specify whether to use by type hash and/or by array?
     $parent->{b} = \@childrenArray;
@@ -373,8 +374,8 @@ sub parseIsobmffBox {
         else {
             @{$box}{qw(f_item_id f_item_protection_index f_item_type)} =
                 ( $version == 2 )
-                    ? unpackIsobmffBoxData( $mediaPath, $fh, $box, 'nna4', 8 )
-                    : unpackIsobmffBoxData( $mediaPath, $fh, $box, 'Nna4', 10 );
+                ? unpackIsobmffBoxData( $mediaPath, $fh, $box, 'nna4', 8 )
+                : unpackIsobmffBoxData( $mediaPath, $fh, $box, 'Nna4', 10 );
             if ( $box->{f_item_type} eq 'mime' ) {
                 @{$box}{qw(f_item_name f_content_type f_content_encoding)} =
                     unpackIsobmffBoxData( $mediaPath, $fh, $box, 'Z*Z*Z*' );
@@ -478,9 +479,9 @@ sub getIsobmffPrimaryDataExtents {
     {
         for my $item ( grep { $id == $_->{item_id} } @{ $iloc->{f_items} } ) {
             $item->{data_reference_index} == 0
-                    or die
-                    "only iloc data_reference_index of 'this file' (0) is currently supported for "
-                    . getIsobmffBoxDiagName( $mediaPath, $iloc );
+                or die
+                "only iloc data_reference_index of 'this file' (0) is currently supported for "
+                . getIsobmffBoxDiagName( $mediaPath, $iloc );
             my $method = $item->{construction_method};
             if ( $method == 0 ) {    # 0 is 'file_offset'
                 for ( @{ $item->{extents} } ) {
@@ -510,8 +511,8 @@ sub getIsobmffPrimaryDataExtents {
             else {
                 die
                     "only iloc construction_method of file_offset (0) or idat_offset (1) "
-                        . "currently supported for "
-                        . getIsobmffBoxDiagName( $mediaPath, $iloc );
+                    . "currently supported for "
+                    . getIsobmffBoxDiagName( $mediaPath, $iloc );
             }
         }
     }

@@ -72,11 +72,11 @@ sub calculate_hash {
     my ($path) = @_;
     trace( View::VERBOSITY_MAX, "calculate_hash('$path');" );
 
-#!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
-#!!!   $CURRENT_HASH_VERSION should be incremented whenever the output
-#!!!   of this method changes in such a way that old values need to be
-#!!!   recalculated, and is_hash_version_current should be updated accordingly.
-#!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
+    #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
+    #!!!   $CURRENT_HASH_VERSION should be incremented whenever the output
+    #!!!   of this method changes in such a way that old values need to be
+    #!!!   recalculated, and is_hash_version_current should be updated accordingly.
+    #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
     const my $CURRENT_HASH_VERSION => 7;
     my $fh       = open_file( '<:raw', $path );    # NB: READ ONLY
     my $full_md5 = calc_md5( $path, $fh );

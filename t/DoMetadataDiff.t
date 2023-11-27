@@ -4,4 +4,4 @@ use warnings;
 use Test::More tests => 2;
 
 use_ok('DoMetadataDiff');
-can_ok('DoMetadataDiff', 'do_metadata_diff');
+can_ok( 'DoMetadataDiff', 'do_metadata_diff' );

@@ -4,4 +4,4 @@ use warnings;
 use Test::More tests => 2;
 
 use_ok('DoFindDupeDirs');
-can_ok('DoFindDupeDirs', 'doFindDupeDirs');
+can_ok( 'DoFindDupeDirs', 'doFindDupeDirs' );

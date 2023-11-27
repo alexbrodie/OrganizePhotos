@@ -4,4 +4,4 @@ use warnings;
 use Test::More tests => 2;
 
 use_ok('DoPruneOrphdat');
-can_ok('DoPruneOrphdat', 'doPurgeMd5');
+can_ok( 'DoPruneOrphdat', 'doPurgeMd5' );

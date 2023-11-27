@@ -1,10 +1,19 @@
 {
-    "perlnavigator.perlcriticProfile": ".perlcriticrc",
+    //"editor.formatOnPaste": true,
+    "editor.formatOnSave": true,
+    "editor.formatOnSaveMode": "file",
+    "[perl]": {
+        "editor.defaultFormatter": "bscan.perlnavigator"
+    },
+    "perl.fileFilter": [
+        "*.pm",
+        "*.pl",
+        "*.t"
+    ],
     "perl.perlInc": [
         "/Users/alexbrodie/perl5/lib/perl5", // TODO: inherit this from system settings
         "./lib",
     ],
-    "editor.formatOnPaste": true,
-    "editor.formatOnSave": true,
-    "editor.formatOnSaveMode": "modificationsIfAvailable",
+    "perlnavigator.perlcriticProfile": ".perlcriticrc",
+    "perlnavigator.perltidyProfile": ".perltidyrc",
 }

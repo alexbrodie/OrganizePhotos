@@ -15,11 +15,11 @@ our @EXPORT = qw(
 #use ContentHash;
 use DoAppendMetadata qw(doAppendMetadata);
 use DoMetadataDiff   qw(do_metadata_diff);
-use FileOp    qw(trash_path_and_sidecars);
-use FileTypes qw(get_sidecar_paths compare_path_with_ext_order);
-use MetaData  qw(get_date_taken);
-use OrPhDat   qw(resolve_orphdat find_orphdat trash_orphdat);
-use PathOp    qw(combine_ext split_dir split_ext split_path);
+use FileOp           qw(trash_path_and_sidecars);
+use FileTypes        qw(get_sidecar_paths compare_path_with_ext_order);
+use MetaData         qw(get_date_taken);
+use OrPhDat          qw(resolve_orphdat find_orphdat trash_orphdat);
+use PathOp           qw(combine_ext split_dir split_ext split_path);
 use TraverseFiles
     qw(traverse_files default_is_dir_wanted default_is_file_wanted);
 use View qw(colored_by_index pretty_path print_crud trace);

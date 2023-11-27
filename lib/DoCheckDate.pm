@@ -12,7 +12,7 @@ our @EXPORT = qw(
 );
 
 # Local uses
-use FileOp qw(move_path);
+use FileOp    qw(move_path);
 use FileTypes qw(get_sidecar_paths);
 use MetaData  qw(get_date_taken check_path_dates);
 use TraverseFiles
