@@ -14,6 +14,9 @@ our @EXPORT = qw(
     get_trash_path
     compare_path_with_ext_order
     is_reserved_system_filename
+    $ORPHDAT_FILENAME
+    $TRASH_DIR_NAME
+    $MEDIA_TYPE_FILENAME_FILTER
 );
 
 # Local uses
@@ -21,15 +24,15 @@ use PathOp;
 use View;
 
 # Library uses
-use Const::Fast qw(const);
 use File::Spec;
+use Readonly;
 
 # Filename only portion of the path to Md5File which stores
 # Md5Info data for other files in the same directory
-const our $ORPHDAT_FILENAME => '.orphdat';
+Readonly our $ORPHDAT_FILENAME => '.orphdat';
 
 # This subdirectory contains the trash for its parent
-const our $TRASH_DIR_NAME => '.orphtrash';
+Readonly our $TRASH_DIR_NAME => '.orphtrash';
 
 # A map of supported file extensions to several different aspects:
 #
@@ -68,7 +71,7 @@ const our $TRASH_DIR_NAME => '.orphtrash';
 #
 # TODO: flesh this out
 # TODO: convert to Class::Struct
-const my %FILE_TYPES => (
+Readonly::Hash my %FILE_TYPES => (
     AVI => {
         MIMETYPE => 'video/x-msvideo'
     },
@@ -164,12 +167,12 @@ const my %FILE_TYPES => (
     #}
 );
 
-const my $BACKUP_SUFFIX => qr{
+Readonly::Scalar my $BACKUP_SUFFIX => qr{
     [._] (?i) (?:bak|original|\d{8}T\d{6}Z~) \d*
 }sx;
 
 # Media file extensions
-const our $MEDIA_TYPE_FILENAME_FILTER => qr{
+Readonly::Scalar our $MEDIA_TYPE_FILENAME_FILTER => qr{
     # Media extension
     (?: \. (?i) (?: @{[ join '|', keys %FILE_TYPES ]}) )
     # Optional backup file suffix

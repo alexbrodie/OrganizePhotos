@@ -10,6 +10,7 @@ our @ISA    = ('Exporter');
 our @EXPORT = qw(
     is_hash_version_current
     calculate_hash
+    $MD5_DIGEST_PATTERN
 );
 
 # Local uses
@@ -19,12 +20,12 @@ use Isobmff;
 use View;
 
 # Library uses
-use Const::Fast qw(const);
 use Digest::MD5 ();
 use List::Util  qw(any all);
+use Readonly;
 
 # What we expect an MD5 hash to look like
-const our $MD5_DIGEST_PATTERN => qr/[0-9a-f]{32}/;
+Readonly::Scalar our $MD5_DIGEST_PATTERN => qr/[0-9a-f]{32}/;
 
 # The data returned by calculate_hash is versioned, but not all version
 # changes are meaningful for every type of file. This method determines if
@@ -33,7 +34,7 @@ const our $MD5_DIGEST_PATTERN => qr/[0-9a-f]{32}/;
 sub is_hash_version_current {
     my ( $path, $version ) = @_;
 
-    #trace(View::VERBOSITY_MAX, "is_hash_version_current('$path', $version);");
+    #trace( $VERBOSITY_MAX, "is_hash_version_current('$path', $version);");
     my $type = get_mime_type($path);
 
     # Return truthy iff $version >= N where N is the last version that
@@ -70,14 +71,14 @@ sub is_hash_version_current {
 #   full_md5: full MD5 calculation for exact match
 sub calculate_hash {
     my ($path) = @_;
-    trace( View::VERBOSITY_MAX, "calculate_hash('$path');" );
+    trace( $VERBOSITY_MAX, "calculate_hash('$path');" );
 
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
     #!!!   $CURRENT_HASH_VERSION should be incremented whenever the output
     #!!!   of this method changes in such a way that old values need to be
     #!!!   recalculated, and is_hash_version_current should be updated accordingly.
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
-    const my $CURRENT_HASH_VERSION => 7;
+    Readonly::Scalar my $CURRENT_HASH_VERSION => 7;
     my $fh       = open_file( '<:raw', $path );    # NB: READ ONLY
     my $full_md5 = calc_md5( $path, $fh );
     seek( $fh, 0, 0 ) or die "Failed to reset seek for '$path': $!";
@@ -114,11 +115,9 @@ sub calculate_hash {
             "Unavailable content MD5 for '@{[pretty_path($path)]}' with error:\n\t$error\n";
     }
     print_crud(
-        View::VERBOSITY_MEDIUM,
-        View::CRUD_READ,
+        $VERBOSITY_MEDIUM, $CRUD_READ,
         "Computed MD5 of '@{[pretty_path($path)]}'",
-        ( $content_md5 ? ", including content only hash" : '' ),
-        "\n"
+        ( $content_md5 ? ", including content only hash" : '' ), "\n"
     );
     return {
         version  => $CURRENT_HASH_VERSION,

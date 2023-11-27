@@ -8,48 +8,45 @@ package View;
 use Exporter;
 our @ISA    = ('Exporter');
 our @EXPORT = qw(
-    colored_bold
-    colored_faint
-    colored_by_index
-    dump_struct
-    pretty_path
-    print_crud
-    print_with_icon
-    trace
+    colored_bold colored_faint colored_by_index dump_struct pretty_path
+        print_crud print_with_icon trace $Verbosity $VERBOSITY_MIN
+        $VERBOSITY_LOW $VERBOSITY_MEDIUM $VERBOSITY_HIGH $VERBOSITY_MAX
+        $CRUD_UNKNOWN $CRUD_CREATE $CRUD_READ $CRUD_UPDATE $CRUD_DELETE
 );
 our @EXPORT_OK = qw(
     get_color_for_index
 );
 
 # Library uses
-use File::Basename;
+use File::Basename qw(basename);
+use Readonly;
 use
     if $^O eq 'MSWin32',
     'Win32::Console::ANSI';    # must come before Term::ANSIColor
-use Term::ANSIColor ();
+use Term::ANSIColor qw(colored);
 
-use constant VERBOSITY_MIN    => 0;    # only critical information
-use constant VERBOSITY_LOW    => 1;    # only important information
-use constant VERBOSITY_MEDIUM => 2;    # moderate amount of traces on
-use constant VERBOSITY_HIGH   => 3;    # all but the most trivial information
-use constant VERBOSITY_MAX    => 4;    # the complete log
+Readonly::Scalar our $VERBOSITY_MIN    => 0;    # only critical information
+Readonly::Scalar our $VERBOSITY_LOW    => 1;    # only important information
+Readonly::Scalar our $VERBOSITY_MEDIUM => 2;    # moderate amount of traces on
+Readonly::Scalar our $VERBOSITY_HIGH   => 3;    # all but the most trivial
+Readonly::Scalar our $VERBOSITY_MAX    => 4;    # the complete log
 
-our $Verbosity = VERBOSITY_LOW;
+our $Verbosity = $VERBOSITY_LOW;
 
-use constant CRUD_UNKNOWN => 0;
-use constant CRUD_CREATE  => 1;
-use constant CRUD_READ    => 2;
-use constant CRUD_UPDATE  => 3;
-use constant CRUD_DELETE  => 4;
+Readonly::Scalar our $CRUD_UNKNOWN => 0;
+Readonly::Scalar our $CRUD_CREATE  => 1;
+Readonly::Scalar our $CRUD_READ    => 2;
+Readonly::Scalar our $CRUD_UPDATE  => 3;
+Readonly::Scalar our $CRUD_DELETE  => 4;
 
 sub colored_faint {
     my ($message) = @_;
-    return Term::ANSIColor::colored( $message, 'faint' );
+    return colored( $message, 'faint' );
 }
 
 sub colored_bold {
     my ($message) = @_;
-    return Term::ANSIColor::colored( $message, 'bold' );
+    return colored( $message, 'bold' );
 }
 
 # Colorizes text for diffing purposes
@@ -58,8 +55,7 @@ sub colored_bold {
 # $color_index = Index for a color class
 sub colored_by_index {
     my ( $message, $color_index ) = @_;
-    return Term::ANSIColor::colored( $message,
-        get_color_for_index($color_index) );
+    return colored( $message, get_color_for_index($color_index) );
 }
 
 # Stringify a perl data structure suitable for traceing
@@ -92,22 +88,22 @@ sub pretty_path {
 # to present results to the user.
 #
 # $level = prints if the current level is this or higher
-# $type = the View::CRUD_* value that best describes the operation
-# $level = the View::VERBOSITY_* value
+# $type = the $CRUD_* value that best describes the operation
+# $level = the  $VERBOSITY_* value
 sub print_crud {
     my ( $level, $type, @statements ) = @_;
     if ( $level <= $Verbosity ) {
         my ( $icon, $color ) = ( '', '' );
-        if ( $type == CRUD_CREATE ) {
+        if ( $type == $CRUD_CREATE ) {
             ( $icon, $color ) = ( '(+)', 'blue' );
         }
-        elsif ( $type == CRUD_READ ) {
+        elsif ( $type == $CRUD_READ ) {
             ( $icon, $color ) = ( '(<)', 'cyan' );
         }
-        elsif ( $type == CRUD_UPDATE ) {
+        elsif ( $type == $CRUD_UPDATE ) {
             ( $icon, $color ) = ( '(>)', 'yellow' );
         }
-        elsif ( $type == CRUD_DELETE ) {
+        elsif ( $type == $CRUD_DELETE ) {
             ( $icon, $color ) = ( '(X)', 'magenta' );
         }
         else {
@@ -128,9 +124,9 @@ sub print_with_icon {
     my $icon_space = ' ' x length $icon;
     @statements = split /\n/, join '', @statements;
     if ($color) {
-        $icon = Term::ANSIColor::colored( $icon, "white on_$color" );
+        $icon = colored( $icon, "white on_$color" );
         @statements =
-            map { Term::ANSIColor::colored( $_, $color ) } @statements;
+            map { colored( $_, $color ) } @statements;
     }
     @statements = map { "$_\033[K\n" } @statements;
     my $full_message = $icon . ' ' . join "$icon_space ", @statements;
@@ -148,7 +144,7 @@ sub trace {
         my $icon = sprintf "T% 2d", $level;
 
         # At higher verbosity settings, include the trace location
-        if ( $Verbosity >= VERBOSITY_MAX ) {
+        if ( $Verbosity >= $VERBOSITY_MAX ) {
             my ( $package, $filename, $line ) = caller;
             unshift @statements, basename($filename) . '@' . $line . ': ';
         }

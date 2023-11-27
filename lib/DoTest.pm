@@ -12,7 +12,7 @@ our @EXPORT = qw(
 );
 
 # Local uses
-use View qw(print_with_icon);
+use View;
 
 # Execute test verb. This is intended to run a suite of tests.
 sub do_test {

@@ -23,14 +23,13 @@ use ContentHash;
 use FileOp;
 use FileTypes;
 use PathOp;
+use TraverseFiles qw(traverse_files);
 use View;
 
 # Library uses
-use Const::Fast   qw(const);
 use Data::Compare ();
 use File::stat    ();
 use JSON          ();
-use List::Util    qw(any all);
 
 my $CACHED_ORPHDAT_PATH = '';
 my $CACHED_ORPHDAT_SET  = {};
@@ -86,7 +85,7 @@ my $CACHED_ORPHDAT_SET  = {};
 sub resolve_orphdat {
     my ( $path, $add_only, $force_recalc, $cached_orphdat ) = @_;
     trace(
-        View::VERBOSITY_MAX,
+        $VERBOSITY_MAX,
         "resolve_orphdat('$path', $add_only, $force_recalc, ",
         defined $cached_orphdat ? '{...}' : 'undef', ');'
     );
@@ -112,12 +111,12 @@ sub resolve_orphdat {
             return $cache_result if $cache_result;
         }
         else {
-            trace( View::VERBOSITY_HIGH,
+            trace( $VERBOSITY_HIGH,
                 "Memory cache miss for '$path', cache was '$CACHED_ORPHDAT_PATH'"
             );
         }
     }
-    trace( View::VERBOSITY_HIGH, "Opening cache '$orphdat_path' for '$path'" );
+    trace( $VERBOSITY_HIGH, "Opening cache '$orphdat_path' for '$path'" );
     my ( $orphdat_file, $orphdat_set ) =
         read_or_create_orphdat_file($orphdat_path);
     my $old_orphdat = $orphdat_set->{$orphdat_key};
@@ -141,7 +140,7 @@ sub resolve_orphdat {
             # Matches last recorded hash, but still continue and call
             # set_orphdat_and_write_file to handle other bookkeeping
             # to ensure we get a cache hit and short-circuit next time.
-            trace( View::VERBOSITY_HIGH,
+            trace( $VERBOSITY_HIGH,
                 "Verified MD5 for '@{[pretty_path($path)]}'" );
         }
         elsif ( $old_orphdat->{full_md5} eq $new_orphdat->{full_md5} ) {
@@ -162,7 +161,7 @@ EOM
             }
             else {
                 trace(
-                    View::VERBOSITY_MEDIUM,
+                    $VERBOSITY_MEDIUM,
                     "Content MD5 calculation has changed, upgrading from version ",
                     "$old_orphdat->{version} to $new_orphdat->{version} for '$path'"
                 );
@@ -241,7 +240,7 @@ sub find_orphdat {
         or die "Programmer Error: expected \$is_file_wanted argument";
     $callback or die "Programmer Error: expected \$callback argument";
     trace(
-        View::VERBOSITY_MAX,
+        $VERBOSITY_MAX,
         'find_orphdat(...); with @glob_patterns of',
         (
             @glob_patterns
@@ -301,7 +300,7 @@ sub get_orphdat_path_and_key {
 # value if it existed (or undef if not).
 sub write_orphdat {
     my ( $path, $new_orphdat ) = @_;
-    trace( View::VERBOSITY_MAX, "write_orphdat('$path', {...});" );
+    trace( $VERBOSITY_MAX, "write_orphdat('$path', {...});" );
     if ($new_orphdat) {
         my ( $orphdat_path, $orphdat_key ) = get_orphdat_path_and_key($path);
         my ( $orphdat_file, $orphdat_set ) =
@@ -320,14 +319,14 @@ sub write_orphdat {
 # Moves a Md5Info for a file from one directory's storage to another.
 sub move_orphdat {
     my ( $source_path, $target_path ) = @_;
-    trace( View::VERBOSITY_MAX,
+    trace( $VERBOSITY_MAX,
               "move_orphdat('$source_path', "
             . ( defined $target_path ? "'$target_path'" : 'undef' )
             . ");" );
     my ( $source_orphdat_path, $source_orphdat_key ) =
         get_orphdat_path_and_key($source_path);
     unless ( -e $source_orphdat_path ) {
-        trace( View::VERBOSITY_HIGH,
+        trace( $VERBOSITY_HIGH,
             "Can't move/remove Md5Info for '$source_orphdat_key' from missing '$source_orphdat_path'"
         );
         return undef;
@@ -335,7 +334,7 @@ sub move_orphdat {
     my ( $source_orphdat_file, $source_orphdat_set ) =
         read_orphdat_file( '+<', $source_orphdat_path );
     unless ( exists $source_orphdat_set->{$source_orphdat_key} ) {
-        trace( View::VERBOSITY_HIGH,
+        trace( $VERBOSITY_HIGH,
             "Can't move/remove missing Md5Info for '$source_orphdat_key' from '$source_orphdat_path'"
         );
         return undef;
@@ -372,7 +371,7 @@ sub move_orphdat {
             and Data::Compare::Compare( $existing_orphdat, $new_orphdat ) )
         {
             # Existing Md5Info at target is identical, so target is up to date already
-            $crud_op = View::CRUD_DELETE;
+            $crud_op = $CRUD_DELETE;
             $crud_msg =
                 "Removed cache data for '@{[pretty_path($source_path)]}' (up to date "
                 . "data already exists for '@{[pretty_path($target_path)]}')";
@@ -380,13 +379,13 @@ sub move_orphdat {
         else {
             $target_orphdat_set->{$target_orphdat_key} = $new_orphdat;
             if ($target_orphdat_file) {
-                trace( View::VERBOSITY_HIGH,
+                trace( $VERBOSITY_HIGH,
                     "Writing '$target_orphdat_path' after moving entry for '$target_orphdat_key' elsewhere"
                 );
                 write_orphdat_file( $target_orphdat_path, $target_orphdat_file,
                     $target_orphdat_set );
             }
-            $crud_op = View::CRUD_UPDATE;
+            $crud_op = $CRUD_UPDATE;
             $crud_msg =
                 "Moved cache data for '@{[pretty_path($source_path)]}' to '@{[pretty_path($target_path)]}'";
             if ( defined $existing_orphdat ) {
@@ -396,7 +395,7 @@ sub move_orphdat {
     }
     else {
         # No target path, this is a delete only
-        $crud_op  = View::CRUD_DELETE;
+        $crud_op  = $CRUD_DELETE;
         $crud_msg = "Removed MD5 for '@{[pretty_path($source_path)]}'";
     }
 
@@ -404,7 +403,7 @@ sub move_orphdat {
     #       that any time someone tries to write an empty hashref, it deletes the file?
     delete $source_orphdat_set->{$source_orphdat_key};
     if (%$source_orphdat_set) {
-        trace( View::VERBOSITY_HIGH,
+        trace( $VERBOSITY_HIGH,
             "Writing '$source_orphdat_path' after removing MD5 for '$source_orphdat_key'"
         );
         write_orphdat_file( $source_orphdat_path, $source_orphdat_file,
@@ -412,16 +411,16 @@ sub move_orphdat {
     }
     else {
         # Empty files create trouble down the line (especially with move-merges)
-        trace( View::VERBOSITY_HIGH,
+        trace( $VERBOSITY_HIGH,
             "Deleting '$source_orphdat_path' after removing MD5 for '$source_orphdat_key' (the last one)"
         );
         close($source_orphdat_file);
         unlink($source_orphdat_path)
             or die "Couldn't delete '$source_orphdat_path': $!";
-        print_crud( View::VERBOSITY_MEDIUM, View::CRUD_DELETE,
+        print_crud( $VERBOSITY_MEDIUM, $CRUD_DELETE,
             "Deleted empty file '@{[pretty_path($source_orphdat_path)]}'\n" );
     }
-    print_crud( View::VERBOSITY_LOW, $crud_op, $crud_msg, "\n" );
+    print_crud( $VERBOSITY_LOW, $crud_op, $crud_msg, "\n" );
     return $source_orphdat;
 }
 
@@ -431,7 +430,7 @@ sub move_orphdat {
 sub trash_orphdat {
     my ($path) = @_;
     my $dry_run = 0;
-    trace( View::VERBOSITY_MAX, "trash_orphdat('$path');" );
+    trace( $VERBOSITY_MAX, "trash_orphdat('$path');" );
     my $trash_path = get_trash_path($path);
     ensure_parent_dir( $trash_path, $dry_run );
     return move_orphdat( $path, $trash_path );
@@ -442,7 +441,7 @@ sub trash_orphdat {
 # value if it existed (or undef if not).
 sub delete_orphdat {
     my ($path) = @_;
-    trace( View::VERBOSITY_MAX, "delete_orphdat('$path');" );
+    trace( $VERBOSITY_MAX, "delete_orphdat('$path');" );
     return move_orphdat( $path, undef );
 }
 
@@ -451,7 +450,7 @@ sub delete_orphdat {
 # specified file. Dies without writing anything on key collisions.
 sub append_orphdat_files {
     my ( $target_orphdat_path, @source_orphdat_paths ) = @_;
-    trace( View::VERBOSITY_MAX, 'append_orphdat_files(',
+    trace( $VERBOSITY_MAX, 'append_orphdat_files(',
         join( ', ', map { "'$_'" } @_ ), ');' );
     my ( $target_orphdat_file, $target_orphdat_set ) =
         read_or_create_orphdat_file($target_orphdat_path);
@@ -478,7 +477,7 @@ sub append_orphdat_files {
     }
     if ($dirty) {
         trace(
-            View::VERBOSITY_HIGH,
+            $VERBOSITY_HIGH,
             "Writing '$target_orphdat_path' after appending data from ",
             scalar @source_orphdat_paths,
             " files"
@@ -488,15 +487,15 @@ sub append_orphdat_files {
         my $items_added = ( scalar keys %$target_orphdat_set ) -
             $old_target_orphdat_set_count;
         print_crud(
-            View::VERBOSITY_LOW,
-            View::CRUD_CREATE,
+            $VERBOSITY_LOW,
+            $CRUD_CREATE,
             "Added $items_added MD5s to '${\pretty_path($target_orphdat_path)}' from ",
             join ', ',
             map { "'${\pretty_path($_)}'" } @source_orphdat_paths
         );
     }
     else {
-        trace( View::VERBOSITY_HIGH,
+        trace( $VERBOSITY_HIGH,
             "Skipping no-op append of cache for '$target_orphdat_path'" );
     }
 }
@@ -506,14 +505,13 @@ sub append_orphdat_files {
 # it. Returns the Md5File and Md5Set.
 sub read_or_create_orphdat_file {
     my ($orphdat_path) = @_;
-    trace( View::VERBOSITY_MAX,
-        "read_or_create_orphdat_file('$orphdat_path');" );
+    trace( $VERBOSITY_MAX, "read_or_create_orphdat_file('$orphdat_path');" );
     if ( -e $orphdat_path ) {
         return read_orphdat_file( '+<', $orphdat_path );
     }
     else {
         my $fh = open_orphdat_file( '+>', $orphdat_path );
-        print_crud( View::VERBOSITY_MEDIUM, View::CRUD_CREATE,
+        print_crud( $VERBOSITY_MEDIUM, $CRUD_CREATE,
             "Created cache at '@{[pretty_path($orphdat_path)]}'\n" );
         return ( $fh, {} );
     }
@@ -525,7 +523,7 @@ sub read_or_create_orphdat_file {
 # on that. Returns the Md5File and Md5Set.
 sub read_orphdat_file {
     my ( $open_mode, $orphdat_path ) = @_;
-    trace( View::VERBOSITY_MAX,
+    trace( $VERBOSITY_MAX,
         "read_orphdat_file('$open_mode', '$orphdat_path');" );
     my $orphdat_file = open_orphdat_file( $open_mode, $orphdat_path );
 
@@ -559,7 +557,7 @@ sub read_orphdat_file {
     else {
         # Parse as simple "name: md5" text
         for (<$orphdat_file>) {
-            /^([^:]+):\s*($ContentHash::MD5_DIGEST_PATTERN)$/
+            /^([^:]+):\s*($MD5_DIGEST_PATTERN)$/
                 or die "Unexpected line in '$orphdat_path': $_";
 
             # We use version 0 here for the very old way before we went to
@@ -574,7 +572,7 @@ sub read_orphdat_file {
         }
     }
     update_orphdat_cache( $orphdat_path, $orphdat_set );
-    print_crud( View::VERBOSITY_MEDIUM, View::CRUD_READ,
+    print_crud( $VERBOSITY_MEDIUM, $CRUD_READ,
         "Read cache from '@{[pretty_path($orphdat_path)]}'\n" );
     return ( $orphdat_file, $orphdat_set );
 }
@@ -589,16 +587,15 @@ sub set_orphdat_and_write_file {
         $path,        $new_orphdat,  $orphdat_path,
         $orphdat_key, $orphdat_file, $orphdat_set
     ) = @_;
-    trace( View::VERBOSITY_MAX, "set_orphdat_and_write_file('$path', ...);" );
+    trace( $VERBOSITY_MAX, "set_orphdat_and_write_file('$path', ...);" );
     my $old_orphdat = $orphdat_set->{$orphdat_key};
     if ( $old_orphdat and Data::Compare::Compare( $old_orphdat, $new_orphdat ) )
     {
-        trace( View::VERBOSITY_HIGH,
-            "Skipping no-op update of cache for '$path'" );
+        trace( $VERBOSITY_HIGH, "Skipping no-op update of cache for '$path'" );
     }
     else {
         $orphdat_set->{$orphdat_key} = $new_orphdat;
-        trace( View::VERBOSITY_HIGH,
+        trace( $VERBOSITY_HIGH,
             "Writing '$orphdat_path' after updating value for key '$orphdat_key'"
         );
         write_orphdat_file( $orphdat_path, $orphdat_file, $orphdat_set );
@@ -607,12 +604,12 @@ sub set_orphdat_and_write_file {
                 !Data::Compare::Compare( $old_orphdat->{$_},
                     $new_orphdat->{$_} )
             } keys %$new_orphdat;
-            print_crud( View::VERBOSITY_LOW, View::CRUD_UPDATE,
+            print_crud( $VERBOSITY_LOW, $CRUD_UPDATE,
                 "Updated cache entry for '@{[pretty_path($path)]}': $changed_fields\n"
             );
         }
         else {
-            print_crud( View::VERBOSITY_LOW, View::CRUD_CREATE,
+            print_crud( $VERBOSITY_LOW, $CRUD_CREATE,
                 "Added cache entry for '@{[pretty_path($path)]}'\n" );
         }
     }
@@ -630,7 +627,7 @@ sub write_orphdat_file {
     #       and writing out the "\x{FEFF}" BOM. Not sure how to do that in
     #       a fully cross compatable way (older file versions as well as
     #       Windows/Mac compat)
-    trace( View::VERBOSITY_MAX,
+    trace( $VERBOSITY_MAX,
         "write_orphdat_file('$orphdat_path', <file>, { hash of @{[ scalar keys %$orphdat_set ]} items });"
     );
     verify_orphdat_path($orphdat_path);
@@ -646,11 +643,8 @@ sub write_orphdat_file {
         warn "Writing empty data to $orphdat_path";
     }
     update_orphdat_cache( $orphdat_path, $orphdat_set );
-    print_crud(
-        View::VERBOSITY_MEDIUM,
-        View::CRUD_UPDATE,
-        "Wrote cache to '@{[pretty_path($orphdat_path)]}'\n"
-    );
+    print_crud( $VERBOSITY_MEDIUM, $CRUD_UPDATE,
+        "Wrote cache to '@{[pretty_path($orphdat_path)]}'\n" );
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
@@ -705,18 +699,18 @@ sub check_cached_orphdat {
     my ( $path, $add_only, $cache_type, $cached_orphdat, $current_orphdat_base )
         = @_;
 
-    #trace(View::VERBOSITY_MAX, 'check_cached_orphdat(...);');
+    #trace( $VERBOSITY_MAX, 'check_cached_orphdat(...);');
     unless ( defined $cached_orphdat ) {
 
         # Note that this is assumed context from the caller, and not actually
         # something true based on this sub
-        trace( View::VERBOSITY_HIGH,
+        trace( $VERBOSITY_HIGH,
             "$cache_type cache miss for '$path', lookup failed" );
         return undef;
     }
 
     if ($add_only) {
-        trace( View::VERBOSITY_HIGH,
+        trace( $VERBOSITY_HIGH,
             "$cache_type cache hit for '$path', add-only mode" );
     }
     else {
@@ -742,12 +736,12 @@ sub check_cached_orphdat {
             push @delta, 'mtime';
         }
         if (@delta) {
-            trace( View::VERBOSITY_HIGH,
+            trace( $VERBOSITY_HIGH,
                 "$cache_type cache miss for '$path', different "
                     . join( '/', @delta ) );
             return undef;
         }
-        trace( View::VERBOSITY_HIGH,
+        trace( $VERBOSITY_HIGH,
             "$cache_type cache hit for '$path', version/name/size/mtime match"
         );
     }

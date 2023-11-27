@@ -17,14 +17,13 @@ use FileTypes qw(get_sidecar_paths);
 use MetaData  qw(get_date_taken check_path_dates);
 use TraverseFiles
     qw(traverse_files default_is_dir_wanted default_is_file_wanted);
-use View qw(pretty_path print_with_icon);
+use View;
 
 # EXPERIMENTAL
 sub do_check_date {
     my (@globPatterns) = @_;
     my $dry_run = 0;
 
-    #$View::Verbosity = View::VERBOSITY_HIGH;
     my $all = 0;
     traverse_files(
         \&default_is_dir_wanted,     # isDirWanted

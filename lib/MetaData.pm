@@ -15,14 +15,12 @@ our @EXPORT = qw(
 );
 
 # Local uses
-use View;
 use PathOp;
+use View;
 
 # Library uses
 use DateTime::Format::HTTP ();
-
-#use DateTime::Format::ISO8601 ();
-use Image::ExifTool ();
+use Image::ExifTool        ();
 
 # Gets the date the media was captured by parsing the file (and potentially
 # sidecars) as DateTime
@@ -112,10 +110,10 @@ sub extract_info {
         # We do ISO 8601 dates by default
         $et->Options( DateFormat => '%FT%T%z' );
     }
-    trace( View::VERBOSITY_MAX, "Image::ExifTool::ExtractInfo('$path');" );
+    trace( $VERBOSITY_MAX, "Image::ExifTool::ExtractInfo('$path');" );
     $et->ExtractInfo( $path, @exiftool_args )
         or die "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
-    print_crud( View::VERBOSITY_MEDIUM, View::CRUD_READ,
+    print_crud( $VERBOSITY_MEDIUM, $CRUD_READ,
         "Extract metadata of '@{[pretty_path($path)]}'" );
     return $et;
 }

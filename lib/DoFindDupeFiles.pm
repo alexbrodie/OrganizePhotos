@@ -22,19 +22,20 @@ use OrPhDat          qw(resolve_orphdat find_orphdat trash_orphdat);
 use PathOp           qw(combine_ext split_dir split_ext split_path);
 use TraverseFiles
     qw(traverse_files default_is_dir_wanted default_is_file_wanted);
-use View qw(colored_by_index pretty_path print_crud trace);
+use View;
 
 # Library uses
 use List::Util           qw(all max);
 use Number::Bytes::Human ();
 use POSIX                qw(strftime);
+use Readonly;
 
 my $autoTrashDuplicatesFrom = [ '/Volumes/CFexpress/', '/Volumes/MicroSD/', ];
 
-use constant MATCH_UNKNOWN => 0;
-use constant MATCH_NONE    => 1;
-use constant MATCH_FULL    => 2;
-use constant MATCH_CONTENT => 3;
+Readonly::Scalar my $MATCH_UNKNOWN => 0;
+Readonly::Scalar my $MATCH_NONE    => 1;
+Readonly::Scalar my $MATCH_FULL    => 2;
+Readonly::Scalar my $MATCH_CONTENT => 3;
 
 # Execute find-dupe-files verb
 sub doFindDupeFiles {
@@ -230,7 +231,7 @@ sub buildFindDupeFilesDupeGroups {
             @globPatterns
         );
     }
-    trace( View::VERBOSITY_MAX,
+    trace( $VERBOSITY_MAX,
         "Found @{[scalar keys %keyToFullPathList]} initial groups" );
 
     # Go through each element in the %keyToFullPathList map, and we'll
@@ -257,7 +258,7 @@ sub buildFindDupeFilesDupeGroups {
         compare_path_with_ext_order( $a->[0]->{fullPath},
             $b->[0]->{fullPath}, 1 )
     } @dupes;
-    print_crud( View::VERBOSITY_LOW, View::CRUD_READ,
+    print_crud( $VERBOSITY_LOW, $CRUD_READ,
         "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files"
     );
     return \@dupes;
@@ -270,7 +271,7 @@ sub buildFindDupeFilesDupeGroups {
 #   exists: cached result of -e check
 #   md5Info: Md5Info data
 #   dateTaken: a DateTime value obtained via get_date_taken
-#   matches: array of MATCH_* values of comparison with other group elements
+#   matches: array of $MATCH_* values of comparison with other group elements
 sub populateFindDupeFilesDupeGroup {
     my ($group) = @_;
     my $fast = 0;      # avoid slow operations, potentially with less precision?
@@ -292,28 +293,28 @@ sub populateFindDupeFilesDupeGroup {
             $elt->{exists} ? [ get_sidecar_paths( $elt->{fullPath} ) ] : [];
     }
     for ( my $i = 0; $i < @$group; $i++ ) {
-        $group->[$i]->{matches}->[$i] = MATCH_FULL;
+        $group->[$i]->{matches}->[$i] = $MATCH_FULL;
         my ( $iFullMd5, $iContentMd5 ) =
             @{ $group->[$i]->{md5Info} }{qw(full_md5 md5)};
         for ( my $j = $i + 1; $j < @$group; $j++ ) {
             my ( $jFullMd5, $jContentMd5 ) =
                 @{ $group->[$j]->{md5Info} }{qw(full_md5 md5)};
-            my $matchType = MATCH_UNKNOWN;
+            my $matchType = $MATCH_UNKNOWN;
             if ( $iFullMd5 and $jFullMd5 ) {
                 if ( $iFullMd5 eq $jFullMd5 ) {
-                    $matchType = MATCH_FULL;
+                    $matchType = $MATCH_FULL;
                 }
                 else {
-                    $matchType = MATCH_NONE;
+                    $matchType = $MATCH_NONE;
                 }
             }
-            if ( $matchType != MATCH_FULL ) {
+            if ( $matchType != $MATCH_FULL ) {
                 if ( $iContentMd5 and $jContentMd5 ) {
                     if ( $iContentMd5 eq $jContentMd5 ) {
-                        $matchType = MATCH_CONTENT;
+                        $matchType = $MATCH_CONTENT;
                     }
                     else {
-                        $matchType = MATCH_NONE;
+                        $matchType = $MATCH_NONE;
                     }
                 }
             }
@@ -402,7 +403,7 @@ sub generateFindDupeFilesAutoAction {
         }
     );
     if ( @remainingIdx > 1
-        && all { $_ == MATCH_FULL }
+        && all { $_ == $MATCH_FULL }
         @{ $group->[ $remainingIdx[0] ]->{matches} }[@remainingIdx] )
     {
         # We have several things left that are all exact matches with no sidecars
@@ -537,14 +538,14 @@ sub buildFindDupeFilesPrompt {
 
         # Matches
         for my $matchType ( @{ $elt->{matches} } ) {
-            if ( $matchType == MATCH_FULL ) {
+            if ( $matchType == $MATCH_FULL ) {
                 push @prompt, Term::ANSIColor::colored( 'F', 'black on_green' );
             }
-            elsif ( $matchType == MATCH_CONTENT ) {
+            elsif ( $matchType == $MATCH_CONTENT ) {
                 push @prompt,
                     Term::ANSIColor::colored( 'C', 'black on_yellow' );
             }
-            elsif ( $matchType == MATCH_NONE ) {
+            elsif ( $matchType == $MATCH_NONE ) {
                 push @prompt, Term::ANSIColor::colored( 'X', 'black on_red' );
             }
             else {

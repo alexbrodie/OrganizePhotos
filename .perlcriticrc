@@ -32,6 +32,5 @@ severity = 5
 [-Subroutines::ProhibitExplicitReturnUndef]
 
 # Maybe later
-[-ValuesAndExpressions::ProhibitConstantPragma]
 [-Modules::ProhibitAutomaticExportation]
 

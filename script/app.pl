@@ -64,7 +64,7 @@ sub my_get_options {
             die "Unknown filter '$filter', choose from all, media, .ext.ex2.etc, qrREGEXP\n";
         }
         $TraverseFiles::filenameFilter = $filter;
-        trace(View::VERBOSITY_LOW, "Filter set to: ", $filter);
+        trace( $VERBOSITY_LOW, "Filter set to: ", $filter );
     }
     return @ARGV;
 }

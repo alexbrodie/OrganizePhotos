@@ -19,7 +19,6 @@ use PathOp;
 use View;
 
 # Library uses
-use Const::Fast qw(const);
 use File::Find  ();
 use File::Spec  ();
 
@@ -153,7 +152,7 @@ sub traverse_files {
     my $inner_traverse = sub {
         my ($root_partial_path) = @_;
         my $root = $make_full_path->($root_partial_path);
-        print_crud( View::VERBOSITY_LOW, View::CRUD_READ,
+        print_crud( $VERBOSITY_LOW, $CRUD_READ,
             "$my_caller is traversing '$root_partial_path' ('$root')" );
 
         # Find::find's final wanted call for $root doesn't have a

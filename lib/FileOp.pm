@@ -23,7 +23,6 @@ use PathOp;
 use View;
 
 # Library uses
-use Const::Fast qw(const);
 use File::Copy  qw(move);
 use File::Path  qw(make_path);
 use File::Spec  ();
@@ -33,7 +32,7 @@ use File::Spec  ();
 # except for extension)
 sub trash_path_and_sidecars {
     my ($path) = @_;
-    trace( View::VERBOSITY_MAX, "trash_path_and_sidecars('$path');" );
+    trace( $VERBOSITY_MAX, "trash_path_and_sidecars('$path');" );
 
     # TODO: check all for existance before performing any operations to
     # make file+sidecar opererations more atomic
@@ -45,7 +44,7 @@ sub trash_path_and_sidecars {
 # its entry from the per-directory database file
 sub trash_path {
     my ($path) = @_;
-    trace( View::VERBOSITY_MAX, "trash_path('$path');" );
+    trace( $VERBOSITY_MAX, "trash_path('$path');" );
 
     # If it's an empty directory, just delete it. Trying to trash
     # a dir with no items proves problematic for future move-merges
@@ -77,7 +76,7 @@ sub trash_path {
 #   moves file to: '.../root/.orphtrash'
 sub trash_path_with_root {
     my ( $path, $root ) = @_;
-    trace( View::VERBOSITY_MAX, "trash_path_with_root('$path', '$root');" );
+    trace( $VERBOSITY_MAX, "trash_path_with_root('$path', '$root');" );
 
     # Split the directories into pieces assuming root is a dir
     # Note the careful use of splitdir and catdir - splitdir can return
@@ -141,13 +140,13 @@ sub trash_path_with_root {
 # necessary and possible. Does not overwrite existing files.
 sub move_path {
     my ( $old_path, $new_path, $dry_run ) = @_;
-    trace( View::VERBOSITY_MAX, "move_path('$old_path', '$new_path');" );
+    trace( $VERBOSITY_MAX, "move_path('$old_path', '$new_path');" );
     return if $old_path eq $new_path;
     my $move_internal = sub {
         ensure_parent_dir( $new_path, $dry_run );
 
         # Move the file/dir
-        trace( View::VERBOSITY_MAX, "move('$old_path', '$new_path');" );
+        trace( $VERBOSITY_MAX, "move('$old_path', '$new_path');" );
         unless ($dry_run) {
             move( $old_path, $new_path )
                 or die "Failed to move '$old_path' to '$new_path': $!";
@@ -171,8 +170,7 @@ sub move_path {
                         or die "Couldn't delete '$old_path': $!";
                 }
                 print_crud(
-                    View::VERBOSITY_MEDIUM,
-                    View::CRUD_DELETE,
+                    $VERBOSITY_MEDIUM, $CRUD_DELETE,
                     "Deleted now-old cache at '@{[pretty_path($old_path)]}' after ",
                     "appending it to '@{[pretty_path($new_path)]}'\n"
                 );
@@ -184,8 +182,7 @@ sub move_path {
         else {
             $move_internal->();
             print_crud(
-                View::VERBOSITY_LOW,
-                View::CRUD_UPDATE,
+                $VERBOSITY_LOW, $CRUD_UPDATE,
                 "Moved file '@{[pretty_path($old_path)]}' ",
                 "to '@{[pretty_path($new_path)]}'\n"
             );
@@ -198,7 +195,7 @@ sub move_path {
         if ( -e $new_path ) {
 
             # Dest dir path already exists, need to move-merge.
-            trace( View::VERBOSITY_MAX,
+            trace(  $VERBOSITY_MAX,
                 "Move merge '$old_path' to '$new_path'" );
             -d _
                 or die "Can't move a directory - file already exists "
@@ -248,8 +245,7 @@ sub move_path {
             # Dest dir doesn't exist, so we can just move the whole directory
             $move_internal->();
             print_crud(
-                View::VERBOSITY_LOW,
-                View::CRUD_UPDATE,
+                $VERBOSITY_LOW, $CRUD_UPDATE,
                 "Moved directory '@{[pretty_path($old_path)]}'",
                 " to '@{[pretty_path($new_path)]}'\n"
             );
@@ -265,12 +261,12 @@ sub ensure_parent_dir {
     my ( $path, $dry_run ) = @_;
     my $parent = parent_path($path);
     unless ( -d $parent ) {
-        trace( View::VERBOSITY_MAX, "make_path('$parent');" );
+        trace( $VERBOSITY_MAX, "make_path('$parent');" );
         unless ($dry_run) {
             make_path($parent)
                 or die "Failed to make directory '$parent': $!";
         }
-        print_crud( View::VERBOSITY_MEDIUM, View::CRUD_CREATE,
+        print_crud(  $VERBOSITY_MEDIUM, $CRUD_CREATE,
             "Created dir '@{[pretty_path($parent)]}'\n" );
     }
 }
@@ -281,11 +277,10 @@ sub ensure_parent_dir {
 # and return falsy.
 sub try_remove_empty_dir {
     my ($path) = @_;
-    trace( View::VERBOSITY_MAX, "try_remove_empty_dir('$path');" );
+    trace( $VERBOSITY_MAX, "try_remove_empty_dir('$path');" );
     if ( -d $path and rmdir $path ) {
         print_crud(
-            View::VERBOSITY_MEDIUM,
-            View::CRUD_DELETE,
+            $VERBOSITY_MEDIUM, $CRUD_DELETE,
             "Deleted empty dir '@{[pretty_path($path)]}'\n"
         );
         return 1;
@@ -298,7 +293,7 @@ sub try_remove_empty_dir {
 # MODEL (File Operations) ------------------------------------------------------
 sub open_file {
     my ( $mode, $path ) = @_;
-    trace( View::VERBOSITY_MAX, "open_file('$mode', '$path');" );
+    trace( $VERBOSITY_MAX, "open_file('$mode', '$path');" );
     open( my $fh, $mode, $path )
         or die "Couldn't open '$path' in $mode mode: $!";
 
