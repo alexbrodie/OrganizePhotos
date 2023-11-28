@@ -26,7 +26,7 @@ use View;
 
 # Library uses
 use List::Util           qw(all max);
-use Number::Bytes::Human ();
+use Number::Bytes::Human qw(format_bytes);
 use POSIX                qw(strftime);
 use Readonly;
 
@@ -278,7 +278,7 @@ sub populateFindDupeFilesDupeGroup {
     @$group = grep { defined $_ } @$group;
     for my $elt (@$group) {
         $elt->{exists} = -e $elt->{fullPath};
-        if ( $fast or !$elt->{exists} ) {
+        if ( $fast || !$elt->{exists} ) {
             delete $elt->{md5Info};
             delete $elt->{dateTaken};
         }
@@ -571,7 +571,7 @@ sub buildFindDupeFilesPrompt {
         my $dateTaken =
             $elt->{dateTaken} ? $elt->{dateTaken}->strftime('%F %T') : '?';
         $mtime = $mtime ? POSIX::strftime( '%F %T', localtime $mtime ) : '?';
-        $size  = $size  ? Number::Bytes::Human::format_bytes($size)    : '?';
+        $size  = $size  ? format_bytes($size)                          : '?';
         push @prompt, sprintf( $metadataFormat, $dateTaken, $mtime, $size );
 
         # Missing warning

@@ -97,7 +97,7 @@ sub readIsobmffFtyp {
     $box->{__type} eq 'ftyp'
         or die "box type was not ftyp as expected: $box->{__type}";
     my $size = $box->{__data_size};
-    $size >= 8 && ( $size % 4 ) == 0
+    ( $size >= 8 && ( $size % 4 ) == 0 )
         or die "ftyp box data was unexpected size $size";
     read( $fh, my $fileData, $size )
         or die "failed to read ISOBMFF box data from '$mediaPath': $!";
@@ -170,10 +170,10 @@ sub readIsobmffBoxVersionAndFlags {
     my $flags = $flagsBytes[0] << 16 | $flagsBytes[1] << 8 | $flagsBytes[2];
     $box->{f_version} = $version;
     $box->{f_flags}   = $flags;
-    !defined $maxSupportedVersion
-        or $version <= $maxSupportedVersion
-        or die "unsupported version $version for "
-        . getIsobmffBoxDiagName( $mediaPath, $box );
+    if ( defined $maxSupportedVersion && $version > $maxSupportedVersion ) {
+        die "unsupported version $version for "
+            . getIsobmffBoxDiagName( $mediaPath, $box );
+    }
     return ( $version, $flags );
 }
 
@@ -190,15 +190,15 @@ sub parseIsobmffBoxChildren {
 
         # Deserialize and verify header
         my $child = readIsobmffBoxHeader( $mediaPath, $fh );
-        if ( exists $child->{__end_pos} ) {
-            !defined $parent->{__end_pos}
-                or $child->{__end_pos} <= $parent->{__end_pos}
-                or die
-                "box extended past parent end ($parent->{__end_pos}) for "
-                . getIsobmffBoxDiagName( $mediaPath, $child );
-        }
-        elsif ( exists $parent->{__end_pos} ) {
-            $child->{__end_pos} = $parent->{__end_pos};
+        if ( exists $parent->{__end_pos} ) {
+            my $parent_end = $parent->{__end_pos};
+            if ( !exists $child->{__end_pos} ) {
+                $child->{__end_pos} = $parent->_end;
+            }
+            elsif ( $child->{__end_pos} > $parent->_end ) {
+                die "box extended past parent end ($parent_end) for "
+                    . getIsobmffBoxDiagName( $mediaPath, $child );
+            }
         }
 
         # Deserialize data

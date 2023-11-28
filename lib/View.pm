@@ -9,9 +9,9 @@ use Exporter;
 our @ISA    = ('Exporter');
 our @EXPORT = qw(
     colored_bold colored_faint colored_by_index dump_struct pretty_path
-        print_crud print_with_icon trace $Verbosity $VERBOSITY_MIN
-        $VERBOSITY_LOW $VERBOSITY_MEDIUM $VERBOSITY_HIGH $VERBOSITY_MAX
-        $CRUD_UNKNOWN $CRUD_CREATE $CRUD_READ $CRUD_UPDATE $CRUD_DELETE
+    print_crud print_with_icon trace $Verbosity $VERBOSITY_MIN
+    $VERBOSITY_LOW $VERBOSITY_MEDIUM $VERBOSITY_HIGH $VERBOSITY_MAX
+    $CRUD_UNKNOWN $CRUD_CREATE $CRUD_READ $CRUD_UPDATE $CRUD_DELETE
 );
 our @EXPORT_OK = qw(
     get_color_for_index

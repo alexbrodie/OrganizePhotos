@@ -23,9 +23,9 @@ use PathOp;
 use View;
 
 # Library uses
-use File::Copy  qw(move);
-use File::Path  qw(make_path);
-use File::Spec  ();
+use File::Copy qw(move);
+use File::Path qw(make_path);
+use File::Spec ();
 
 # MODEL (File Operations) ------------------------------------------------------
 # Trash the specified path and any sidecars (anything with the same path
@@ -170,7 +170,8 @@ sub move_path {
                         or die "Couldn't delete '$old_path': $!";
                 }
                 print_crud(
-                    $VERBOSITY_MEDIUM, $CRUD_DELETE,
+                    $VERBOSITY_MEDIUM,
+                    $CRUD_DELETE,
                     "Deleted now-old cache at '@{[pretty_path($old_path)]}' after ",
                     "appending it to '@{[pretty_path($new_path)]}'\n"
                 );
@@ -195,8 +196,7 @@ sub move_path {
         if ( -e $new_path ) {
 
             # Dest dir path already exists, need to move-merge.
-            trace(  $VERBOSITY_MAX,
-                "Move merge '$old_path' to '$new_path'" );
+            trace( $VERBOSITY_MAX, "Move merge '$old_path' to '$new_path'" );
             -d _
                 or die "Can't move a directory - file already exists "
                 . "at destination ('$old_path' => '$new_path')";
@@ -227,9 +227,12 @@ sub move_path {
 
                 # If we move the last media from a folder in previous iteration
                 # of this loop, it can delete an empty Md5File via move_orphdat.
-                next
-                    if lc $_ eq $FileTypes::ORPHDAT_FILENAME
-                    and !( -e $old_child_path );
+                if ( ( lc $_ eq $FileTypes::ORPHDAT_FILENAME )
+                    && !( -e $old_child_path ) )
+                {
+                    next;
+                }
+
                 move_path( $old_child_path, $new_child_path, $dry_run );
             }
 
@@ -266,7 +269,7 @@ sub ensure_parent_dir {
             make_path($parent)
                 or die "Failed to make directory '$parent': $!";
         }
-        print_crud(  $VERBOSITY_MEDIUM, $CRUD_CREATE,
+        print_crud( $VERBOSITY_MEDIUM, $CRUD_CREATE,
             "Created dir '@{[pretty_path($parent)]}'\n" );
     }
 }
@@ -279,10 +282,8 @@ sub try_remove_empty_dir {
     my ($path) = @_;
     trace( $VERBOSITY_MAX, "try_remove_empty_dir('$path');" );
     if ( -d $path and rmdir $path ) {
-        print_crud(
-            $VERBOSITY_MEDIUM, $CRUD_DELETE,
-            "Deleted empty dir '@{[pretty_path($path)]}'\n"
-        );
+        print_crud( $VERBOSITY_MEDIUM, $CRUD_DELETE,
+            "Deleted empty dir '@{[pretty_path($path)]}'\n" );
         return 1;
     }
     else {

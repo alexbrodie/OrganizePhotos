@@ -24,7 +24,7 @@ sub doFindDupeDirs {
         {
             preprocess => sub {
                 return
-                    grep { !-d or lc ne $FileTypes::TRASH_DIR_NAME }
+                    grep { ( !-d ) || ( lc ne $FileTypes::TRASH_DIR_NAME ) }
                     @_;    # skip trash
             },
             wanted => sub {

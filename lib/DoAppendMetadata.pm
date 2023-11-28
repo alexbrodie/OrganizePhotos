@@ -66,7 +66,8 @@ sub doAppendMetadata {
     my $dirty = 0;
 
     # Update rating if it's changed
-    if ( defined $rating and ( !defined $oldRating or $rating ne $oldRating ) )
+    if (   ( defined $rating )
+        && ( ( !defined $oldRating ) || ( $rating ne $oldRating ) ) )
     {
         print "Rating: ",
             defined $oldRating ? $oldRating : "(null)",

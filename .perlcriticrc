@@ -12,9 +12,15 @@ severity = 5
 [Modules::RequireExplicitInclusion]
 severity = 2
 
-[Subroutines::ProhibitCallsToUndeclaredSubs]
-severity = 5
-exempt_subs = Test::More::can_ok Test::More::is Test::More::isnt Test::More::like Test::More::use_ok
+# Not yet
+#[Subroutines::ProhibitCallsToUndeclaredSubs]
+#severity = 5
+#exempt_subs = Test::More::can_ok Test::More::is Test::More::isnt Test::More::like Test::More::use_ok
+[-Subroutines::ProhibitCallsToUndeclaredSubs]
+
+# This doesn't work when modules contain multiple packages (eg Readonly),
+# and other cases, and has no opt out, so we have to turn it off
+[-Subroutines::ProhibitCallsToUnexportedSubs]
 
 [Subroutines::ProhibitExportingUndeclaredSubs]
 severity = 5
@@ -33,4 +39,3 @@ severity = 5
 
 # Maybe later
 [-Modules::ProhibitAutomaticExportation]
-

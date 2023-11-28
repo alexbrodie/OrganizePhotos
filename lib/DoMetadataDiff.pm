@@ -38,14 +38,13 @@ sub do_metadata_diff {
         while ( my ( $tag, $value ) = each %{ $items[$i] } ) {
             unless ( any { $_ eq $tag } @tags_to_skip ) {
                 for ( my $j = 0; $j < @items; $j++ ) {
-                    if (
-                        $i != $j
-                        and ( !exists $items[$j]->{$tag}
-                            or $items[$j]->{$tag} ne $value )
-                        )
-                    {
-                        $tag_set{$tag} = 1;
-                        last;
+                    if ( $i != $j ) {
+                        if (   ( !exists $items[$j]->{$tag} )
+                            || ( $items[$j]->{$tag} ne $value ) )
+                        {
+                            $tag_set{$tag} = 1;
+                            last;
+                        }
                     }
                 }
             }
