@@ -193,9 +193,9 @@ sub parseIsobmffBoxChildren {
         if ( exists $parent->{__end_pos} ) {
             my $parent_end = $parent->{__end_pos};
             if ( !exists $child->{__end_pos} ) {
-                $child->{__end_pos} = $parent->_end;
+                $child->{__end_pos} = $parent_end;
             }
-            elsif ( $child->{__end_pos} > $parent->_end ) {
+            elsif ( $child->{__end_pos} > $parent_end ) {
                 die "box extended past parent end ($parent_end) for "
                     . getIsobmffBoxDiagName( $mediaPath, $child );
             }
