@@ -23,9 +23,10 @@ sub doFindDupeDirs {
     File::Find::find(
         {
             preprocess => sub {
+
+                # skip trash
                 return
-                    grep { ( !-d ) || ( lc ne $FileTypes::TRASH_DIR_NAME ) }
-                    @_;    # skip trash
+                    grep { ( !-d ) || ( lc ne $FileTypes::TRASH_DIR_NAME ) } @_;
             },
             wanted => sub {
                 if (
