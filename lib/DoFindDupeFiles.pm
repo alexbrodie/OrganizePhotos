@@ -75,7 +75,7 @@ DUPEGROUP:
             else {
                 until ($command) {
                     print $prompt, "\a";
-                    chomp( $command = <STDIN> );
+                    chomp( $command = get_input() );
                     if ($command) {
 
                         # If the user provided something, save that for next
@@ -490,6 +490,7 @@ sub generateFindDupeFilesAutoAction {
 # generateFindDupeFilesAutoAction helper subroutine
 sub filterIndicies {
     my ( $dataArrayRef, $indiciesArrayRef, $predicate ) = @_;
+    ## no critic (ControlStructures::ProhibitMutatingListFunctions)
     my @idx = grep {
         local $_ = $dataArrayRef->[$_];
         my $result = $predicate->();

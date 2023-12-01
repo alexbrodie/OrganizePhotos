@@ -8,8 +8,8 @@ package View;
 use Exporter;
 our @ISA    = ('Exporter');
 our @EXPORT = qw(
-    colored_bold colored_faint colored_by_index dump_struct pretty_path
-    print_crud print_with_icon trace $Verbosity $VERBOSITY_MIN
+    colored_bold colored_faint colored_by_index dump_struct get_input
+    pretty_path print_crud print_with_icon trace $Verbosity $VERBOSITY_MIN
     $VERBOSITY_LOW $VERBOSITY_MEDIUM $VERBOSITY_HIGH $VERBOSITY_MAX
     $CRUD_UNKNOWN $CRUD_CREATE $CRUD_READ $CRUD_UPDATE $CRUD_DELETE
 );
@@ -58,9 +58,9 @@ sub colored_by_index {
     return colored( $message, get_color_for_index($color_index) );
 }
 
-# Stringify a perl data structure suitable for traceing
-sub dump_struct {    ## no critic (RequireArgUnpacking)
-                     #return Data::Dumper::Dumper(@_);
+# Stringify a perl data structure suitable for tracing
+## no critic (Subroutines::RequireArgUnpacking)
+sub dump_struct {
     return
         JSON->new->allow_nonref->allow_blessed->convert_blessed->pretty
         ->canonical->encode(@_);
@@ -150,6 +150,10 @@ sub trace {
         }
         print_with_icon( $icon, 'bright_black', @statements );
     }
+}
+
+sub get_input {
+    return <STDIN>;
 }
 
 1;

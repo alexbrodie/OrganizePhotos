@@ -65,7 +65,7 @@ sub do_check_date {
                     unless ($move) {
                         while (1) {
                             print "Move file (y/n/a/q)? ";
-                            chomp( my $in = <STDIN> );
+                            chomp( my $in = get_input() );
                             if ( $in eq 'y' ) {
                                 $move = 1;
                                 last;

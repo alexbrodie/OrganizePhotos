@@ -447,6 +447,7 @@ sub parseIsobmffBox {
 # all referenced item IDs.
 #
 # NB: this does not work for QTFF
+## no critic (Subroutines::RequireArgUnpacking)
 sub resolveIsobmffIref {
     my ($bmff) = shift;
     my %refs   = ();

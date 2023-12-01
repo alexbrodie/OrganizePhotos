@@ -197,7 +197,7 @@ EOM
             print @prompt;
             while (1) {
                 print "i/o/s/q? ", "\a";
-                chomp( my $in = <STDIN> );
+                chomp( my $in = get_input() );
                 if ( $in eq 'i' ) {
 
                     # Ignore new_orphdat (including skipping persisting), so we
@@ -448,6 +448,7 @@ sub delete_orphdat {
 # MODEL (MD5) ------------------------------------------------------------------
 # Takes a list of Md5Paths, and stores the concatinated Md5Info to the first
 # specified file. Dies without writing anything on key collisions.
+## no critic (Subroutines::RequireArgUnpacking)
 sub append_orphdat_files {
     my ( $target_orphdat_path, @source_orphdat_paths ) = @_;
     trace( $VERBOSITY_MAX, 'append_orphdat_files(',
@@ -556,6 +557,7 @@ sub read_orphdat_file {
     }
     else {
         # Parse as simple "name: md5" text
+        ## no critic (InputOutput::ProhibitReadlineInForLoop)
         for (<$orphdat_file>) {
             /^([^:]+):\s*($MD5_DIGEST_PATTERN)$/
                 or die "Unexpected line in '$orphdat_path': $_";
