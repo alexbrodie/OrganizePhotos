@@ -57,8 +57,10 @@ sub doAppendMetadata {
         # For each field, loop over each component of the source's value
         # and add it to the set of new values
         while ( my ( $name, $value ) = each %keywordTypes ) {
-            for ( split /\s*,\s*/, $infoSource->{$name} ) {
-                $value->{NEW}->{$_} = 1;
+            if ( exists $infoSource->{$name} ) {
+                for ( split /\s*,\s*/, $infoSource->{$name} ) {
+                    $value->{NEW}->{$_} = 1;
+                }
             }
         }
     }

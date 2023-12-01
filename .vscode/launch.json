@@ -11,13 +11,15 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/AppendMetadata", // TODO: find good place to put test data
             "args": [
                 "append-metadata",
+                "target.jpg",
+                "source1.jpg",
+                "source2.jpg",
                 "-v3",
-                "AppendMetadata/target.jpg",
-                "AppendMetadata/source1.jpg",
-                "AppendMetadata/source2.jpg"
+                "<",
+                "stdin.txt"
             ]
         },
         {
@@ -27,11 +29,12 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/CheckDate", // TODO: find good place to put test data
             "args": [
                 "check-date",
                 "-v3",
-                "CheckDate"
+                "<",
+                "stdin.txt"
             ]
         },
         {
@@ -41,11 +44,12 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/CheckHash", // TODO: find good place to put test data
             "args": [
                 "check-md5",
                 "-v3",
-                "CheckHash"
+                "<",
+                "stdin.txt"
             ]
         },
         {
@@ -55,11 +59,12 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Checkup", // TODO: find good place to put test data
             "args": [
                 "checkup",
                 "-v3",
-                "Checkup"
+                "<",
+                "stdin.txt"
             ]
         },
         {
@@ -69,11 +74,12 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/CollectTrash", // TODO: find good place to put test data
             "args": [
                 "collect-trash",
                 "-v3",
-                "CollectTrash"
+                "<",
+                "stdin.txt"
             ]
         },
         {
@@ -83,11 +89,12 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/FindDupeDirs", // TODO: find good place to put test data
             "args": [
                 "find-dupe-dirs",
                 "-v3",
-                "FindDupeDirs"
+                "<",
+                "stdin.txt"
             ]
         },
         {
@@ -97,11 +104,12 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/FindDupeFiles", // TODO: find good place to put test data
             "args": [
                 "find-dupe-files",
                 "-v3",
-                "FindDupeFiles"
+                "<",
+                "stdin.txt",
             ]
         },
         {
@@ -111,13 +119,15 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/MetadataDiff", // TODO: find good place to put test data
             "args": [
                 "metadata-diff",
+                "g.jpg",
+                "r.jpg",
+                "b.jpg",
                 "-v3",
-                "MetadataDiff/g.jpg",
-                "MetadataDiff/r.jpg",
-                "MetadataDiff/b.jpg"
+                "<",
+                "stdin.txt"
             ]
         },
         {
@@ -127,11 +137,12 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/PruneOrphdat", // TODO: find good place to put test data
             "args": [
                 "purge-md5",
                 "-v3",
-                "PruneOrphdat"
+                "<",
+                "stdin.txt"
             ]
         },
         {
@@ -141,11 +152,12 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/RemoveEmpties", // TODO: find good place to put test data
             "args": [
                 "remove-empties",
                 "-v3",
-                "RemoveEmpties"
+                "<",
+                "stdin.txt"
             ]
         },
         {
@@ -155,11 +167,12 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/RestoreTrash", // TODO: find good place to put test data
             "args": [
                 "restore-trash",
                 "-v3",
-                "RestoreTrash"
+                "<",
+                "stdin.txt"
             ]
         },
         {
@@ -169,10 +182,12 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Test", // TODO: find good place to put test data
             "args": [
                 "test",
-                "-v99"
+                "-v99",
+                "<",
+                "stdin.txt"
             ]
         },
         {
@@ -182,11 +197,12 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${userHome}/MyTemp/Orph_Test_Data", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/VerifyHash", // TODO: find good place to put test data
             "args": [
                 "verify-md5",
                 "-v3",
-                "VerifyHash"
+                "<",
+                "stdin.txt"
             ]
         }
     ]
