@@ -1,4 +1,4 @@
-# Our perlcritic profile. See Perl::Critic's CONFIGURATION documentation.
+# Our perlcritic profile. See Perl::Critic's perldoc CONFIGURATION section.
 
 severity = 3
 verbose = 4
@@ -10,13 +10,11 @@ severity = 5
 severity = 5
 
 [Modules::RequireExplicitInclusion]
-severity = 2
+severity = 5
 
-# Not yet
-#[Subroutines::ProhibitCallsToUndeclaredSubs]
-#severity = 5
+[Subroutines::ProhibitCallsToUndeclaredSubs]
+severity = 1 # Not yet
 #exempt_subs = Test::More::can_ok Test::More::is Test::More::isnt Test::More::like Test::More::use_ok
-[-Subroutines::ProhibitCallsToUndeclaredSubs]
 
 # This doesn't work when modules contain multiple packages (eg Readonly),
 # and other cases, and has no opt out, so we have to turn it off
@@ -32,8 +30,9 @@ severity = 5
 severity = 5
 
 [TooMuchCode::ProhibitUnusedImport]
-severity = 5
+severity = 4
 
+# Disagree with these
 [-Subroutines::RequireFinalReturn]
 [-Subroutines::ProhibitExplicitReturnUndef]
 
