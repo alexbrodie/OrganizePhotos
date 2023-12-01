@@ -62,7 +62,7 @@ sub do_verify_md5 {
             unless ($all) {
                 while (1) {
                     print "Ignore, ignore All, Quit (i/a/q)? ", "\a";
-                    chomp( my $in = <STDIN> );
+                    chomp( my $in = get_input() );
                     if ( $in eq 'i' ) {
                         last;
                     }

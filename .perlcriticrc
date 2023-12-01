@@ -1,6 +1,6 @@
-# Our perlcritic profile. See Perl::Critic's CONFIGURATION documentation.
+# Our perlcritic profile. See Perl::Critic's perldoc CONFIGURATION section.
 
-severity = 3
+severity = 2
 verbose = 4
 
 [TestingAndDebugging::RequireUseStrict]
@@ -13,8 +13,13 @@ severity = 5
 severity = 2
 
 [Subroutines::ProhibitCallsToUndeclaredSubs]
-severity = 5
+# Maybe enable later
+severity = 1
 exempt_subs = Test::More::can_ok Test::More::is Test::More::isnt Test::More::like Test::More::use_ok
+
+[Modules::ProhibitAutomaticExportation]
+# Maybe enable later
+severity = 1
 
 [Subroutines::ProhibitExportingUndeclaredSubs]
 severity = 5
@@ -28,9 +33,12 @@ severity = 5
 [TooMuchCode::ProhibitUnusedImport]
 severity = 5
 
+# Disagree with these
 [-Subroutines::RequireFinalReturn]
 [-Subroutines::ProhibitExplicitReturnUndef]
 
-# Maybe later
-[-Modules::ProhibitAutomaticExportation]
+# This doesn't work when modules contain multiple packages (eg Readonly),
+# and other cases, and has no opt out, so we have to turn it off
+[-Subroutines::ProhibitCallsToUnexportedSubs]
+
 
