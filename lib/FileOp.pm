@@ -194,12 +194,12 @@ sub move_path {
     }
     elsif ( -d _ ) {
         if ( -e $new_path ) {
-
-            # Dest dir path already exists, need to move-merge.
-            trace( $VERBOSITY_MAX, "Move merge '$old_path' to '$new_path'" );
             -d _
                 or die "Can't move a directory - file already exists "
                 . "at destination ('$old_path' => '$new_path')";
+
+            # Dest dir path already exists, need to move-merge.
+            trace( $VERBOSITY_MAX, "Move merge '$old_path' to '$new_path'" );
 
             # Use readdir rather than File::Find::find here. This doesn't
             # do a lot of what File::Find::find does - by design. We don't
