@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use warnings FATAL => qw(uninitialized);
 
-package RecordKey;
+package Orph::Depot::RecordKey;
 
 use FileTypes;    # for ORPHDAT_FILENAME, TODO: rafactor this
 use PathOp qw(change_filename);

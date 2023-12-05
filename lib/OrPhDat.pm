@@ -19,6 +19,7 @@ our @EXPORT = qw(
 );
 
 # Local uses
+use Orph::Depot::RecordKey;
 use ContentHash;
 use FileOp;
 use FileTypes;
@@ -92,7 +93,7 @@ sub resolve_orphdat {
 
     # First try to get suitable Md5Info from various cache locations
     # without opening or hashing the MediaFile
-    my ( $orphdat_path, $orphdat_key ) = get_orphdat_path_and_key($path);
+    my $key              = Orph::Depot::RecordKey->new($path);
     my $new_orphdat_base = make_orphdat_base($path);
     unless ($force_recalc) {
         if ( defined $cached_orphdat ) {
@@ -102,8 +103,8 @@ sub resolve_orphdat {
             # Caller supplied cached Md5Info is up to date
             return $cache_result if $cache_result;
         }
-        if ( $orphdat_path eq $CACHED_ORPHDAT_PATH ) {
-            $cached_orphdat = $CACHED_ORPHDAT_SET->{$orphdat_key};
+        if ( $key->depot_path eq $CACHED_ORPHDAT_PATH ) {
+            $cached_orphdat = $CACHED_ORPHDAT_SET->{ $key->record_key };
             my $cache_result = check_cached_orphdat( $path, $add_only, 'Memory',
                 $cached_orphdat, $new_orphdat_base );
 
@@ -116,10 +117,11 @@ sub resolve_orphdat {
             );
         }
     }
-    trace( $VERBOSITY_HIGH, "Opening cache '$orphdat_path' for '$path'" );
+    trace( $VERBOSITY_HIGH,
+        sprintf( "Opening cache '%s' for '%s'", $key->depot_path, $path ) );
     my ( $orphdat_file, $orphdat_set ) =
-        read_or_create_orphdat_file($orphdat_path);
-    my $old_orphdat = $orphdat_set->{$orphdat_key};
+        read_or_create_orphdat_file( $key->depot_path );
+    my $old_orphdat = $orphdat_set->{ $key->record_key };
     unless ($force_recalc) {
         my $cache_result = check_cached_orphdat( $path, $add_only, 'File',
             $old_orphdat, $new_orphdat_base );
@@ -221,10 +223,8 @@ EOM
             }
         }
     }
-    set_orphdat_and_write_file(
-        $path,        $new_orphdat,  $orphdat_path,
-        $orphdat_key, $orphdat_file, $orphdat_set
-    );
+    set_orphdat_and_write_file( $key, $new_orphdat, $orphdat_file,
+        $orphdat_set );
     return $new_orphdat;
 }
 
@@ -286,15 +286,6 @@ sub find_orphdat {
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
-# Gets the Md5Path, Md5Key for a MediaPath.
-sub get_orphdat_path_and_key {
-    my ($path) = @_;
-    my ( $orphdat_path, $orphdat_key ) =
-        change_filename( $path, $FileTypes::ORPHDAT_FILENAME );
-    return ( $orphdat_path, lc $orphdat_key );
-}
-
-# MODEL (MD5) ------------------------------------------------------------------
 # Stores Md5Info for a MediaPath. If the the provided data is undef, removes
 # existing information via delete_orphdat. Returns the previous Md5Info
 # value if it existed (or undef if not).
@@ -302,13 +293,11 @@ sub write_orphdat {
     my ( $path, $new_orphdat ) = @_;
     trace( $VERBOSITY_MAX, "write_orphdat('$path', {...});" );
     if ($new_orphdat) {
-        my ( $orphdat_path, $orphdat_key ) = get_orphdat_path_and_key($path);
+        my $key = Orph::Depot::RecordKey->new($path);
         my ( $orphdat_file, $orphdat_set ) =
-            read_or_create_orphdat_file($orphdat_path);
-        return set_orphdat_and_write_file(
-            $path,        $new_orphdat,  $orphdat_path,
-            $orphdat_key, $orphdat_file, $orphdat_set
-        );
+            read_or_create_orphdat_file( $key->depot_path );
+        return set_orphdat_and_write_file( $key, $new_orphdat, $orphdat_file,
+            $orphdat_set );
     }
     else {
         return delete_orphdat($path);
@@ -323,19 +312,26 @@ sub move_orphdat {
               "move_orphdat('$source_path', "
             . ( defined $target_path ? "'$target_path'" : 'undef' )
             . ");" );
-    my ( $source_orphdat_path, $source_orphdat_key ) =
-        get_orphdat_path_and_key($source_path);
-    unless ( -e $source_orphdat_path ) {
-        trace( $VERBOSITY_HIGH,
-            "Can't move/remove Md5Info for '$source_orphdat_key' from missing '$source_orphdat_path'"
+    my $source_key = Orph::Depot::RecordKey->new($source_path);
+    unless ( -e $source_key->depot_path ) {
+        trace(
+            $VERBOSITY_HIGH,
+            sprintf(
+                "Can't move/remove Md5Info for '%s' from missing '%s'",
+                $source_key->record_key, $source_key->depot_path
+            )
         );
         return undef;
     }
     my ( $source_orphdat_file, $source_orphdat_set ) =
-        read_orphdat_file( '+<', $source_orphdat_path );
-    unless ( exists $source_orphdat_set->{$source_orphdat_key} ) {
-        trace( $VERBOSITY_HIGH,
-            "Can't move/remove missing Md5Info for '$source_orphdat_key' from '$source_orphdat_path'"
+        read_orphdat_file( '+<', $source_key->depot_path );
+    unless ( exists $source_orphdat_set->{ $source_key->record_key } ) {
+        trace(
+            $VERBOSITY_HIGH,
+            sprintf(
+                "Can't move/remove missing Md5Info for '%s' from '%s'",
+                $source_key->record_key, $source_key->depot_path
+            )
         );
         return undef;
     }
@@ -344,7 +340,7 @@ sub move_orphdat {
     # operation. The logging info will be built up during the copy phase
     # and then logged after deleting.
     my ( $crud_op, $crud_msg );
-    my $source_orphdat = $source_orphdat_set->{$source_orphdat_key};
+    my $source_orphdat = $source_orphdat_set->{ $source_key->record_key };
     if ($target_path) {
         my ( undef, undef, $target_filename ) = split_path($target_path);
         my $new_orphdat = { %$source_orphdat, filename => $target_filename };
@@ -352,21 +348,20 @@ sub move_orphdat {
         # The code for the remainder of this scope is very similar to
         #   write_orphdat($target_path, $new_orphdat);
         # but with additional cases considered and improved context in traces
-        my ( $target_orphdat_path, $target_orphdat_key ) =
-            get_orphdat_path_and_key($target_path);
+        my $target_key = Orph::Depot::RecordKey->new($target_path);
         my ( $target_orphdat_file, $target_orphdat_set );
-        if ( $source_orphdat_path eq $target_orphdat_path ) {
+        if ( $source_key->depot_path eq $target_key->depot_path ) {
             $target_orphdat_set = $source_orphdat_set;
         }
         else {
             ( $target_orphdat_file, $target_orphdat_set ) =
-                read_or_create_orphdat_file($target_orphdat_path);
+                read_or_create_orphdat_file( $target_key->depot_path );
         }
 
         # The code for the remainder of this scope is very similar to
-        #   set_orphdat_and_write_file($target_path, $new_orphdat, $target_orphdat_path, $target_orphdat_key, $target_orphdat_file, $target_orphdat_set);
+        #   set_orphdat_and_write_file
         # but with additional cases considered and improved context in traces
-        my $existing_orphdat = $target_orphdat_set->{$target_orphdat_key};
+        my $existing_orphdat = $target_orphdat_set->{ $target_key->record_key };
         if ( $existing_orphdat
             and Data::Compare::Compare( $existing_orphdat, $new_orphdat ) )
         {
@@ -377,13 +372,17 @@ sub move_orphdat {
                 . "data already exists for '@{[pretty_path($target_path)]}')";
         }
         else {
-            $target_orphdat_set->{$target_orphdat_key} = $new_orphdat;
+            $target_orphdat_set->{ $target_key->record_key } = $new_orphdat;
             if ($target_orphdat_file) {
-                trace( $VERBOSITY_HIGH,
-                    "Writing '$target_orphdat_path' after moving entry for '$target_orphdat_key' elsewhere"
+                trace(
+                    $VERBOSITY_HIGH,
+                    sprintf(
+                        "Writing '%s' after moving entry for '%s' elsewhere",
+                        $target_key->depot_path, $target_key->record_key
+                    )
                 );
-                write_orphdat_file( $target_orphdat_path, $target_orphdat_file,
-                    $target_orphdat_set );
+                write_orphdat_file( $target_key->depot_path,
+                    $target_orphdat_file, $target_orphdat_set );
             }
             $crud_op = $CRUD_UPDATE;
             $crud_msg =
@@ -401,24 +400,36 @@ sub move_orphdat {
 
     # TODO: Should this if/else code move to write_orphdat_file/set_orphdat_and_write_file such
     #       that any time someone tries to write an empty hashref, it deletes the file?
-    delete $source_orphdat_set->{$source_orphdat_key};
+    delete $source_orphdat_set->{ $source_key->record_key };
     if (%$source_orphdat_set) {
-        trace( $VERBOSITY_HIGH,
-            "Writing '$source_orphdat_path' after removing MD5 for '$source_orphdat_key'"
+        trace(
+            $VERBOSITY_HIGH,
+            sprintf(
+                "Writing '%s' after removing MD5 for '%s'",
+                $source_key->depot_path, $source_key->record_key
+            )
         );
-        write_orphdat_file( $source_orphdat_path, $source_orphdat_file,
+        write_orphdat_file( $source_key->depot_path, $source_orphdat_file,
             $source_orphdat_set );
     }
     else {
         # Empty files create trouble down the line (especially with move-merges)
-        trace( $VERBOSITY_HIGH,
-            "Deleting '$source_orphdat_path' after removing MD5 for '$source_orphdat_key' (the last one)"
+        trace(
+            $VERBOSITY_HIGH,
+            sprintf(
+                "Deleting '%s' after removing MD5 for '%s' (the last one)",
+                $source_key->depot_path, $source_key->record_key
+            )
         );
         close($source_orphdat_file);
-        unlink($source_orphdat_path)
-            or die "Couldn't delete '$source_orphdat_path': $!";
-        print_crud( $VERBOSITY_MEDIUM, $CRUD_DELETE,
-            "Deleted empty file '@{[pretty_path($source_orphdat_path)]}'\n" );
+        unlink( $source_key->depot_path )
+            or die "Couldn't delete '" . $source_key->depot_path . "': $!";
+        print_crud(
+            $VERBOSITY_MEDIUM,
+            $CRUD_DELETE,
+            sprintf( "Deleted empty file '%s'\n",
+                pretty_path( $source_key->depot_path ) )
+        );
     }
     print_crud( $VERBOSITY_LOW, $crud_op, $crud_msg, "\n" );
     return $source_orphdat;
@@ -585,34 +596,49 @@ sub read_orphdat_file {
 # (like is returned from read_or_create_orphdat_file or read_orphdat_file). The orphdat_key and
 # new_orphdat represent the new data. Returns the previous md5Info value.
 sub set_orphdat_and_write_file {
-    my (
-        $path,        $new_orphdat,  $orphdat_path,
-        $orphdat_key, $orphdat_file, $orphdat_set
-    ) = @_;
-    trace( $VERBOSITY_MAX, "set_orphdat_and_write_file('$path', ...);" );
-    my $old_orphdat = $orphdat_set->{$orphdat_key};
+    my ( $key, $new_orphdat, $orphdat_file, $orphdat_set ) = @_;
+    trace( $VERBOSITY_MAX, "set_orphdat_and_write_file(...);" );
+    my $old_orphdat = $orphdat_set->{ $key->record_key };
     if ( $old_orphdat and Data::Compare::Compare( $old_orphdat, $new_orphdat ) )
     {
-        trace( $VERBOSITY_HIGH, "Skipping no-op update of cache for '$path'" );
+        trace(
+            $VERBOSITY_HIGH,
+            sprintf( "Skipping no-op update of cache for '%s'",
+                $key->depot_path )
+        );
     }
     else {
-        $orphdat_set->{$orphdat_key} = $new_orphdat;
-        trace( $VERBOSITY_HIGH,
-            "Writing '$orphdat_path' after updating value for key '$orphdat_key'"
+        $orphdat_set->{ $key->record_key } = $new_orphdat;
+        trace(
+            $VERBOSITY_HIGH,
+            sprintf(
+                "Writing '%s' after updating value for key '%s'",
+                $key->depot_path, $key->record_key
+            )
         );
-        write_orphdat_file( $orphdat_path, $orphdat_file, $orphdat_set );
+        write_orphdat_file( $key->depot_path, $orphdat_file, $orphdat_set );
         if ( defined $old_orphdat ) {
             my $changed_fields = join ', ', sort grep {
                 !Data::Compare::Compare( $old_orphdat->{$_},
                     $new_orphdat->{$_} )
             } keys %$new_orphdat;
-            print_crud( $VERBOSITY_LOW, $CRUD_UPDATE,
-                "Updated cache entry for '@{[pretty_path($path)]}': $changed_fields\n"
+            print_crud(
+                $VERBOSITY_LOW,
+                $CRUD_UPDATE,
+                sprintf(
+                    "Updated cache entry for '%s': %s\n",
+                    pretty_path( $key->subject_path ),
+                    $changed_fields
+                )
             );
         }
         else {
-            print_crud( $VERBOSITY_LOW, $CRUD_CREATE,
-                "Added cache entry for '@{[pretty_path($path)]}'\n" );
+            print_crud(
+                $VERBOSITY_LOW,
+                $CRUD_CREATE,
+                sprintf( "Added cache entry for '%s'\n",
+                    pretty_path( $key->subject_path ) )
+            );
         }
     }
     return $old_orphdat;
