@@ -11,7 +11,6 @@
         "*.t"
     ],
     "perl.perlInc": [
-        "/Users/alexbrodie/perl5/lib/perl5", // TODO: inherit this from system settings
         "./lib",
     ],
     "perlnavigator.perlcriticProfile": ".perlcriticrc",
