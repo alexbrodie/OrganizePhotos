@@ -6,7 +6,8 @@
 			"label": "prove",
 			"command": "prove",
 			"args": [
-				"-l"
+				"-l",
+				"-r"
 			],
 			"detail": "Run perl tests with prove",
 			"problemMatcher": [],
