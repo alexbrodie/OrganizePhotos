@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/AppendMetadata", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/AppendMetadata", // TODO: find good place to put test data
             "args": [
                 "append-metadata",
                 "target.jpg",
@@ -29,7 +29,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/CheckDate", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/CheckDate", // TODO: find good place to put test data
             "args": [
                 "check-date",
                 "-v3",
@@ -44,7 +44,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/CheckHash", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/CheckHash", // TODO: find good place to put test data
             "args": [
                 "check-md5",
                 "-v3",
@@ -59,7 +59,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/Checkup", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/Checkup", // TODO: find good place to put test data
             "args": [
                 "checkup",
                 "-v3",
@@ -74,7 +74,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/CollectTrash", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/CollectTrash", // TODO: find good place to put test data
             "args": [
                 "collect-trash",
                 "-v3",
@@ -89,7 +89,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/FindDupeDirs", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/FindDupeDirs", // TODO: find good place to put test data
             "args": [
                 "find-dupe-dirs",
                 "-v3",
@@ -104,7 +104,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/FindDupeFiles", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/FindDupeFiles", // TODO: find good place to put test data
             "args": [
                 "find-dupe-files",
                 "-v3",
@@ -119,7 +119,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/MetadataDiff", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/MetadataDiff", // TODO: find good place to put test data
             "args": [
                 "metadata-diff",
                 "g.jpg",
@@ -137,7 +137,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/PruneOrphdat", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/PruneOrphdat", // TODO: find good place to put test data
             "args": [
                 "purge-md5",
                 "-v3",
@@ -152,7 +152,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/RemoveEmpties", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/RemoveEmpties", // TODO: find good place to put test data
             "args": [
                 "remove-empties",
                 "-v3",
@@ -167,7 +167,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/RestoreTrash", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/RestoreTrash", // TODO: find good place to put test data
             "args": [
                 "restore-trash",
                 "-v3",
@@ -182,7 +182,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/Test", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/Test", // TODO: find good place to put test data
             "args": [
                 "test",
                 "-v99",
@@ -197,7 +197,7 @@
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,
             "reloadModules": true,
-            "cwd": "${workspaceFolder}/../Orph_Test_Data/VerifyHash", // TODO: find good place to put test data
+            "cwd": "${workspaceFolder}/../Orph_Test_Data/Verb/VerifyHash", // TODO: find good place to put test data
             "args": [
                 "verify-md5",
                 "-v3",
