@@ -33,7 +33,8 @@ sub doRemoveEmpties {
             # not processing) as if they didn't exist and let them get
             # cleaned up if the folder gets trashed
             return 0 if is_reserved_system_filename($filename);
-            return 0 if ( lc $filename eq $FileTypes::ORPHDAT_FILENAME );
+            return 0
+                if ( lc $filename eq $Orph::Depot::DataFile::DEPOT_FILENAME );
 
             # TODO: exclude zero byte or hidden files as well?
             return 1;    # Other files count
@@ -52,7 +53,7 @@ sub doRemoveEmpties {
                 delete $dirSubItemsMap{$fullPath};
 
                 # If this dir is empty, then we'll want to trash it and have the
-                # parent dir ignore it like trashable files (e.g. $FileTypes::ORPHDAT_FILENAME). If
+                # parent dir ignore it like trashable files (e.g. $Orph::Depot::DataFile::DEPOT_FILENAME). If
                 # it's not trashable, then fall through to add this to its parent
                 # dir's list (to prevent the parent from being trashed).
                 unless ($subItemCount) {

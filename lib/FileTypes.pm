@@ -14,22 +14,17 @@ our @EXPORT = qw(
     get_trash_path
     compare_path_with_ext_order
     is_reserved_system_filename
-    $ORPHDAT_FILENAME
     $TRASH_DIR_NAME
     $MEDIA_TYPE_FILENAME_FILTER
 );
 
 # Local uses
-use PathOp;
+use PathOp qw(combine_ext combine_path split_ext split_path);
 use View;
 
 # Library uses
 use File::Spec;
 use Readonly;
-
-# Filename only portion of the path to Md5File which stores
-# Md5Info data for other files in the same directory
-Readonly our $ORPHDAT_FILENAME => '.orphdat';
 
 # This subdirectory contains the trash for its parent
 Readonly our $TRASH_DIR_NAME => '.orphtrash';

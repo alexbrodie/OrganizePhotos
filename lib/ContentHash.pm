@@ -14,10 +14,11 @@ our @EXPORT = qw(
 );
 
 # Local uses
-use FileOp;
-use FileTypes;
-use Isobmff;
-use View;
+use FileOp    qw(open_file);
+use FileTypes qw(get_mime_type);
+use Isobmff
+    qw(readIsobmffBoxHeader readIsobmffFtyp getIsobmffBoxDiagName getIsobmffPrimaryDataExtents parseIsobmffBox);
+use View qw(pretty_path print_crud trace);
 
 # Library uses
 use Digest::MD5 ();
@@ -34,7 +35,7 @@ Readonly::Scalar our $MD5_DIGEST_PATTERN => qr/[0-9a-f]{32}/;
 sub is_hash_version_current {
     my ( $path, $version ) = @_;
 
-    #trace( $VERBOSITY_MAX, "is_hash_version_current('$path', $version);");
+    #trace( $View::VERBOSITY_MAX, "is_hash_version_current('$path', $version);");
     my $type = get_mime_type($path);
 
     # Return truthy iff $version >= N where N is the last version that
@@ -71,7 +72,7 @@ sub is_hash_version_current {
 #   full_md5: full MD5 calculation for exact match
 sub calculate_hash {
     my ($path) = @_;
-    trace( $VERBOSITY_MAX, "calculate_hash('$path');" );
+    trace( $View::VERBOSITY_MAX, "calculate_hash('$path');" );
 
     #!!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE !!! IMPORTANT NOTE
     #!!!   $CURRENT_HASH_VERSION should be incremented whenever the output
@@ -111,13 +112,17 @@ sub calculate_hash {
     if ( my $error = $@ ) {
 
         # Can't get the partial MD5, so we'll just use the full hash
-        warn
-            "Unavailable content MD5 for '@{[pretty_path($path)]}' with error:\n\t$error\n";
+        warn sprintf "Unavailable content MD5 for '%s' with error:\n\t%s\n",
+            pretty_path($path), $error;
     }
     print_crud(
-        $VERBOSITY_MEDIUM, $CRUD_READ,
-        "Computed MD5 of '@{[pretty_path($path)]}'",
-        ( $content_md5 ? ", including content only hash" : '' ), "\n"
+        $View::VERBOSITY_MEDIUM,
+        $View::CRUD_READ,
+        "Computed MD5 of '",
+        pretty_path($path),
+        "'",
+        ( $content_md5 ? ", including content only hash" : '' ),
+        "\n"
     );
     return {
         version  => $CURRENT_HASH_VERSION,

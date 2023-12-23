@@ -13,7 +13,7 @@ our @EXPORT = qw(
 
 # Local uses
 use MetaData qw(extract_info);
-use View;
+use View     qw(trace);
 
 # EXPERIMENTAL
 # Execute append-metadata verb
@@ -27,7 +27,8 @@ sub doAppendMetadata {
     my $etTarget   = extract_info($target);
     my $infoTarget = $etTarget->GetInfo(@properties);
 
-    trace( $VERBOSITY_MAX, "$target: ", Data::Dumper::Dumper($infoTarget) );
+    trace( $View::VERBOSITY_MAX, "$target: ",
+        Data::Dumper::Dumper($infoTarget) );
 
     my $rating    = $infoTarget->{Rating};
     my $oldRating = $rating;
@@ -47,7 +48,8 @@ sub doAppendMetadata {
         my $etSource   = extract_info($source);
         my $infoSource = $etSource->GetInfo(@properties);
 
-        trace( $VERBOSITY_MAX, "$source: ", Data::Dumper::Dumper($infoSource) );
+        trace( $View::VERBOSITY_MAX, "$source: ",
+            Data::Dumper::Dumper($infoSource) );
 
         # Add rating if we don't already have one
         unless ( defined $rating ) {

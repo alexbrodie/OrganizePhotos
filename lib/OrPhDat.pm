@@ -1,10 +1,9 @@
-#!/usr/bin/perl
+package OrPhDat;
 
 use strict;
 use warnings;
 use warnings FATAL => qw(uninitialized);
 
-package OrPhDat;
 use Exporter;
 our @ISA    = ('Exporter');
 our @EXPORT = qw(
@@ -19,18 +18,20 @@ our @EXPORT = qw(
 );
 
 # Local uses
+use Orph::Depot::DataFile;
 use Orph::Depot::RecordKey;
-use ContentHash;
-use FileOp;
-use FileTypes;
-use PathOp;
+use ContentHash   qw(calculate_hash is_hash_version_current);
+use FileOp        qw(ensure_parent_dir);
+use FileTypes     qw(get_trash_path);
+use PathOp        qw(change_filename split_path);
 use TraverseFiles qw(traverse_files);
-use View;
+use View          qw(get_input pretty_path print_crud trace);
 
 # Library uses
-use Data::Compare ();
-use File::stat    ();
-use JSON          ();
+use Data::Compare        ();
+use POSIX                qw(strftime);
+use File::stat           ();
+use Number::Bytes::Human qw(format_bytes);
 
 my $CACHED_ORPHDAT_PATH = '';
 my $CACHED_ORPHDAT_SET  = {};
@@ -86,7 +87,7 @@ my $CACHED_ORPHDAT_SET  = {};
 sub resolve_orphdat {
     my ( $path, $add_only, $force_recalc, $cached_orphdat ) = @_;
     trace(
-        $VERBOSITY_MAX,
+        $View::VERBOSITY_MAX,
         "resolve_orphdat('$path', $add_only, $force_recalc, ",
         defined $cached_orphdat ? '{...}' : 'undef', ');'
     );
@@ -112,16 +113,16 @@ sub resolve_orphdat {
             return $cache_result if $cache_result;
         }
         else {
-            trace( $VERBOSITY_HIGH,
+            trace( $View::VERBOSITY_HIGH,
                 "Memory cache miss for '$path', cache was '$CACHED_ORPHDAT_PATH'"
             );
         }
     }
-    trace( $VERBOSITY_HIGH,
+    trace( $View::VERBOSITY_HIGH,
         sprintf( "Opening cache '%s' for '%s'", $key->depot_path, $path ) );
-    my ( $orphdat_file, $orphdat_set ) =
-        read_or_create_orphdat_file( $key->depot_path );
-    my $old_orphdat = $orphdat_set->{ $key->record_key };
+    my ( $depot_file, $record_set ) =
+        read_or_create_depot_file( $key->depot_path );
+    my $old_orphdat = $record_set->{ $key->record_key };
     unless ($force_recalc) {
         my $cache_result = check_cached_orphdat( $path, $add_only, 'File',
             $old_orphdat, $new_orphdat_base );
@@ -142,8 +143,8 @@ sub resolve_orphdat {
             # Matches last recorded hash, but still continue and call
             # set_orphdat_and_write_file to handle other bookkeeping
             # to ensure we get a cache hit and short-circuit next time.
-            trace( $VERBOSITY_HIGH,
-                "Verified MD5 for '@{[pretty_path($path)]}'" );
+            trace( $View::VERBOSITY_HIGH, "Verified MD5 for '",
+                pretty_path($path), "'" );
         }
         elsif ( $old_orphdat->{full_md5} eq $new_orphdat->{full_md5} ) {
 
@@ -163,7 +164,7 @@ EOM
             }
             else {
                 trace(
-                    $VERBOSITY_MEDIUM,
+                    $View::VERBOSITY_MEDIUM,
                     "Content MD5 calculation has changed, upgrading from version ",
                     "$old_orphdat->{version} to $new_orphdat->{version} for '$path'"
                 );
@@ -174,7 +175,7 @@ EOM
             # TODO: This doesn't belong here in the model, it should be moved
             my @prompt = (
                 Term::ANSIColor::colored(
-                    "MISMATCH OF MD5 for '@{[pretty_path($path)]}'", 'red'
+                    "MISMATCH OF MD5 for '" . pretty_path($path) . "'", 'red'
                 ),
                 "\n",
                 "Ver  Full MD5                          Content MD5                       Date Modified        Size\n"
@@ -183,11 +184,9 @@ EOM
                 push @prompt,
                     sprintf(
                     "%3d  %-16s  %-16s  %-19s  %s\n",
-                    $_->{version},
-                    $_->{full_md5},
-                    $_->{md5},
-                    POSIX::strftime( '%F %T', localtime $_->{mtime} ),
-                    Number::Bytes::Human::format_bytes( $_->{size} )
+                    $_->{version}, $_->{full_md5}, $_->{md5},
+                    strftime( '%F %T', localtime $_->{mtime} ),
+                    format_bytes( $_->{size} )
                     );
             }
             push @prompt, <<EOM;
@@ -223,8 +222,7 @@ EOM
             }
         }
     }
-    set_orphdat_and_write_file( $key, $new_orphdat, $orphdat_file,
-        $orphdat_set );
+    set_orphdat_and_write_file( $key, $new_orphdat, $depot_file, $record_set );
     return $new_orphdat;
 }
 
@@ -240,7 +238,7 @@ sub find_orphdat {
         or die "Programmer Error: expected \$is_file_wanted argument";
     $callback or die "Programmer Error: expected \$callback argument";
     trace(
-        $VERBOSITY_MAX,
+        $View::VERBOSITY_MAX,
         'find_orphdat(...); with @glob_patterns of',
         (
             @glob_patterns
@@ -252,14 +250,14 @@ sub find_orphdat {
         $is_dir_wanted,
         sub {    # is_file_wanted
             my ( $path, $root, $filename ) = @_;
-            return ( lc $filename eq $FileTypes::ORPHDAT_FILENAME )
-                ;    # only process Md5File files
+
+            # only process Md5File files
+            return ( lc $filename eq $Orph::Depot::DataFile::DEPOT_FILENAME );
         },
-        sub {        # callback
+        sub {    # callback
             my ( $path, $root ) = @_;
             if ( -f $path ) {
-                my ( $vol, $dir, $filename ) = split_path($path);
-                my ( undef, $orphdat_set ) = read_orphdat_file( '<', $path );
+                my ( undef, $orphdat_set ) = read_depot_file( '<', $path );
                 for my $orphdat_key (
                     sort {
                         $orphdat_set->{$a}->{filename}
@@ -291,12 +289,12 @@ sub find_orphdat {
 # value if it existed (or undef if not).
 sub write_orphdat {
     my ( $path, $new_orphdat ) = @_;
-    trace( $VERBOSITY_MAX, "write_orphdat('$path', {...});" );
+    trace( $View::VERBOSITY_MAX, "write_orphdat('$path', {...});" );
     if ($new_orphdat) {
         my $key = Orph::Depot::RecordKey->new($path);
-        my ( $orphdat_file, $orphdat_set ) =
-            read_or_create_orphdat_file( $key->depot_path );
-        return set_orphdat_and_write_file( $key, $new_orphdat, $orphdat_file,
+        my ( $depot_file, $orphdat_set ) =
+            read_or_create_depot_file( $key->depot_path );
+        return set_orphdat_and_write_file( $key, $new_orphdat, $depot_file,
             $orphdat_set );
     }
     else {
@@ -308,14 +306,14 @@ sub write_orphdat {
 # Moves a Md5Info for a file from one directory's storage to another.
 sub move_orphdat {
     my ( $source_path, $target_path ) = @_;
-    trace( $VERBOSITY_MAX,
+    trace( $View::VERBOSITY_MAX,
               "move_orphdat('$source_path', "
             . ( defined $target_path ? "'$target_path'" : 'undef' )
             . ");" );
     my $source_key = Orph::Depot::RecordKey->new($source_path);
     unless ( -e $source_key->depot_path ) {
         trace(
-            $VERBOSITY_HIGH,
+            $View::VERBOSITY_HIGH,
             sprintf(
                 "Can't move/remove Md5Info for '%s' from missing '%s'",
                 $source_key->record_key, $source_key->depot_path
@@ -323,11 +321,11 @@ sub move_orphdat {
         );
         return undef;
     }
-    my ( $source_orphdat_file, $source_orphdat_set ) =
-        read_orphdat_file( '+<', $source_key->depot_path );
+    my ( $source_depot_file, $source_orphdat_set ) =
+        read_depot_file( '+<', $source_key->depot_path );
     unless ( exists $source_orphdat_set->{ $source_key->record_key } ) {
         trace(
-            $VERBOSITY_HIGH,
+            $View::VERBOSITY_HIGH,
             sprintf(
                 "Can't move/remove missing Md5Info for '%s' from '%s'",
                 $source_key->record_key, $source_key->depot_path
@@ -349,44 +347,45 @@ sub move_orphdat {
         #   write_orphdat($target_path, $new_orphdat);
         # but with additional cases considered and improved context in traces
         my $target_key = Orph::Depot::RecordKey->new($target_path);
-        my ( $target_orphdat_file, $target_orphdat_set );
+        my ( $target_depot_file, $target_record_set );
         if ( $source_key->depot_path eq $target_key->depot_path ) {
-            $target_orphdat_set = $source_orphdat_set;
+            $target_record_set = $source_orphdat_set;
         }
         else {
-            ( $target_orphdat_file, $target_orphdat_set ) =
-                read_or_create_orphdat_file( $target_key->depot_path );
+            ( $target_depot_file, $target_record_set ) =
+                read_or_create_depot_file( $target_key->depot_path );
         }
 
         # The code for the remainder of this scope is very similar to
         #   set_orphdat_and_write_file
         # but with additional cases considered and improved context in traces
-        my $existing_orphdat = $target_orphdat_set->{ $target_key->record_key };
+        my $existing_orphdat = $target_record_set->{ $target_key->record_key };
         if ( $existing_orphdat
             and Data::Compare::Compare( $existing_orphdat, $new_orphdat ) )
         {
             # Existing Md5Info at target is identical, so target is up to date already
-            $crud_op = $CRUD_DELETE;
-            $crud_msg =
-                "Removed cache data for '@{[pretty_path($source_path)]}' (up to date "
-                . "data already exists for '@{[pretty_path($target_path)]}')";
+            $crud_op  = $View::CRUD_DELETE;
+            $crud_msg = sprintf
+                "Removed cache data for '%s' (up to date data already exists for '%s')",
+                pretty_path($source_path),
+                pretty_path($target_path);
         }
         else {
-            $target_orphdat_set->{ $target_key->record_key } = $new_orphdat;
-            if ($target_orphdat_file) {
+            $target_record_set->{ $target_key->record_key } = $new_orphdat;
+            if ($target_depot_file) {
                 trace(
-                    $VERBOSITY_HIGH,
-                    sprintf(
+                    $View::VERBOSITY_HIGH,
+                    sprintf
                         "Writing '%s' after moving entry for '%s' elsewhere",
-                        $target_key->depot_path, $target_key->record_key
-                    )
+                    $target_key->depot_path,
+                    $target_key->record_key
                 );
-                write_orphdat_file( $target_key->depot_path,
-                    $target_orphdat_file, $target_orphdat_set );
+                write_depot_file( $target_depot_file, $target_record_set );
             }
-            $crud_op = $CRUD_UPDATE;
-            $crud_msg =
-                "Moved cache data for '@{[pretty_path($source_path)]}' to '@{[pretty_path($target_path)]}'";
+            $crud_op  = $View::CRUD_UPDATE;
+            $crud_msg = sprintf "Moved cache data for '%s' to '%s'",
+                pretty_path($source_path),
+                pretty_path($target_path);
             if ( defined $existing_orphdat ) {
                 $crud_msg = "$crud_msg overwriting existing value";
             }
@@ -394,44 +393,35 @@ sub move_orphdat {
     }
     else {
         # No target path, this is a delete only
-        $crud_op  = $CRUD_DELETE;
-        $crud_msg = "Removed MD5 for '@{[pretty_path($source_path)]}'";
+        $crud_op  = $View::CRUD_DELETE;
+        $crud_msg = "Removed MD5 for '" . pretty_path($source_path) . "'";
     }
 
-    # TODO: Should this if/else code move to write_orphdat_file/set_orphdat_and_write_file such
+    # TODO: Should this if/else code move to write_depot_file/set_orphdat_and_write_file such
     #       that any time someone tries to write an empty hashref, it deletes the file?
     delete $source_orphdat_set->{ $source_key->record_key };
     if (%$source_orphdat_set) {
         trace(
-            $VERBOSITY_HIGH,
+            $View::VERBOSITY_HIGH,
             sprintf(
                 "Writing '%s' after removing MD5 for '%s'",
                 $source_key->depot_path, $source_key->record_key
             )
         );
-        write_orphdat_file( $source_key->depot_path, $source_orphdat_file,
-            $source_orphdat_set );
+        write_depot_file( $source_depot_file, $source_orphdat_set );
     }
     else {
         # Empty files create trouble down the line (especially with move-merges)
         trace(
-            $VERBOSITY_HIGH,
+            $View::VERBOSITY_HIGH,
             sprintf(
                 "Deleting '%s' after removing MD5 for '%s' (the last one)",
                 $source_key->depot_path, $source_key->record_key
             )
         );
-        close($source_orphdat_file);
-        unlink( $source_key->depot_path )
-            or die "Couldn't delete '" . $source_key->depot_path . "': $!";
-        print_crud(
-            $VERBOSITY_MEDIUM,
-            $CRUD_DELETE,
-            sprintf( "Deleted empty file '%s'\n",
-                pretty_path( $source_key->depot_path ) )
-        );
+        $source_depot_file->erase();
     }
-    print_crud( $VERBOSITY_LOW, $crud_op, $crud_msg, "\n" );
+    print_crud( $View::VERBOSITY_LOW, $crud_op, $crud_msg, "\n" );
     return $source_orphdat;
 }
 
@@ -441,7 +431,7 @@ sub move_orphdat {
 sub trash_orphdat {
     my ($path) = @_;
     my $dry_run = 0;
-    trace( $VERBOSITY_MAX, "trash_orphdat('$path');" );
+    trace( $View::VERBOSITY_MAX, "trash_orphdat('$path');" );
     my $trash_path = get_trash_path($path);
     ensure_parent_dir( $trash_path, $dry_run );
     return move_orphdat( $path, $trash_path );
@@ -452,7 +442,7 @@ sub trash_orphdat {
 # value if it existed (or undef if not).
 sub delete_orphdat {
     my ($path) = @_;
-    trace( $VERBOSITY_MAX, "delete_orphdat('$path');" );
+    trace( $View::VERBOSITY_MAX, "delete_orphdat('$path');" );
     return move_orphdat( $path, undef );
 }
 
@@ -462,52 +452,53 @@ sub delete_orphdat {
 ## no critic (Subroutines::RequireArgUnpacking)
 sub append_orphdat_files {
     my ( $target_orphdat_path, @source_orphdat_paths ) = @_;
-    trace( $VERBOSITY_MAX, 'append_orphdat_files(',
+    trace( $View::VERBOSITY_MAX, 'append_orphdat_files(',
         join( ', ', map { "'$_'" } @_ ), ');' );
-    my ( $target_orphdat_file, $target_orphdat_set ) =
-        read_or_create_orphdat_file($target_orphdat_path);
-    my $old_target_orphdat_set_count = scalar keys %$target_orphdat_set;
-    my $dirty                        = 0;
+    my ( $target_depot_file, $target_record_set ) =
+        read_or_create_depot_file($target_orphdat_path);
+    my $old_target_record_set_count = scalar keys %$target_record_set;
+    my $dirty                       = 0;
     for my $source_orphdat_path (@source_orphdat_paths) {
         my ( undef, $source_orphdat_set ) =
-            read_orphdat_file( '<', $source_orphdat_path );
+            read_depot_file( '<', $source_orphdat_path );
         while ( my ( $orphdat_key, $source_orphdat ) =
             each %$source_orphdat_set )
         {
-            if ( exists $target_orphdat_set->{$orphdat_key} ) {
-                my $target_orphdat = $target_orphdat_set->{$orphdat_key};
+            if ( exists $target_record_set->{$orphdat_key} ) {
+                my $target_orphdat = $target_record_set->{$orphdat_key};
                 Data::Compare::Compare( $source_orphdat, $target_orphdat )
                     or die
                     "Can't append MD5 info from '$source_orphdat_path' to '$target_orphdat_path'"
                     . " due to key collision for '$orphdat_key'";
             }
             else {
-                $target_orphdat_set->{$orphdat_key} = $source_orphdat;
+                $target_record_set->{$orphdat_key} = $source_orphdat;
                 $dirty = 1;
             }
         }
     }
     if ($dirty) {
         trace(
-            $VERBOSITY_HIGH,
+            $View::VERBOSITY_HIGH,
             "Writing '$target_orphdat_path' after appending data from ",
             scalar @source_orphdat_paths,
             " files"
         );
-        write_orphdat_file( $target_orphdat_path, $target_orphdat_file,
-            $target_orphdat_set );
-        my $items_added = ( scalar keys %$target_orphdat_set ) -
-            $old_target_orphdat_set_count;
+        write_depot_file( $target_depot_file, $target_record_set );
+        my $items_added =
+            ( scalar keys %$target_record_set ) - $old_target_record_set_count;
         print_crud(
-            $VERBOSITY_LOW,
-            $CRUD_CREATE,
-            "Added $items_added MD5s to '${\pretty_path($target_orphdat_path)}' from ",
+            $View::VERBOSITY_LOW,
+            $View::CRUD_CREATE,
+            "Added $items_added MD5s to '",
+            pretty_path($target_orphdat_path),
+            "' from ",
             join ', ',
-            map { "'${\pretty_path($_)}'" } @source_orphdat_paths
+            map { "'" . pretty_path($_) . "'" } @source_orphdat_paths
         );
     }
     else {
-        trace( $VERBOSITY_HIGH,
+        trace( $View::VERBOSITY_HIGH,
             "Skipping no-op append of cache for '$target_orphdat_path'" );
     }
 }
@@ -515,94 +506,43 @@ sub append_orphdat_files {
 # MODEL (MD5) ------------------------------------------------------------------
 # This is a utility for updating Md5Info. It opens the Md5Path R/W and parses
 # it. Returns the Md5File and Md5Set.
-sub read_or_create_orphdat_file {
-    my ($orphdat_path) = @_;
-    trace( $VERBOSITY_MAX, "read_or_create_orphdat_file('$orphdat_path');" );
-    if ( -e $orphdat_path ) {
-        return read_orphdat_file( '+<', $orphdat_path );
-    }
-    else {
-        my $fh = open_orphdat_file( '+>', $orphdat_path );
-        print_crud( $VERBOSITY_MEDIUM, $CRUD_CREATE,
-            "Created cache at '@{[pretty_path($orphdat_path)]}'\n" );
-        return ( $fh, {} );
-    }
+sub read_or_create_depot_file {
+    my ($depot_path) = @_;
+
+    my $file = Orph::Depot::DataFile->new($depot_path);
+    $file->access_rw();
+    my $record_set = $file->read_records();
+    update_orphdat_cache( $depot_path, $record_set );
+    return ( $file, $record_set );
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Low level helper routine to open a Md5Path and deserialize into a OM (Md5Set)
-# which can be read, modified, and/or passed to write_orphdat_file or methods built
+# which can be read, modified, and/or passed to write_depot_file or methods built
 # on that. Returns the Md5File and Md5Set.
-sub read_orphdat_file {
-    my ( $open_mode, $orphdat_path ) = @_;
-    trace( $VERBOSITY_MAX,
-        "read_orphdat_file('$open_mode', '$orphdat_path');" );
-    my $orphdat_file = open_orphdat_file( $open_mode, $orphdat_path );
+sub read_depot_file {
+    my ( $open_mode, $depot_path ) = @_;
 
-    # If the first char is a open curly brace, treat as JSON,
-    # otherwise do the older simple "name: md5\n" format parsing
-    my $use_json = 0;
-    while (<$orphdat_file>) {
-        if (/^\s*([^\s])/) {
-            $use_json = 1 if $1 eq '{';
-            last;
-        }
-    }
-    seek( $orphdat_file, 0, 0 ) or die "Couldn't reset seek on file: $!";
-    my $orphdat_set = {};
-    if ($use_json) {
-
-        # decode (and decode_json) converts UTF-8 binary string to perl data struct
-        $orphdat_set = JSON::decode_json( join '', <$orphdat_file> );
-
-        # TODO: Consider validating parsed content - do a lc on
-        #       filename/md5s/whatever, and verify vs $MD5_DIGEST_PATTERN???
-        # If there's no version data, then it is version 1. We didn't
-        # start storing version information until version 2.
-        while ( my ( $key, $values ) = each %$orphdat_set ) {
-
-            # Populate missing values so we don't have to handle sparse data everywhere
-            $values->{version}  = 1    unless exists $values->{version};
-            $values->{filename} = $key unless exists $values->{filename};
-        }
-    }
-    else {
-        # Parse as simple "name: md5" text
-        ## no critic (InputOutput::ProhibitReadlineInForLoop)
-        for (<$orphdat_file>) {
-            /^([^:]+):\s*($MD5_DIGEST_PATTERN)$/
-                or die "Unexpected line in '$orphdat_path': $_";
-
-            # We use version 0 here for the very old way before we went to
-            # JSON when we added more info than just the full file MD5
-            my $full_md5 = lc $2;
-            $orphdat_set->{ lc $1 } = {
-                version  => 0,
-                filename => $1,
-                md5      => $full_md5,
-                full_md5 => $full_md5
-            };
-        }
-    }
-    update_orphdat_cache( $orphdat_path, $orphdat_set );
-    print_crud( $VERBOSITY_MEDIUM, $CRUD_READ,
-        "Read cache from '@{[pretty_path($orphdat_path)]}'\n" );
-    return ( $orphdat_file, $orphdat_set );
+    my $file = Orph::Depot::DataFile->new($depot_path);
+    $file->access($open_mode);
+    my $record_set = $file->read_records();
+    update_orphdat_cache( $depot_path, $record_set );
+    return ( $file, $record_set );
 }
 
 # MODEL (MD5) ------------------------------------------------------------------
 # Lower level helper routine that updates a MD5 info, and writes it to the file
 # if necessary. The $orphdat_file and $orphdat_set params should be the existing data
-# (like is returned from read_or_create_orphdat_file or read_orphdat_file). The orphdat_key and
+# (like is returned from read_or_create_depot_file or read_depot_file). The orphdat_key and
 # new_orphdat represent the new data. Returns the previous md5Info value.
 sub set_orphdat_and_write_file {
     my ( $key, $new_orphdat, $orphdat_file, $orphdat_set ) = @_;
-    trace( $VERBOSITY_MAX, "set_orphdat_and_write_file(...);" );
+    trace( $View::VERBOSITY_MAX, "set_orphdat_and_write_file(...);" );
     my $old_orphdat = $orphdat_set->{ $key->record_key };
     if ( $old_orphdat and Data::Compare::Compare( $old_orphdat, $new_orphdat ) )
     {
         trace(
-            $VERBOSITY_HIGH,
+            $View::VERBOSITY_HIGH,
             sprintf( "Skipping no-op update of cache for '%s'",
                 $key->depot_path )
         );
@@ -610,92 +550,43 @@ sub set_orphdat_and_write_file {
     else {
         $orphdat_set->{ $key->record_key } = $new_orphdat;
         trace(
-            $VERBOSITY_HIGH,
+            $View::VERBOSITY_HIGH,
             sprintf(
                 "Writing '%s' after updating value for key '%s'",
                 $key->depot_path, $key->record_key
             )
         );
-        write_orphdat_file( $key->depot_path, $orphdat_file, $orphdat_set );
+        write_depot_file( $orphdat_file, $orphdat_set );
         if ( defined $old_orphdat ) {
             my $changed_fields = join ', ', sort grep {
                 !Data::Compare::Compare( $old_orphdat->{$_},
                     $new_orphdat->{$_} )
             } keys %$new_orphdat;
             print_crud(
-                $VERBOSITY_LOW,
-                $CRUD_UPDATE,
-                sprintf(
-                    "Updated cache entry for '%s': %s\n",
-                    pretty_path( $key->subject_path ),
-                    $changed_fields
-                )
+                $View::VERBOSITY_LOW,
+                $View::CRUD_UPDATE,
+                "Updated cache entry for '",
+                pretty_path( $key->subject_path ),
+                "': $changed_fields\n"
             );
         }
         else {
             print_crud(
-                $VERBOSITY_LOW,
-                $CRUD_CREATE,
-                sprintf( "Added cache entry for '%s'\n",
-                    pretty_path( $key->subject_path ) )
+                $View::VERBOSITY_LOW, $View::CRUD_CREATE,
+                "Added cache entry for '",
+                pretty_path( $key->subject_path ), "'\n"
             );
         }
     }
     return $old_orphdat;
 }
 
-# MODEL (MD5) ------------------------------------------------------------------
-# Lowest level helper routine to serialize OM into a file handle.
-# Caller is expected to print_crud with more context if this method returns
-# successfully.
-sub write_orphdat_file {
-    my ( $orphdat_path, $orphdat_file, $orphdat_set ) = @_;
-
-    # TODO: write this out as UTF8 using :encoding(UTF-8):crlf (or :utf8:crlf?)
-    #       and writing out the "\x{FEFF}" BOM. Not sure how to do that in
-    #       a fully cross compatable way (older file versions as well as
-    #       Windows/Mac compat)
-    trace( $VERBOSITY_MAX,
-        "write_orphdat_file('$orphdat_path', <file>, { hash of @{[ scalar keys %$orphdat_set ]} items });"
-    );
-    verify_orphdat_path($orphdat_path);
-    seek( $orphdat_file, 0, 0 )  or die "Couldn't reset seek on file: $!";
-    truncate( $orphdat_file, 0 ) or die "Couldn't truncate file: $!";
-    if (%$orphdat_set) {
-
-        # encode (and encode_json) produces UTF-8 binary string
-        print $orphdat_file JSON->new->allow_nonref->pretty->canonical->encode(
-            $orphdat_set);
-    }
-    else {
-        warn "Writing empty data to $orphdat_path";
-    }
-    update_orphdat_cache( $orphdat_path, $orphdat_set );
-    print_crud( $VERBOSITY_MEDIUM, $CRUD_UPDATE,
-        "Wrote cache to '@{[pretty_path($orphdat_path)]}'\n" );
+sub write_depot_file {
+    my ( $orphdat_file, $record_set ) = @_;
+    $orphdat_file->write_records($record_set);
+    update_orphdat_cache( $orphdat_file->path, $record_set );
 }
 
-# MODEL (MD5) ------------------------------------------------------------------
-# Opens a filehandle given a path to a .orphdat file. This adds safeguards
-# and encoding handling on top of open_file. Use in place of open_file for
-# .orphdat files.
-sub open_orphdat_file {
-    my ( $open_mode, $orphdat_path ) = @_;
-    verify_orphdat_path($orphdat_path);
-    return open_file( $open_mode . ':crlf', $orphdat_path );
-}
-
-# MODEL (MD5) ------------------------------------------------------------------
-# Verify filename of provided path is $ORPHDAT_FILENAME
-sub verify_orphdat_path {
-    my ($orphdat_path) = @_;
-    my ( undef, undef, $filename ) = split_path($orphdat_path);
-    $filename eq $FileTypes::ORPHDAT_FILENAME
-        or die
-        "Expected cache filename '${FileTypes::ORPHDAT_FILENAME}' for '$orphdat_path'";
-}
-
-# MODEL (MD5) ------------------------------------------------------------------
 sub update_orphdat_cache {
     my ( $orphdat_path, $orphdat_set ) = @_;
     $CACHED_ORPHDAT_PATH = $orphdat_path;
@@ -727,18 +618,18 @@ sub check_cached_orphdat {
     my ( $path, $add_only, $cache_type, $cached_orphdat, $current_orphdat_base )
         = @_;
 
-    #trace( $VERBOSITY_MAX, 'check_cached_orphdat(...);');
+    #trace( $View::VERBOSITY_MAX, 'check_cached_orphdat(...);');
     unless ( defined $cached_orphdat ) {
 
         # Note that this is assumed context from the caller, and not actually
         # something true based on this sub
-        trace( $VERBOSITY_HIGH,
+        trace( $View::VERBOSITY_HIGH,
             "$cache_type cache miss for '$path', lookup failed" );
         return undef;
     }
 
     if ($add_only) {
-        trace( $VERBOSITY_HIGH,
+        trace( $View::VERBOSITY_HIGH,
             "$cache_type cache hit for '$path', add-only mode" );
     }
     else {
@@ -764,12 +655,12 @@ sub check_cached_orphdat {
             push @delta, 'mtime';
         }
         if (@delta) {
-            trace( $VERBOSITY_HIGH,
+            trace( $View::VERBOSITY_HIGH,
                 "$cache_type cache miss for '$path', different "
                     . join( '/', @delta ) );
             return undef;
         }
-        trace( $VERBOSITY_HIGH,
+        trace( $View::VERBOSITY_HIGH,
             "$cache_type cache hit for '$path', version/name/size/mtime match"
         );
     }

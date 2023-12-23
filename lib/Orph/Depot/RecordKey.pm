@@ -1,20 +1,17 @@
-#!/usr/bin/perl
+package Orph::Depot::RecordKey;
 
 use strict;
 use warnings;
 use warnings FATAL => qw(uninitialized);
 
-package Orph::Depot::RecordKey;
-
-use FileTypes;    # for ORPHDAT_FILENAME, TODO: rafactor this
+use Orph::Depot::DataFile;
 use PathOp qw(change_filename);
 
 sub new {
-    my $class = shift;
-    my ($path) = @_;
+    my ( $class, $path ) = @_;
 
     my ( $depot_path, $old_filename ) =
-        change_filename( $path, $FileTypes::ORPHDAT_FILENAME );
+        change_filename( $path, $Orph::Depot::DataFile::DEPOT_FILENAME );
 
     my $self = {
         subject_path => $path,

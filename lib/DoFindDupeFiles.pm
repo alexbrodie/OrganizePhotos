@@ -22,7 +22,7 @@ use OrPhDat          qw(resolve_orphdat find_orphdat trash_orphdat);
 use PathOp           qw(combine_ext split_dir split_ext split_path);
 use TraverseFiles
     qw(traverse_files default_is_dir_wanted default_is_file_wanted);
-use View;
+use View qw(colored_by_index get_input pretty_path print_crud trace);
 
 # Library uses
 use List::Util           qw(all max);
@@ -231,8 +231,11 @@ sub buildFindDupeFilesDupeGroups {
             @globPatterns
         );
     }
-    trace( $VERBOSITY_MAX,
-        "Found @{[scalar keys %keyToFullPathList]} initial groups" );
+    trace(
+        $View::VERBOSITY_MAX, "Found ",
+        scalar keys %keyToFullPathList,
+        " initial groups"
+    );
 
     # Go through each element in the %keyToFullPathList map, and we'll
     # want the ones with multiple things in the array of paths. If
@@ -258,7 +261,7 @@ sub buildFindDupeFilesDupeGroups {
         compare_path_with_ext_order( $a->[0]->{fullPath},
             $b->[0]->{fullPath}, 1 )
     } @dupes;
-    print_crud( $VERBOSITY_LOW, $CRUD_READ,
+    print_crud( $View::VERBOSITY_LOW, $View::CRUD_READ,
         "Found $fileCount files and @{[scalar @dupes]} groups of duplicate files"
     );
     return \@dupes;
@@ -352,8 +355,8 @@ sub computeFindDupeFilesHashKeyByName {
     else {
         # Unknown file format, just use all of basename? It's not
         # nothing, but will only work with exact filename matches
-        warn
-            "Unknown filename format for '$basename' in '@{[pretty_path($fullPath)]}'";
+        warn sprintf "Unknown filename format for '%s' in '%s'",
+            $basename, pretty_path($fullPath);
         $key .= lc $basename . ';';
     }
 
@@ -377,7 +380,7 @@ sub computeFindDupeFilesHashKeyByName {
             $key .= $dirKey;
         }
         else {
-            warn "Unknown directory format in '@{[pretty_path($fullPath)]}'";
+            warn "Unknown directory format in '" . pretty_path($fullPath) . "'";
         }
     }
     return $key;

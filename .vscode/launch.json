@@ -7,6 +7,14 @@
         {
             "type": "perl",
             "request": "launch",
+            "name": "run test.t",
+            "program": "${workspaceFolder}/${relativeFile}",
+            "stopOnEntry": true,
+            "reloadModules": true
+        },
+        {
+            "type": "perl",
+            "request": "launch",
             "name": "append-metadata",
             "program": "${workspaceFolder}/script/app.pl",
             "stopOnEntry": false,

@@ -15,7 +15,7 @@ our @EXPORT = qw(
 use ContentHash   qw(calculate_hash);
 use OrPhDat       qw(find_orphdat make_orphdat_base);
 use TraverseFiles qw(default_is_dir_wanted default_is_file_wanted);
-use View;
+use View          qw(get_input pretty_path);
 
 # Execute verify-md5 verb
 sub do_verify_md5 {
@@ -46,17 +46,17 @@ sub do_verify_md5 {
                 if ( $same_mtime && $same_size && $same_md5 ) {
 
                     # Everything checks out
-                    print "Verified MD5 for '@{[pretty_path($path)]}'\n";
+                    print "Verified MD5 for '" . pretty_path($path) . "'\n";
                     return;
                 }
                 else {
                     # Hash mismatch, needs input
-                    warn "ERROR: MD5 mismatch for '@{[pretty_path($path)]}'";
+                    warn "ERROR: MD5 mismatch for '" . pretty_path($path) . "'";
                 }
             }
             else {
                 # File doesn't exist
-                warn "ERROR: Missing file: '@{[pretty_path($path)]}'";
+                warn "ERROR: Missing file: '" . pretty_path($path) . "'";
             }
 
             unless ($all) {

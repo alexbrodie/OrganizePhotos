@@ -15,12 +15,13 @@ our @EXPORT = qw(
 
 # Local uses
 use FileTypes;
-use PathOp;
-use View;
+use PathOp qw(split_path);
+use View   qw(pretty_path print_crud);
 
 # Library uses
-use File::Find  ();
-use File::Spec  ();
+use Orph::Depot::DataFile;
+use File::Find ();
+use File::Spec ();
 
 our $filenameFilter = $FileTypes::MEDIA_TYPE_FILENAME_FILTER;
 
@@ -33,7 +34,7 @@ sub default_is_dir_wanted {
 # Default implementation for traverse_files's isDirWanted param
 sub default_is_file_wanted {
     my ( $path, $root_path, $filename ) = @_;
-    return ( lc $filename ne $FileTypes::ORPHDAT_FILENAME
+    return ( lc $filename ne $Orph::Depot::DataFile::DEPOT_FILENAME
             and $filename =~ /$filenameFilter/ );
 }
 
@@ -120,8 +121,8 @@ sub traverse_files {
 
                 # \033[K == "erase to end of line"
                 # \033[1A == "move cursor up 1 line"
-                print
-                    "$my_caller is traversing '@{[pretty_path($path)]}'...\033[K\n\033[1A";
+                print "$my_caller is traversing '", pretty_path($path),
+                    "'...\033[K\n\033[1A";
                 return 'd';
             }
         }
@@ -152,7 +153,7 @@ sub traverse_files {
     my $inner_traverse = sub {
         my ($root_partial_path) = @_;
         my $root = $make_full_path->($root_partial_path);
-        print_crud( $VERBOSITY_LOW, $CRUD_READ,
+        print_crud( $View::VERBOSITY_LOW, $View::CRUD_READ,
             "$my_caller is traversing '$root_partial_path' ('$root')" );
 
         # Find::find's final wanted call for $root doesn't have a

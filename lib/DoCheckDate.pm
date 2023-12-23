@@ -17,7 +17,7 @@ use FileTypes qw(get_sidecar_paths);
 use MetaData  qw(get_date_taken check_path_dates);
 use TraverseFiles
     qw(traverse_files default_is_dir_wanted default_is_file_wanted);
-use View;
+use View qw(get_input pretty_path print_with_icon);
 
 # EXPERIMENTAL
 sub do_check_date {
@@ -40,27 +40,27 @@ sub do_check_date {
             if ( $path ne $fixed_path ) {
                 for ( get_sidecar_paths($path) ) {
                     my $sidecar_fixed_path = check_path_dates( $_, $date );
-                    warn
-                        "sidecars not yet supported, path to fix has sidecars: '"
-                        . pretty_path($path) . "'";
+                    warn sprintf
+                        "sidecars not yet supported, path to fix has sidecars: '%s'",
+                        pretty_path($path);
                     return;
                 }
 
                 if ( -e $fixed_path ) {
-                    print_with_icon( '[!]', 'yellow',
-                              "Wrong date in path '"
-                            . pretty_path($path) . "'\n"
-                            . "         should be '"
-                            . pretty_path($fixed_path) . "'\n"
-                            . "which already exists." );
+                    print_with_icon(
+                        '[!]',
+                        'yellow',
+                        sprintf "Wrong date in path '%s'\n"
+                            . "         should be '%s'\n"
+                            . "which already exists.",
+                        pretty_path($path),
+                        pretty_path($fixed_path)
+                    );
                 }
                 else {
                     print_with_icon( '[?]', 'yellow',
-                              " from '"
-                            . pretty_path($path) . "'\n"
-                            . "   to '"
-                            . pretty_path($fixed_path)
-                            . "'" );
+                        sprintf " from '%s'\n   to '%s'",
+                        pretty_path($path), pretty_path($fixed_path) );
                     my $move = $all;
                     unless ($move) {
                         while (1) {

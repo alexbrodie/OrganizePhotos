@@ -13,7 +13,7 @@ our @EXPORT = qw(
 
 # Local uses
 use MetaData qw(read_metadata);
-use View;
+use View     qw(colored_faint);
 
 # Library uses
 use List::Util qw(any max);

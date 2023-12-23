@@ -14,8 +14,8 @@ severity = 2
 
 [Subroutines::ProhibitCallsToUndeclaredSubs]
 # Maybe enable later
-severity = 1
-exempt_subs = Test::More::can_ok Test::More::is Test::More::isnt Test::More::like Test::More::use_ok
+severity = 5
+exempt_subs = Test::More::can_ok Test::More::is Test::More::isnt Test::More::like Test::More::use_ok Readonly Readonly::Scalar
 
 [Modules::ProhibitAutomaticExportation]
 # Maybe enable later

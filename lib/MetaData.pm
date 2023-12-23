@@ -15,8 +15,8 @@ our @EXPORT = qw(
 );
 
 # Local uses
-use PathOp;
-use View;
+use PathOp qw(combine_dir combine_path split_dir split_path);
+use View   qw(pretty_path print_crud trace);
 
 # Library uses
 use DateTime::Format::HTTP ();
@@ -61,8 +61,9 @@ sub get_date_taken {
         }
     };
     if ( my $error = $@ ) {
-        warn
-            "Unavailable date taken for '@{[pretty_path($path)]}' with error:\n\t$error\n";
+        warn "Unavailable date taken for '"
+            . pretty_path($path)
+            . "' with error:\n\t$error\n";
     }
     return $date_taken;
 }
@@ -110,11 +111,12 @@ sub extract_info {
         # We do ISO 8601 dates by default
         $et->Options( DateFormat => '%FT%T%z' );
     }
-    trace( $VERBOSITY_MAX, "Image::ExifTool::ExtractInfo('$path');" );
+    trace( $View::VERBOSITY_MAX, "Image::ExifTool::ExtractInfo('$path');" );
     $et->ExtractInfo( $path, @exiftool_args )
         or die "Couldn't ExtractInfo for '$path': " . $et->GetValue('Error');
-    print_crud( $VERBOSITY_MEDIUM, $CRUD_READ,
-        "Extract metadata of '@{[pretty_path($path)]}'" );
+    print_crud( $View::VERBOSITY_MEDIUM, $View::CRUD_READ,
+        "Extract metadata of '",
+        pretty_path($path), "'" );
     return $et;
 }
 
