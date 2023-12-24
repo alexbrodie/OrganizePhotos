@@ -1,11 +1,13 @@
-#!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 5;
+use Test::More tests => 7;
 
 use_ok('FileOp');
-use_ok('Orph::Depot::DataFile');
 use_ok('Orph::Depot::Record');
+use_ok('Test::Pod::Coverage 1.04');
+
+use_ok('Orph::Depot::DataFile');
+pod_coverage_ok('Orph::Depot::DataFile');
 
 can_ok( 'Orph::Depot::DataFile', 'new' );
 {

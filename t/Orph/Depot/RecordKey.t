@@ -1,9 +1,12 @@
-#!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 5;
+use Test::More tests => 7;
+
+use_ok('Test::Pod::Coverage 1.04');
 
 use_ok('Orph::Depot::RecordKey');
+pod_coverage_ok('Orph::Depot::RecordKey');
+
 can_ok( 'Orph::Depot::RecordKey', 'new' );
 {
     my $key = Orph::Depot::RecordKey->new('/Path/To/Some/Image.JPG');

@@ -1,5 +1,25 @@
 package Orph::Depot::DataFile;
 
+=head1 NAME
+
+Orph::Depot::DataFile - handles serialization of a depot's data file
+
+=head1 SYNOPSYS
+
+TODO - sample happy path code here
+
+=head1 DESCRIPTION
+
+The DataFile manages saving and loading a record set to and from a file.
+
+=head1 VERSION
+
+Version 1.0
+
+=cut
+
+our $VERSION = '1.0';
+
 use strict;
 use warnings;
 use warnings FATAL => qw(uninitialized);
@@ -16,7 +36,14 @@ use JSON qw(decode_json);
 
 Readonly our $DEPOT_FILENAME => '.orphdat';
 
-# Primary constructor
+=head1 METHODS
+
+=item new
+
+Primary constructor
+
+=cut
+
 sub new {
     my ( $class, $path ) = @_;
 
@@ -28,12 +55,23 @@ sub new {
     return $self;
 }
 
+=item DESTROY
+
+The destructor automatically closes the file
+
+=cut
+
 sub DESTROY {
     my ($self) = @_;
     $self->end_access();
 }
 
-# Accessor for path
+=item path
+
+Accessor for path
+
+=cut
+
 sub path {
     my ($self) = @_;
     return $self->{path};
@@ -46,8 +84,13 @@ sub _handle {
     return $value;
 }
 
-# Opens the file in the specified access mode (see open for options)
-# Todo - make this private so only the supported open modes are exposed
+=item access
+
+Opens the file in the specified access mode (see open for options)
+
+=cut
+
+# Todo - make this private so only the supported open modes are exposed?
 sub access {
     my ( $self, $open_mode ) = @_;
 
@@ -59,7 +102,12 @@ sub access {
     return $self;
 }
 
-# Opens the file in RW mode, creating it if it doesn't exist
+=item access_rw
+
+Opens the file in read/write mode, creating it if it doesn't already exist.
+
+=cut
+
 sub access_rw {
     my ($self) = @_;
 
@@ -78,7 +126,14 @@ sub access_rw {
     return $self;
 }
 
-# Closes the file opened with an access routine
+=item end_access
+
+Closes the file opened with an access routine. This will happen automatically
+when the object is destructed, but this manual control may be necessary to 
+release the lock before doing something else with the file.
+
+=cut
+
 sub end_access {
     my ($self) = @_;
 
@@ -91,9 +146,15 @@ sub end_access {
     return $self;
 }
 
-# Reads a record set.
-#
-# Assumes this file was already opened using access_rw or access of < or +< modes.
+=item read_records
+
+Reads the file and returns a parsed record set.
+
+Assumes this file was already opened using access_rw or access
+of < or +< modes.
+
+=cut
+
 sub read_records {
     my ($self) = @_;
 
@@ -118,9 +179,16 @@ sub read_records {
     return $record_set;
 }
 
-# Writes a record set.
-#
-# Assumes this file was already opened using access_rw or access of > or +< modes.
+=item write_records
+
+Writes a record set out to the file such that it can be read back 
+later with read_records.
+
+Assumes this file was already opened using access_rw or access 
+of > or +< modes.
+
+=cut
+
 sub write_records {
     my ( $self, $record_set ) = @_;
 
@@ -145,7 +213,12 @@ sub write_records {
         pretty_path($p), "'\n" );
 }
 
-# Deletes the file
+=item erase
+
+Deletes the file
+
+=cut
+
 sub erase {
     my ($self) = @_;
 
@@ -158,17 +231,24 @@ sub erase {
         pretty_path($p), "'\n" );
 }
 
+# Internal Record factory method
 sub _create_record {
     my ( $self, $json ) = @_;
     return Orph::Depot::Record->new($json);
 }
 
-# Verify filename of provided path is $hNAME
+# Verify filename of provided path is $DEPOT_FILENAME
 sub _verify_path {
     my ($path) = @_;
     my ( undef, undef, $filename ) = split_path($path);
     $filename eq $DEPOT_FILENAME
         or croak "Expected cache filename '$DEPOT_FILENAME' for '$path'";
 }
+
+=head1 AUTHOR
+
+Alex Brodie, 2023
+
+=cut
 
 1;
