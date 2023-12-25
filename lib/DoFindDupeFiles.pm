@@ -224,9 +224,9 @@ sub buildFindDupeFilesDupeGroups {
             \&default_is_dir_wanted,     # isDirWanted
             \&default_is_file_wanted,    # isFileWanted
             sub {                        # callback
-                my ( $fullPath, $md5Info ) = @_;
-                push @{ $keyToFullPathList{ $md5Info->{md5} } },
-                    { fullPath => $fullPath, cachedMd5Info => $md5Info };
+                my ( $path, $record ) = @_;
+                push @{ $keyToFullPathList{ $record->content_hash } },
+                    { fullPath => $path, cachedMd5Info => $record };
             },
             @globPatterns
         );

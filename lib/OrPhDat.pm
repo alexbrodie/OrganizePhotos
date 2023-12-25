@@ -257,24 +257,18 @@ sub find_orphdat {
         sub {    # callback
             my ( $path, $root ) = @_;
             if ( -f $path ) {
-                my ( undef, $orphdat_set ) = read_depot_file( '<', $path );
-                for my $orphdat_key (
-                    sort {
-                        $orphdat_set->{$a}->{filename}
-                            cmp $orphdat_set->{$b}->{filename}
-                    } keys %$orphdat_set
-                    )
-                {
-                    my $orphdat        = $orphdat_set->{$orphdat_key};
-                    my $other_filename = $orphdat->{filename};
+                my ( undef, $record_set ) = read_depot_file( '<', $path );
+                my @sorted_keys = sort {
+                    $record_set->{$a}->filename cmp $record_set->{$b}->filename
+                } keys %$record_set;
+                for my $key (@sorted_keys) {
+                    my $record         = $record_set->{$key};
+                    my $other_filename = $record->filename;
                     my $other_path = change_filename( $path, $other_filename );
-                    if (
-                        $is_file_wanted->(
-                            $other_path, $root, $other_filename
-                        )
-                        )
-                    {
-                        $callback->( $other_path, $orphdat );
+                    my $wanted     = $is_file_wanted->( $other_path, $root,
+                        $other_filename );
+                    if ($wanted) {
+                        $callback->( $other_path, $record );
                     }
                 }
             }
@@ -604,11 +598,13 @@ sub make_orphdat_base {
     my ($path) = @_;
     my $stats = File::stat::stat($path) or die "Couldn't stat '$path': $!";
     my ( undef, undef, $filename ) = split_path($path);
-    return {
-        filename => $filename,
-        size     => $stats->size,
-        mtime    => $stats->mtime
-    };
+    return Orph::Depot::Record->new(
+        {
+            filename => $filename,
+            size     => $stats->size,
+            mtime    => $stats->mtime
+        }
+    );
 }
 
 # MODEL (MD5) ------------------------------------------------------------------

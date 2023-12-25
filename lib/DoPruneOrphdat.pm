@@ -34,8 +34,8 @@ sub doPurgeMd5 {
             return 1;               # skip all filters for this
         },
         sub {                       #callback
-            my ( $fullPath, $md5Info ) = @_;
-            trash_orphdat($fullPath) unless -e $fullPath;
+            my ( $path, $record ) = @_;
+            trash_orphdat($path) unless -e $path;
         },
         @globPatterns
     );

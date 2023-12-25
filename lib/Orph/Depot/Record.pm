@@ -89,8 +89,8 @@ to generate content_hash.
 
 sub hash_version {
     my $self = shift;
-    exists $self->{hash_version} or croak "uninitialized Record";
-    return $self->{hash_version};
+    exists $self->{version} or croak "uninitialized Record";
+    return $self->{version};
 }
 
 =item content_hash
@@ -103,8 +103,8 @@ volatile metadata.
 
 sub content_hash {
     my $self = shift;
-    exists $self->{content_hash} or croak "uninitialized Record";
-    return $self->{content_hash};
+    exists $self->{md5} or croak "uninitialized Record";
+    return $self->{md5};
 }
 
 =item full_hash
@@ -115,8 +115,8 @@ Returns a string representation of a hash of the whole file
 
 sub full_hash {
     my $self = shift;
-    exists $self->{full_hash} or croak "uninitialized Record";
-    return $self->{full_hash};
+    exists $self->{full_md5} or croak "uninitialized Record";
+    return $self->{full_md5};
 }
 
 =item TO_JSON
