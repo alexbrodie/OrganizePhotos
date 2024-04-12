@@ -403,7 +403,7 @@ sub generateFindDupeFilesAutoAction {
         }
     );
     if ( @remainingIdx > 1
-        && all { $_ == $MATCH_FULL }
+        && all { $_ == $MATCH_FULL || $_ == $MATCH_CONTENT }
         @{ $group->[ $remainingIdx[0] ]->{matches} }[@remainingIdx] )
     {
         # We have several things left that are all exact matches with no sidecars
@@ -442,7 +442,6 @@ sub generateFindDupeFilesAutoAction {
             }
         );
 
-        # Discard -2, -3 versions of files
         filterIndicies(
             $group,
             \@remainingIdx,
@@ -450,7 +449,11 @@ sub generateFindDupeFilesAutoAction {
                 # Don't auto trash things with sidecars
                 return 1 if @{ $_->{sidecars} };
                 for ( $_->{fullPath} ) {
+
+                    # Discard -2, -3 versions of files
                     return 0 if /[-\s]\d+\.\w+$/;
+
+                    # Discard (2), (3) versions of files
                     return 0 if /\s\(\d+\)\.\w+$/;
                 }
                 return 1;
