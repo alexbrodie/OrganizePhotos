@@ -167,6 +167,12 @@ EOM
                 );
             }
         }
+        elsif ( $path =~ /\.(?:tif|tiff)$/ ) {
+
+            # Don't have content hashing for TIFF yet, so auto overwrite
+            trace( $VERBOSITY_MEDIUM,
+                "Auto updating MD5 for modified '$path'" );
+        }
         else {
             # Mismatch and we can update MD5, needs resolving...
             # TODO: This doesn't belong here in the model, it should be moved
